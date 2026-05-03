@@ -76,10 +76,21 @@
   background: var(--ace-focus);
 }
 /* Sidebar itself is styled by coding.css (.ace-sidebar). We just mark the
-   currently-viewed code row and hide elements that aren't meaningful here. */
+   currently-viewed code row and hide elements that aren't meaningful here.
+   The "current" row mirrors the coding-page focused-row inversion so the
+   notion of "the selected code" reads identically across both views.
+   Chips are hidden on this page (rule below), so no chip overrides needed. */
 #code-sidebar .ace-code-row.ace-code-row--current {
-  background: var(--ace-bg-muted);
+  background: #1a1d27;
+  color: #fff;
+  box-shadow: none;
+}
+#code-sidebar .ace-code-row.ace-code-row--current .ace-code-name {
   font-weight: 600;
+  color: #fff;
+}
+#code-sidebar .ace-code-row.ace-code-row--current .ace-code-count {
+  color: rgba(255, 255, 255, 0.7);
 }
 /* Keycap badges show the apply-code letter — not meaningful on this page */
 #code-sidebar .ace-code-chip { display: none; }
