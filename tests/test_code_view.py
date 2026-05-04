@@ -188,3 +188,38 @@ def test_code_view_has_cheatsheet_dialog(client_with_annotations):
     assert "Move between columns" in dialog
     assert "Move cursor" in dialog
     assert "pin / unpin" in dialog.lower()
+
+
+class TestViewDataJsonEndpoint:
+    def test_happy_path_returns_view_data_dict(self, client_with_annotations):
+        client, _, code_id, _ = client_with_annotations
+        resp = client.get(f"/api/code/{code_id}/view-data")
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith("application/json")
+        data = resp.json()
+        assert data["code"]["name"] == "Theme A"
+        assert data["stats"]["excerpts"] == 3
+        assert data["stats"]["sources_with_hits"] == 2
+        assert data["stats"]["total_sources"] == 2
+        assert len(data["sources"]) == 2
+
+    def test_unknown_code_returns_404(self, client_with_annotations):
+        client, *_ = client_with_annotations
+        resp = client.get("/api/code/does-not-exist/view-data")
+        assert resp.status_code == 404
+
+    def test_no_coder_returns_400(self, tmp_path):
+        app = create_app()
+        db_path = tmp_path / "noc.ace"
+        create_project(str(db_path), "P").close()
+        with TestClient(app, raise_server_exceptions=False) as client:
+            app.state.project_path = str(db_path)
+            # deliberately no coder_id set
+            resp = client.get("/api/code/anything/view-data")
+            assert resp.status_code == 400
+
+    def test_no_project_redirects(self, tmp_path):
+        app = create_app()
+        with TestClient(app, raise_server_exceptions=False) as client:
+            resp = client.get("/api/code/anything/view-data", follow_redirects=False)
+            assert resp.status_code == 302

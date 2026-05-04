@@ -40,8 +40,9 @@
   {% for row in tree_codes %}
     {% if row.kind == 'folder' %}
       {% if ns.in_folder is not none %}
-        </div>
+        </div></div>
       {% endif %}
+      <div class="ace-folder-block" data-folder-id="{{ row.id }}">
       <div role="treeitem" aria-expanded="true" aria-level="1"
            class="ace-code-folder-row" data-folder-id="{{ row.id }}"
            aria-keyshortcuts="F2 Delete"
@@ -77,7 +78,7 @@
       {# Root-level code — close any open folder first, then emit the
          "Ungrouped" divider once before the first root code. #}
       {% if ns.in_folder is not none %}
-        </div>
+        </div></div>
         {% set ns.in_folder = none %}
       {% endif %}
       {% if not ns.root_divider_emitted %}
@@ -105,7 +106,7 @@
     {% endif %}
   {% endfor %}
   {% if ns.in_folder is not none %}
-    </div>
+    </div></div>
   {% endif %}
 
   {% if not tree_codes %}

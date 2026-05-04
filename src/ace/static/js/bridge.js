@@ -1317,10 +1317,10 @@
       }
     }
 
-    // Click on code chip to flash highlights in current source
-    const chip = e.target.closest(".ace-code-chip");
-    if (chip) {
-      const codeId = chip.dataset.codeId;
+    // Click an applied-code row to flash every matching annotation in source.
+    const appliedCodeRow = e.target.closest(".ace-applied-code-row");
+    if (appliedCodeRow) {
+      const codeId = appliedCodeRow.dataset.codeId;
       const dataEl = document.getElementById("ace-ann-data");
       if (!dataEl) return;
       const matching = JSON.parse(dataEl.dataset.annotations || "[]")
@@ -1328,6 +1328,30 @@
       _renderFlashRects(matching);
       return;
     }
+  });
+
+  document.addEventListener("mouseover", function (e) {
+    const row = e.target.closest(".ace-applied-code-row");
+    if (!row || row.contains(e.relatedTarget)) return;
+    _setAppliedCodePreview(row.dataset.codeId);
+  });
+
+  document.addEventListener("mouseout", function (e) {
+    const row = e.target.closest(".ace-applied-code-row");
+    if (!row || row.contains(e.relatedTarget)) return;
+    _clearAppliedCodePreview();
+  });
+
+  document.addEventListener("focusin", function (e) {
+    const row = e.target.closest(".ace-applied-code-row");
+    if (!row) return;
+    _setAppliedCodePreview(row.dataset.codeId);
+  });
+
+  document.addEventListener("focusout", function (e) {
+    const row = e.target.closest(".ace-applied-code-row");
+    if (!row || row.contains(e.relatedTarget)) return;
+    _clearAppliedCodePreview();
   });
 
   // Flash a single annotation by ID — used by the server-emitted
@@ -1376,6 +1400,57 @@
     const tree = document.getElementById("code-tree");
     _sidebarFocusState.scrollTop = tree ? tree.scrollTop : 0;
   });
+
+  // Track whether the sidebar element survived the most recent swap.
+  // Annotation-only routes (apply, delete-annotation, navigate, flag,
+  // apply-sentence, delete-sentence) deliberately omit the sidebar OOB so
+  // the aside doesn't get torn down on every code application; codebook
+  // mutation routes still emit it. Element identity is the cheapest
+  // detection — a fresh outerHTML swap creates a new node.
+  let _lastSidebarEl =
+    typeof document !== "undefined"
+      ? document.getElementById("code-sidebar")
+      : null;
+
+  // Patch per-row code-count chips from #ace-ann-data so the sidebar's
+  // visible state matches the swapped-in annotation list without needing
+  // the server to re-render the aside. Short-circuits when the raw
+  // annotations payload is byte-for-byte identical to the last call.
+  let _lastAnnDataPayload = "";
+  function _syncCodeCounts() {
+    const dataEl = document.getElementById("ace-ann-data");
+    if (!dataEl) return;
+    const payload = dataEl.dataset.annotations || "[]";
+    if (payload === _lastAnnDataPayload) return;
+    _lastAnnDataPayload = payload;
+    let annotations;
+    try {
+      annotations = JSON.parse(payload);
+    } catch (_) {
+      return;
+    }
+    const counts = new Map();
+    for (const a of annotations) {
+      counts.set(a.code_id, (counts.get(a.code_id) || 0) + 1);
+    }
+    document
+      .querySelectorAll("#code-tree .ace-code-row[data-code-id]")
+      .forEach(function (row) {
+        const cnt = row.querySelector(".ace-code-count");
+        if (!cnt) return;
+        const n = counts.get(row.dataset.codeId) || 0;
+        if (n > 0) {
+          cnt.textContent = String(n);
+          cnt.title =
+            n + " annotation" + (n !== 1 ? "s" : "") + " in this source";
+          cnt.removeAttribute("aria-hidden");
+        } else {
+          cnt.textContent = "";
+          cnt.setAttribute("aria-hidden", "true");
+          cnt.removeAttribute("title");
+        }
+      });
+  }
 
   // Re-bind sidebar event wiring after an HTMX swap replaces sidebar DOM.
   // opts: { sortable: bool, gridResize: bool } — both default false.
@@ -1431,16 +1506,15 @@
       _restoreFocus();
       _paintSvg();
 
-      // Full OOB responses (apply, delete, flag, navigate, undo, redo) also
-      // replace the sidebar — restore sidebar state here since afterSettle
-      // only fires for the primary target, not OOB targets. `sortable: true`
-      // is critical: without it Sortable instances remain bound to DOM nodes
-      // that were just replaced, breaking drag-to-reorder until the next
-      // sidebar-primary swap.
-      if (document.getElementById("code-tree")) {
+      // Annotation-only responses leave the sidebar's DOM intact — patch
+      // the per-row counts in place. Codebook-mutation responses replace
+      // the aside via OOB, so element identity changes and we need the
+      // full re-bind (Sortable, collapse state, keycaps, ghost class);
+      // the new sidebar already carries fresh server-rendered counts.
+      const sidebarEl = document.getElementById("code-sidebar");
+      if (sidebarEl && sidebarEl !== _lastSidebarEl) {
+        _lastSidebarEl = sidebarEl;
         _syncSidebarAfterSwap({ sortable: true, gridResize: true });
-        // Re-apply ghost class if a cut is staged and the row still exists.
-        // If the row vanished (deleted by another action), clear the cut state.
         if (_cutCode) {
           const r = document.querySelector(`.ace-code-row[data-code-id="${_cutCode}"]`);
           if (r) {
@@ -1450,6 +1524,8 @@
             window._setStatus("Cut cleared (code removed)", "ok");
           }
         }
+      } else {
+        _syncCodeCounts();
       }
       _rerenderSourceGridIfPresent();
 
@@ -1466,6 +1542,7 @@
     }
 
     if (target.id === "code-sidebar" || target.id === "coding-workspace") {
+      _lastSidebarEl = document.getElementById("code-sidebar");
       _syncSidebarAfterSwap({ sortable: true, gridResize: true });
       // Re-apply ghost class if a cut is staged and the row still exists.
       // If the row vanished (deleted by another action), clear the cut state.
@@ -1739,85 +1816,6 @@
   // will be re-introduced in Task 9 against PUT /api/codes/{id} (folders share
   // the same `name` column as codes; `kind='folder'` is preserved).
 
-  function _beginChordEdit(codeId) {
-    const row = document.querySelector(`.ace-code-row[data-code-id="${codeId}"]`);
-    if (!row) return;
-    const cap = row.querySelector(".ace-code-chip--chord");
-    if (!cap) return;
-
-    const original = row.dataset.chord;
-
-    // Chip is plain text + CSS ::before for the leading ;, so we can drive it
-    // with textContent directly while editing.
-    cap.contentEditable = "true";
-    cap.classList.add("ace-code-chip--editing");
-    cap.textContent = original;
-
-    const range = document.createRange();
-    range.selectNodeContents(cap);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    cap.focus();
-
-    let done = false;
-
-    function finish(save) {
-      if (done) return;
-      done = true;
-      cap.contentEditable = "false";
-      cap.classList.remove("ace-code-chip--editing");
-      const newChord = cap.textContent.trim().toLowerCase();
-      // Always restore the original chord. On success the OOB sidebar swap will
-      // render the new chord from server state; on error (409 conflict, etc.)
-      // the UI correctly reflects what's actually persisted.
-      cap.textContent = original;
-
-      if (!save) {
-        _focusTreeItem(row);
-        return;
-      }
-      if (!/^[a-z]{2}$/.test(newChord)) {
-        window._setStatus('"' + newChord + '" must be 2 lowercase letters', "err");
-        _focusTreeItem(row);
-        return;
-      }
-      if (newChord === original) {
-        _focusTreeItem(row);
-        return;
-      }
-
-      htmx.ajax("PATCH", `/api/codes/${codeId}/chord`, {
-        target: "#code-sidebar",
-        swap: "outerHTML",
-        values: { chord: newChord, current_index: window.__aceCurrentIndex || 0 }
-      });
-    }
-
-    cap.addEventListener("keydown", function handler(e) {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        cap.removeEventListener("keydown", handler);
-        finish(true);
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        cap.removeEventListener("keydown", handler);
-        finish(false);
-      }
-    });
-
-    cap.addEventListener("blur", function blurHandler() {
-      cap.removeEventListener("blur", blurHandler);
-      setTimeout(function () { finish(true); }, 50);
-    });
-
-    cap.addEventListener("paste", function (e) {
-      e.preventDefault();
-      const text = (e.clipboardData || window.clipboardData).getData("text/plain");
-      document.execCommand("insertText", false, text.replace(/\n/g, " "));
-    });
-  }
-
   document.addEventListener("dblclick", function (e) {
     const nameEl = e.target.closest(".ace-code-name");
     if (!nameEl) return;
@@ -1879,70 +1877,93 @@
     });
     _sortableInstances = [];
 
-    // Wire every container that can hold code rows: each folder's children
-    // group (`<div role="group" data-folder-children="…">`) plus the root
-    // tree itself (`#code-tree`, no `data-folder-children` attribute → empty
-    // string scope below). Folder rows inside #code-tree are filtered out so
-    // they can't be dragged via this Sortable — folder reordering is a
-    // separate gesture (not in scope here).
-    const containers = document.querySelectorAll(
-      '#code-tree [role="group"], #code-tree'
-    );
-    containers.forEach(function (container) {
-      const instance = new Sortable(container, {
+    // Two kinds of Sortable containers, with different rules:
+    //   • Root (#code-tree) accepts root code rows AND folder blocks
+    //     (the wrapper `<div class="ace-folder-block">` carries the folder
+    //     header + its children group as a single draggable unit).
+    //   • Each `[role="group"]` inside a folder block accepts only code
+    //     rows — folders are root-only by schema, so dropping a folder
+    //     block into another folder's group is rejected via group.put.
+    const root = document.getElementById("code-tree");
+    if (!root) return;
+
+    function commonOpts() {
+      return {
         group: "codes",
-        handle: ".ace-code-row",
         animation: 150,
         delay: 200,
         delayOnTouchOnly: true,
-        draggable: ".ace-code-row",
-        filter: ".ace-code-folder-row",
         ghostClass: "ace-code-row--ghost",
         onStart: function () { _isDragging = true; },
+      };
+    }
+
+    function handleCodeRowEnd(evt) {
+      const codeId = evt.item.getAttribute("data-code-id");
+      if (!codeId) return;
+      const newContainer = evt.to;
+      const newParentId = newContainer.getAttribute("data-folder-children") || "";
+      const oldContainer = evt.from;
+      const oldParentId = oldContainer.getAttribute("data-folder-children") || "";
+
+      if (newParentId === oldParentId) {
+        const ids = Array.from(newContainer.children)
+          .filter(function (el) { return el.classList && el.classList.contains("ace-code-row"); })
+          .map(function (el) { return el.getAttribute("data-code-id"); })
+          .filter(Boolean);
+        htmx.ajax("POST", "/api/codes/reorder-in-scope", {
+          target: "#text-panel",
+          swap: "outerHTML",
+          values: {
+            code_ids: JSON.stringify(ids),
+            parent_id: newParentId,
+            current_index: window.__aceCurrentIndex,
+          },
+        });
+      } else {
+        htmx.ajax("PUT", "/api/codes/" + codeId + "/parent", {
+          target: "#text-panel",
+          swap: "outerHTML",
+          values: {
+            parent_id: newParentId,
+            current_index: window.__aceCurrentIndex,
+          },
+        });
+      }
+    }
+
+    const rootInstance = new Sortable(root, Object.assign(commonOpts(), {
+      handle: ".ace-code-row, .ace-code-folder-row",
+      draggable: ".ace-code-row, .ace-folder-block",
+      onEnd: function (evt) {
+        _isDragging = false;
+        if (evt.item.classList.contains("ace-folder-block")) {
+          // Whole-folder reorder — DOM order is now correct, persist it.
+          _persistTreeOrder();
+          return;
+        }
+        handleCodeRowEnd(evt);
+      },
+    }));
+    _sortableInstances.push(rootInstance);
+
+    document.querySelectorAll('#code-tree [role="group"]').forEach(function (container) {
+      const instance = new Sortable(container, Object.assign(commonOpts(), {
+        // Reject folder blocks from being dropped inside a folder group —
+        // folders are root-only.
+        group: {
+          name: "codes",
+          put: function (_to, _from, dragEl) {
+            return !dragEl.classList.contains("ace-folder-block");
+          },
+        },
+        handle: ".ace-code-row",
+        draggable: ".ace-code-row",
         onEnd: function (evt) {
           _isDragging = false;
-          const codeId = evt.item.getAttribute("data-code-id");
-          if (!codeId) return;
-
-          const newContainer = evt.to;
-          const newParentId = newContainer.getAttribute("data-folder-children") || "";
-          const oldContainer = evt.from;
-          const oldParentId = oldContainer.getAttribute("data-folder-children") || "";
-
-          if (newParentId === oldParentId) {
-            // Same-scope reorder. The new endpoint returns the unified
-            // text-panel + OOB sidebar shape so count chips stay consistent.
-            // Direct children only — when the container is `#code-tree` (root
-            // scope), descendants include folder children whose ids don't
-            // belong to the root scope. The server filters defensively, but
-            // sending only direct children keeps positions correct.
-            const ids = Array.from(newContainer.children)
-              .filter(function (el) { return el.classList && el.classList.contains("ace-code-row"); })
-              .map(function (el) { return el.getAttribute("data-code-id"); })
-              .filter(Boolean);
-            htmx.ajax("POST", "/api/codes/reorder-in-scope", {
-              target: "#text-panel",
-              swap: "outerHTML",
-              values: {
-                code_ids: JSON.stringify(ids),
-                parent_id: newParentId,
-                current_index: window.__aceCurrentIndex,
-              },
-            });
-          } else {
-            // Cross-scope move — defer ordering to /parent which renumbers
-            // siblings in the destination scope. Same response shape.
-            htmx.ajax("PUT", "/api/codes/" + codeId + "/parent", {
-              target: "#text-panel",
-              swap: "outerHTML",
-              values: {
-                parent_id: newParentId,
-                current_index: window.__aceCurrentIndex,
-              },
-            });
-          }
+          handleCodeRowEnd(evt);
         },
-      });
+      }));
       _sortableInstances.push(instance);
     });
   }
@@ -2147,14 +2168,11 @@
     items.push({
       label: "View coded text",
       shortcut: "V",
-      handler: function () { window.location.href = `/code/${codeId}/view`; },
+      handler: function () {
+        try { sessionStorage.setItem("cv-restore-codebook-focus", "1"); } catch (_) {}
+        window.location.href = `/code/${codeId}/view`;
+      },
     });
-    if (row.dataset && row.dataset.chord) {
-      items.push({
-        label: "Set chord\u2026",
-        handler: function () { _beginChordEdit(codeId); },
-      });
-    }
     items.push({
       label: "Delete",
       shortcut: "\u232b",
@@ -2532,10 +2550,35 @@
       values: { name: val, current_index: window.__aceCurrentIndex },
       target: "#code-sidebar",
       swap: "outerHTML",
-    });
+    }).then(function () { _scrollNewRowIntoView(val, false); });
     input.value = "";
     _exitSlashMode();
     _announce(`Code '${val}' created`);
+  }
+
+  /** Find a code or folder row by its label text. opts.isFolder picks the
+   *  selector; opts.caseInsensitive folds case for NOCASE dedupe. */
+  function _findRowByName(name, opts) {
+    opts = opts || {};
+    const ci = !!opts.caseInsensitive;
+    const target = ci ? name.trim().toLowerCase() : name.trim();
+    const rowSel = opts.isFolder ? ".ace-code-folder-row" : ".ace-code-row";
+    const labelSel = opts.isFolder ? ".ace-folder-label" : ".ace-code-name";
+    for (const r of document.querySelectorAll(rowSel)) {
+      const label = r.querySelector(labelSel);
+      if (!label) continue;
+      const text = label.textContent.trim();
+      if ((ci ? text.toLowerCase() : text) === target) return r;
+    }
+    return null;
+  }
+
+  /** Scroll a freshly-created codebook row into view if it isn't already.
+   *  `block: "nearest"` is a no-op when the row is already on screen, so
+   *  short codebooks don't get jolted around. */
+  function _scrollNewRowIntoView(name, isFolder) {
+    const row = _findRowByName(name, { isFolder });
+    if (row) row.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
   // ============================================================
@@ -2559,7 +2602,7 @@
           values: { name: arg, current_index: window.__aceCurrentIndex },
           target: "#code-sidebar",
           swap: "outerHTML",
-        });
+        }).then(function () { _scrollNewRowIntoView(arg, false); });
         _announce(`Code '${arg}' created`);
       },
     },
@@ -2591,15 +2634,7 @@
   function _createFolderSafe(name, opts) {
     opts = opts || {};
     if (!name) return;
-    const existingFolders = document.querySelectorAll(".ace-code-folder-row");
-    let dupRow = null;
-    for (const f of existingFolders) {
-      const label = f.querySelector(".ace-folder-label");
-      if (label && label.textContent.toLowerCase() === name.toLowerCase()) {
-        dupRow = f;
-        break;
-      }
-    }
+    const dupRow = _findRowByName(name, { isFolder: true, caseInsensitive: true });
     if (dupRow) {
       _clearSearchFilter();
       window._setStatus(`Folder '${name}' already exists — focused`, "ok");
@@ -2617,18 +2652,15 @@
       if (input) input.value = "";
       _clearSearchFilter();
       _announce(`Folder '${name}' created`);
+      _scrollNewRowIntoView(name, true);
       if (opts.focusAndRename) {
         setTimeout(function () {
-          const all = document.querySelectorAll(".ace-code-folder-row");
-          for (const f of all) {
-            const label = f.querySelector(".ace-folder-label");
-            if (label && label.textContent === name) {
-              _focusTreeItem(f);
-              _startInlineRename(f, { isFolder: true });
-              window._setStatus(`Folder ${name} created`, "ok");
-              break;
-            }
+          const f = _findRowByName(name, { isFolder: true });
+          if (f) {
+            _focusTreeItem(f);
+            _startInlineRename(f, { isFolder: true });
           }
+          window._setStatus(`Folder ${name} created`, "ok");
         }, 30);
       } else {
         window._setStatus(`Folder ${name} created`, "ok");
@@ -3079,17 +3111,18 @@
     if (!tree) return;
     const ids = [];
     Array.from(tree.children).forEach(function (node) {
-      // Folder row → push folder id, then walk its [role="group"] children.
-      if (node.classList && node.classList.contains("ace-code-folder-row")) {
+      if (!node.classList) return;
+      // Folder block wraps the folder header + its [role="group"] children.
+      if (node.classList.contains("ace-folder-block")) {
         const fid = node.getAttribute("data-folder-id");
         if (fid) ids.push(fid);
-        return;
-      }
-      if (node.getAttribute && node.getAttribute("role") === "group") {
-        Array.from(node.children).forEach(function (child) {
-          const cid = child.getAttribute && child.getAttribute("data-code-id");
-          if (cid) ids.push(cid);
-        });
+        const group = node.querySelector('[role="group"]');
+        if (group) {
+          Array.from(group.children).forEach(function (child) {
+            const cid = child.getAttribute && child.getAttribute("data-code-id");
+            if (cid) ids.push(cid);
+          });
+        }
         return;
       }
       // Root-level code row.
@@ -3319,6 +3352,80 @@
     }, FLASH_CLEANUP_MS);
   }
 
+  function _clearAppliedCodePreview() {
+    const svg = document.getElementById("ace-hl-overlay");
+    if (svg) {
+      svg.querySelectorAll("rect.ace-code-preview").forEach(function (el) { el.remove(); });
+    }
+    document.querySelectorAll(".ace-applied-code-row.is-code-preview").forEach(function (row) {
+      row.classList.remove("is-code-preview");
+    });
+    document.querySelectorAll(".ace-applied-timeline-marker.is-code-preview").forEach(function (marker) {
+      marker.classList.remove("is-code-preview");
+    });
+  }
+
+  function _renderAppliedCodePreviewRects(annotations) {
+    if (!annotations || !annotations.length) return;
+    const body = document.querySelector(".ace-text-body");
+    const svg = document.getElementById("ace-hl-overlay");
+    if (!body || !svg) return;
+
+    const textIndex = _buildTextIndex(body);
+    if (!textIndex.length) return;
+    const paraBreakRects = _paraBreakRects(body);
+    const overlayRect = svg.getBoundingClientRect();
+
+    for (const ann of annotations) {
+      const startPos = _findDOMPosition(textIndex, ann.start);
+      const endPos = _findDOMPosition(textIndex, ann.end);
+      if (!startPos || !endPos) continue;
+      let range;
+      try {
+        range = new Range();
+        range.setStart(startPos.node, startPos.offset);
+        range.setEnd(endPos.node, endPos.offset);
+      } catch (err) {
+        continue;
+      }
+      for (const line of _mergeRectsByLine(range.getClientRects(), paraBreakRects)) {
+        const x = Math.floor(line.left - overlayRect.left);
+        const y = Math.floor(line.top - overlayRect.top);
+        const right = Math.ceil(line.right - overlayRect.left);
+        const bottom = Math.ceil(line.bottom - overlayRect.top);
+        const el = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+        el.setAttribute("class", "ace-code-preview ace-flash-" + ann.code_id);
+        el.setAttribute("fill", "transparent");
+        el.setAttribute("x", x);
+        el.setAttribute("y", y);
+        el.setAttribute("width", right - x);
+        el.setAttribute("height", bottom - y);
+        svg.appendChild(el);
+      }
+    }
+  }
+
+  function _setAppliedCodePreview(codeId) {
+    _clearAppliedCodePreview();
+    if (!codeId) return;
+    const dataEl = document.getElementById("ace-ann-data");
+    if (!dataEl) return;
+    let matching;
+    try {
+      matching = JSON.parse(dataEl.dataset.annotations || "[]")
+        .filter(function (a) { return a.code_id === codeId; });
+    } catch (err) {
+      return;
+    }
+    document.querySelectorAll('.ace-applied-code-row[data-code-id="' + codeId + '"]').forEach(function (row) {
+      row.classList.add("is-code-preview");
+    });
+    document.querySelectorAll('.ace-applied-timeline-marker[data-code-id="' + codeId + '"]').forEach(function (marker) {
+      marker.classList.add("is-code-preview");
+    });
+    _renderAppliedCodePreviewRects(matching);
+  }
+
   /**
    * Attach the (lazy) ResizeObserver to the current .ace-text-body element.
    * After OOB swaps replace #text-panel, this is called with the new body;
@@ -3374,6 +3481,7 @@
 
     // Clear existing highlight rects (preserve any in-flight flash rects)
     svg.querySelectorAll('rect[data-ace-hl="1"]').forEach(function (el) { el.remove(); });
+    svg.querySelectorAll("rect.ace-code-preview").forEach(function (el) { el.remove(); });
 
     const dataEl = document.getElementById("ace-ann-data");
     if (!dataEl) return;
@@ -3462,9 +3570,9 @@
     if (Number.isFinite(idx) && Number.isFinite(total) && total > 0) {
       parts.push("Source " + (idx + 1) + " / " + total);
     }
-    const codeChips = document.querySelectorAll(".ace-code-bar .ace-code-chip");
-    if (codeChips.length) {
-      parts.push(codeChips.length + (codeChips.length === 1 ? " code" : " codes"));
+    const appliedRows = document.querySelectorAll(".ace-applied-code-row");
+    if (appliedRows.length) {
+      parts.push(appliedRows.length + (appliedRows.length === 1 ? " code" : " codes"));
     }
     const flagBtn = document.getElementById("nav-flag-btn");
     if (flagBtn && flagBtn.classList.contains("ace-flag-btn--active")) {
@@ -3813,41 +3921,30 @@
     return item && item.classList.contains("ace-code-folder-row");
   }
 
-  /** Move a folder (folder row + its children container) up or down by one
-   *  position relative to its sibling folders. */
+  /** Move a folder block (the wrapper carrying header + children group) up
+   *  or down by one position relative to its sibling folder blocks. */
   function _moveFolderInDirection(folderRow, direction) {
-    const childrenDiv = folderRow.nextElementSibling;
-    if (!childrenDiv || childrenDiv.getAttribute("role") !== "group") return;
+    const block = folderRow.closest(".ace-folder-block");
     const tree = document.getElementById("code-tree");
-    if (!tree) return;
+    if (!block || !tree) return;
 
-    if (direction === -1) {
-      // Move up: find the previous folder row (sibling pair: row, role=group).
-      const prevSibling = folderRow.previousElementSibling;
-      if (!prevSibling) return;
-      let prevFolder;
-      if (prevSibling.getAttribute("role") === "group") {
-        prevFolder = prevSibling.previousElementSibling;
-      } else if (_isFolderRow(prevSibling)) {
-        prevFolder = prevSibling;
-      } else {
-        return;
-      }
-      if (!prevFolder || !_isFolderRow(prevFolder)) return;
-      tree.insertBefore(folderRow, prevFolder);
-      tree.insertBefore(childrenDiv, prevFolder);
-    } else {
-      // Move down: find the next folder row + its children container.
-      const nextFolder = childrenDiv.nextElementSibling;
-      if (!nextFolder || !_isFolderRow(nextFolder)) return;
-      const nextChildrenDiv = nextFolder.nextElementSibling;
-      if (!nextChildrenDiv || nextChildrenDiv.getAttribute("role") !== "group") return;
-      const ref = nextChildrenDiv.nextElementSibling; // null → append at end
-      tree.insertBefore(folderRow, ref);
-      tree.insertBefore(childrenDiv, ref);
+    function isFolderBlock(el) {
+      return el && el.classList && el.classList.contains("ace-folder-block");
     }
 
-    // Persist via the tree-aware endpoint — _persistCodeOrder filters
+    if (direction === -1) {
+      let prev = block.previousElementSibling;
+      while (prev && !isFolderBlock(prev)) prev = prev.previousElementSibling;
+      if (!prev) return;
+      tree.insertBefore(block, prev);
+    } else {
+      let next = block.nextElementSibling;
+      while (next && !isFolderBlock(next)) next = next.nextElementSibling;
+      if (!next) return;
+      tree.insertBefore(block, next.nextElementSibling); // null ref → append
+    }
+
+    // Persist via the tree-aware endpoint — /api/codes/reorder filters
     // [data-code-id] only and would silently drop the folder reorder, so
     // the next OOB swap would snap the folder back to its prior slot.
     _persistTreeOrder();
@@ -4222,6 +4319,7 @@
     const codeId = treeItem.getAttribute("data-code-id");
     if (!codeId) return;
     evt.preventDefault();
+    try { sessionStorage.setItem("cv-restore-codebook-focus", "1"); } catch (_) {}
     window.location.href = `/code/${codeId}/view`;
   });
 
@@ -4667,7 +4765,7 @@
       textarea: document.getElementById("note-textarea"),
       status: document.getElementById("note-status"),
       pill: document.getElementById("note-pill"),
-      rail: document.getElementById("note-rail"),
+      appliedPanel: document.getElementById("ace-applied-codes-panel"),
     };
   }
 
@@ -4703,6 +4801,18 @@
     }
   }
 
+  function _syncAppliedPanelForNoteState() {
+    const { appliedPanel } = _noteEls();
+    if (!appliedPanel) return;
+    if (_isDrawerOpen()) {
+      appliedPanel.setAttribute("aria-hidden", "true");
+      appliedPanel.setAttribute("inert", "");
+    } else {
+      appliedPanel.removeAttribute("aria-hidden");
+      appliedPanel.removeAttribute("inert");
+    }
+  }
+
   function _flushAndBlurTextarea() {
     if (_noteSaveTimer) {
       clearTimeout(_noteSaveTimer);
@@ -4725,13 +4835,13 @@
   }
 
   function aceOpenNoteRead() {
-    const { drawer, pill, rail } = _noteEls();
+    const { drawer, pill } = _noteEls();
     if (!drawer) return;
     if (!_previouslyFocused) _previouslyFocused = document.activeElement;
     document.documentElement.dataset.aceNoteOpen = "1";
     drawer.setAttribute("aria-hidden", "false");
     if (pill) pill.setAttribute("aria-expanded", "true");
-    if (rail) rail.setAttribute("aria-expanded", "true");
+    _syncAppliedPanelForNoteState();
     try { localStorage.setItem("ace-note-open", "1"); } catch (_) {}
     // No focus change — READ mode leaves focus where it was so shortcuts stay live.
   }
@@ -4756,13 +4866,13 @@
   window.aceExitEditMode = aceExitEditMode;
 
   function aceCloseNote() {
-    const { drawer, pill, rail } = _noteEls();
+    const { drawer, pill } = _noteEls();
     if (!drawer) return;
     _flushAndBlurTextarea();
     delete document.documentElement.dataset.aceNoteOpen;
     drawer.setAttribute("aria-hidden", "true");
     if (pill) pill.setAttribute("aria-expanded", "false");
-    if (rail) rail.setAttribute("aria-expanded", "false");
+    _syncAppliedPanelForNoteState();
     try { localStorage.removeItem("ace-note-open"); } catch (_) {}
     _restoreDrawerFocus();
     _previouslyFocused = null;
@@ -4831,11 +4941,6 @@
       }
       return;
     }
-    if (e.target.closest("#note-rail")) {
-      e.preventDefault();
-      aceOpenNoteRead();
-      return;
-    }
   });
 
   document.addEventListener("input", function (e) {
@@ -4854,7 +4959,7 @@
   // source grid overlay) so closing those doesn't also close the drawer.
   document.addEventListener("mousedown", function (e) {
     if (!_isDrawerOpen()) return;
-    if (e.target.closest("#note-drawer") || e.target.closest("#note-pill") || e.target.closest("#note-rail")) return;
+    if (e.target.closest("#note-drawer") || e.target.closest("#note-pill")) return;
     aceCloseNote();
   });
 
@@ -4879,6 +4984,7 @@
       if (_noteSaveTimer) { clearTimeout(_noteSaveTimer); _noteSaveTimer = null; }
       _noteInFlight = null;
       _syncHasNoteAttribute();
+      _syncAppliedPanelForNoteState();
     }
   });
 
@@ -4891,16 +4997,26 @@
         window._aceRenderSourceGrid();
       }
     }
+    if (evt.detail.target.id === "ace-applied-codes-panel") {
+      _syncAppliedPanelForNoteState();
+    }
+    if (evt.detail.target.id === "ace-right-inspector") {
+      const { drawer, pill } = _noteEls();
+      const open = _isDrawerOpen();
+      if (drawer) drawer.setAttribute("aria-hidden", open ? "false" : "true");
+      if (pill) pill.setAttribute("aria-expanded", open ? "true" : "false");
+      _syncAppliedPanelForNoteState();
+    }
   });
 
   document.addEventListener("DOMContentLoaded", function () {
     _syncHasNoteAttribute();
     if (_isDrawerOpen()) {
-      const { drawer, pill, rail } = _noteEls();
+      const { drawer, pill } = _noteEls();
       if (drawer) drawer.setAttribute("aria-hidden", "false");
       if (pill) pill.setAttribute("aria-expanded", "true");
-      if (rail) rail.setAttribute("aria-expanded", "true");
     }
+    _syncAppliedPanelForNoteState();
   });
 
   /* ================================================================

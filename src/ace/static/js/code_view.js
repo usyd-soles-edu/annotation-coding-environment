@@ -7,8 +7,8 @@
 (function () {
   const dataEl = document.getElementById("ace-codeview-data");
   if (!dataEl) return;
-  const data = JSON.parse(dataEl.textContent);
-  const sources = data.sources;
+  let data = JSON.parse(dataEl.textContent);
+  let sources = data.sources;
 
   const tracksEl = document.getElementById("cv-tracks");
   const tableEl = document.getElementById("cv-table");
@@ -71,24 +71,37 @@
   // re-renders. null means "no cursor yet" (initial load).
   let excerptsCursorId = null;
 
+  // Remembered cursor per zone — stable identifiers so cursors survive DOM
+  // rerenders (the stored idx/id is resolved back to an element at focus time).
+  // Declared early because renderForData() resets these fields on initial
+  // bootstrap (before the zone helpers later in the IIFE run).
+  const rememberedCursor = {
+    tracks: null,    // integer index into displayOrder, or null
+    excerpts: null,  // annotation id string, or null
+    codebook: null,  // code id string, or null
+  };
+
   // --- Static render: tracks ---
-  tracksEl.innerHTML = sources.map((s, i) => {
-    const ticks = s.excerpts.map((e, ei) => {
-      return `<span class="tick" data-ex="${ei}"
+  function renderTracksFresh() {
+    tracksEl.innerHTML = sources.map((s) => {
+      const ticks = s.excerpts.map((e, ei) => {
+        return `<span class="tick" data-ex="${ei}"
                     style="left:${e.pos_pct.toFixed(2)}%;width:${e.width_pct.toFixed(2)}%"
                     title="excerpt ${ei + 1}"
                     aria-hidden="true"></span>`;
-    }).join("");
-    const pad = String(s.idx).padStart(2, "0");
-    const label = `Source ${s.idx} — ${s.name}, ${s.count} excerpts`;
-    return `<div class="cv-track-row" role="option" aria-selected="false"
+      }).join("");
+      const pad = String(s.idx).padStart(2, "0");
+      const label = `Source ${s.idx} — ${s.name}, ${s.count} excerpts`;
+      return `<div class="cv-track-row" role="option" aria-selected="false"
                  tabindex="-1" data-src-idx="${s.idx}"
                  aria-label="${escapeHtml(label)}">
       <span class="idx" aria-hidden="true">${pad}</span>
       <span class="ct" aria-hidden="true">${s.count}</span>
       <span class="track" aria-hidden="true">${ticks}</span>
     </div>`;
-  }).join("");
+    }).join("");
+  }
+  renderTracksFresh();
 
   // displayOrder drives both tracks order (left column) and table grouping.
   // Rebuilt whenever `sortBy` changes so the two columns read top-to-bottom
@@ -96,6 +109,62 @@
   let displayOrder = computeDisplayOrder();
 
   function bySrcIdx(idx) { return sources.find((s) => s.idx === idx); }
+
+  function renderForData(newData) {
+    data = newData;
+    sources = data.sources;
+
+    // Reset selection / cursor / filter state
+    selectedSources.clear();
+    selectedExcerpt = null;
+    anchorIdx = null;
+    tracksCursorIdx = -1;
+    excerptsCursorId = null;
+    filterText = "";
+    if (searchEl) searchEl.value = "";
+    rememberedCursor.tracks = null;
+    rememberedCursor.excerpts = null;
+    clearTimeout(liveTimer);
+
+    // Reset sort chip — every code switch goes back to source-order sort
+    sortBy = "source";
+    if (toolbarEl) {
+      toolbarEl.querySelectorAll("[data-sort]").forEach((c) =>
+        c.setAttribute("aria-pressed", c.dataset.sort === "source" ? "true" : "false"));
+    }
+
+    // Rebuild tracks DOM and recompute display order
+    renderTracksFresh();
+    displayOrder = computeDisplayOrder();
+    renderTracks();
+    updateUI({ announce: false });
+
+    // Header / title / colour
+    document.title = `${data.code.name} — Coded text — ACE`;
+    const titleEl = document.querySelector(".cv-code-name");
+    if (titleEl) titleEl.textContent = data.code.name;
+    const summaryEl = document.querySelector(".cv-summary");
+    if (summaryEl) {
+      summaryEl.innerHTML =
+        `<b>${data.stats.excerpts}</b> excerpts across `
+        + `<b>${data.stats.sources_with_hits} of ${data.stats.total_sources}</b> sources`;
+    }
+    document.documentElement.style.setProperty("--code-colour", data.code.colour);
+    document.documentElement.style.setProperty("--code-bg", data.code.colour + "22");
+
+    // Sidebar aria-current swap (the focused row tracks via tabindex separately)
+    document.querySelectorAll('#code-sidebar .ace-code-row[aria-current="page"]').forEach((r) => {
+      r.removeAttribute("aria-current");
+      r.classList.remove("ace-code-row--current");
+    });
+    const newCur = document.querySelector(
+      `#code-sidebar .ace-code-row[data-code-id="${data.code.id}"]`,
+    );
+    if (newCur) {
+      newCur.setAttribute("aria-current", "page");
+      newCur.classList.add("ace-code-row--current");
+    }
+  }
 
   // Returns the set of source idx values currently visible in the excerpts
   // column, per the pinned ∪ cursor rule. Does NOT account for selectedExcerpt
@@ -638,11 +707,8 @@
       if (!id) return;
       evt.preventDefault();
       evt.stopImmediatePropagation();
-      if (id === currentId) return;   // already here, no-op
-      // Same flag as auto-nav so the next page load restores codebook focus
-      // and the user can keep arrow-navigating without falling out to tracks.
-      try { sessionStorage.setItem("cv-restore-codebook-focus", "1"); } catch (_) {}
-      window.location.href = `/code/${id}/view`;
+      if (id === data.code.id) return;   // already here, no-op
+      loadCode(id, { pushHistory: true });
     }, true);
 
     // Replace the codebook-edit context menu with a read-only info popover.
@@ -737,7 +803,10 @@
     });
   })();
 
-  updateUI(); // announce initial overview state
+  renderForData(data);
+  if (liveEl) {
+    announce(ctxEl.textContent.replace(/\s+/g, " ").trim());
+  }
 
   // Restore codebook focus after an auto-navigate reload so holding ↑/↓
   // continues the codebook scroll seamlessly across page loads.
@@ -789,24 +858,92 @@
     targetRow.scrollIntoView({ block: "nearest" });
   }
 
-  // Debounced auto-navigate when the codebook cursor lands on a different code.
-  // Only invoked from explicit ↑/↓/Home/End presses on a focused code row —
-  // not from zone-shift entry (←/→) or search-input ↓/↑, which are landing
-  // gestures, not "scrolling through codes" gestures.
-  const CODEBOOK_NAV_DEBOUNCE_MS = 150;
-  let codebookNavTimer = null;
+  const navAbort = { ctl: null };
+
+  async function loadCode(codeId, opts) {
+    opts = opts || {};
+    const pushHistory = opts.pushHistory !== false;
+    if (!codeId || codeId === data.code.id) return;
+    if (navAbort.ctl) navAbort.ctl.abort();
+    navAbort.ctl = new AbortController();
+    let json;
+    try {
+      const cached = dataCache.get(codeId);
+      if (cached) {
+        json = await cached;
+        if (json === null) {
+          dataCache.delete(codeId);
+        } else {
+          _cacheTouch(codeId);
+        }
+      }
+      if (!json) {
+        const res = await fetch(`/api/code/${codeId}/view-data`,
+                                { signal: navAbort.ctl.signal });
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        json = await res.json();
+        dataCache.set(codeId, Promise.resolve(json));
+        _cacheEvictIfFull();
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+      // Fallback: full navigate so something still works on fetch failure.
+      window.location.href = `/code/${codeId}/view`;
+      return;
+    }
+    if (typeof document.startViewTransition === "function") {
+      document.startViewTransition(() => renderForData(json));
+    } else {
+      renderForData(json);
+    }
+    if (pushHistory) {
+      history.pushState({ codeId }, "", `/code/${codeId}/view`);
+    } else {
+      history.replaceState({ codeId }, "", `/code/${codeId}/view`);
+    }
+  }
+
+  const dataCache = new Map(); // codeId -> Promise<data | null>
+  const DATA_CACHE_MAX = 8;
+
+  function _cacheTouch(codeId) {
+    // Move to most-recent position by re-inserting. Map preserves insertion order
+    // so the oldest entry is keys().next().value.
+    if (dataCache.has(codeId)) {
+      const v = dataCache.get(codeId);
+      dataCache.delete(codeId);
+      dataCache.set(codeId, v);
+    }
+  }
+
+  function _cacheEvictIfFull() {
+    while (dataCache.size > DATA_CACHE_MAX) {
+      const oldest = dataCache.keys().next().value;
+      dataCache.delete(oldest);
+    }
+  }
+
+  function prefetch(codeId) {
+    if (!codeId || codeId === data.code.id) return;
+    if (dataCache.has(codeId)) { _cacheTouch(codeId); return; }
+    const p = fetch(`/api/code/${codeId}/view-data`)
+      .then((r) => r.ok ? r.json() : null)
+      .catch(() => null)
+      .then((j) => {
+        if (j === null) dataCache.delete(codeId);
+        return j;
+      });
+    dataCache.set(codeId, p);
+    _cacheEvictIfFull();
+  }
+
+  // Thin wrapper: arrow-key navigation uses replaceState so back-button
+  // doesn't stack 50 entries.
   function maybeAutoNavigate(targetRow) {
-    clearTimeout(codebookNavTimer);
     if (!targetRow) return;
     const codeId = targetRow.dataset.codeId;
     if (!codeId || codeId === data.code.id) return;
-    codebookNavTimer = setTimeout(() => {
-      // Set flag so the next page load restores focus to the new current row.
-      // Without this, focus drops to <body> and subsequent ↓ enters tracks
-      // (body+↓ shortcut) instead of continuing the codebook scroll.
-      try { sessionStorage.setItem(CODEBOOK_FOCUS_RESTORE_KEY, "1"); } catch (_) {}
-      window.location.href = `/code/${codeId}/view`;
-    }, CODEBOOK_NAV_DEBOUNCE_MS);
+    loadCode(codeId, { pushHistory: false });
   }
 
   // Document-level `/` → focus codebook search.
@@ -878,7 +1015,6 @@
       const nextIdx = idx + (evt.key === "ArrowRight" ? 1 : -1);
       if (nextIdx < 0 || nextIdx >= ZONES_LR.length) return;
       claim(evt);
-      clearTimeout(codebookNavTimer);
       if (ZONES_LR[nextIdx] === "excerpts") {
         // Full reset on entry: matches Clear-button behaviour plus clearing
         // the search filter. The tracksCursorIdx + tabindex reset is critical
@@ -941,6 +1077,11 @@
   // F2, Delete, Backspace, and Alt+Arrow are explicitly suppressed because
   // bridge.js binds them as code-editing actions.
   if (treeEl) {
+    treeEl.addEventListener("focusin", (evt) => {
+      const row = evt.target.closest && evt.target.closest(".ace-code-row[data-code-id]");
+      if (row) prefetch(row.dataset.codeId);
+    }, true);
+
     treeEl.addEventListener("keydown", (evt) => {
       const target = evt.target;
       if (!target || !target.getAttribute) return;
@@ -1001,10 +1142,7 @@
       if (plainKey && evt.key === "Enter") {
         claim(evt);
         const codeId = target.dataset.codeId;
-        if (codeId) {
-          try { sessionStorage.setItem("cv-restore-codebook-focus", "1"); } catch (_) {}
-          window.location.href = `/code/${codeId}/view`;
-        }
+        if (codeId) loadCode(codeId, { pushHistory: true });
         return;
       }
     }, true); // capture phase — run before bridge.js's tree keydown
@@ -1046,14 +1184,6 @@
   }
 
   // --- Zone focus helpers (used by ←/→ zone-shift) ---------------------
-
-  // Remembered cursor per zone — stable identifiers so cursors survive DOM
-  // rerenders (the stored idx/id is resolved back to an element at focus time).
-  const rememberedCursor = {
-    tracks: null,    // integer index into displayOrder, or null
-    excerpts: null,  // annotation id string, or null
-    codebook: null,  // code id string, or null
-  };
 
   function currentZone() {
     const a = document.activeElement;
@@ -1138,6 +1268,14 @@
     }
     // back link has no remembered state — not a roving zone
   }, true); // capture phase
+
+  // --- Back/forward navigation ---
+  window.addEventListener("popstate", () => {
+    const m = location.pathname.match(/^\/code\/([^/]+)\/view\/?$/);
+    if (m && m[1] !== data.code.id) {
+      loadCode(m[1], { pushHistory: false });
+    }
+  });
 
   // --- Cheat sheet dialog close + focus restoration ---
 

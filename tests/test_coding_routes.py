@@ -253,9 +253,14 @@ def test_annotate(client_with_codes):
         },
     )
     assert resp.status_code == 200
-    assert "text-panel" in resp.text
-    # The annotation text should appear in the response
-    assert "First" in resp.text
+    # Annotation routes return OOB-only responses with HX-Reswap: none —
+    # bridge.js refreshes highlights inside the existing #text-panel
+    # without a primary swap, so the response carries no text-panel HTML.
+    assert resp.headers.get("HX-Reswap") == "none"
+    assert "text-panel" not in resp.text
+    # OOB blobs that drive the in-place client-side update.
+    assert 'id="ace-ann-data"' in resp.text
+    assert 'id="ace-applied-codes-panel"' in resp.text
 
     # Verify annotation exists in the DB
     conn = sqlite3.connect(db_path)
@@ -299,7 +304,8 @@ def test_delete_annotation(client_with_codes):
         data={"annotation_id": ann_id, "current_index": 0},
     )
     assert resp.status_code == 200
-    assert "text-panel" in resp.text
+    assert resp.headers.get("HX-Reswap") == "none"
+    assert "text-panel" not in resp.text
 
     # Verify soft-deleted in DB
     conn = sqlite3.connect(db_path)
@@ -683,9 +689,12 @@ def test_navigate_next(client_with_sources):
     assert resp.status_code == 200
     # Should contain the second source's content
     assert "Second document with different text." in resp.text
-    # Should contain all OOB swap zones
-    assert 'id="ace-sidebar-grid"' in resp.text
-    assert 'id="code-sidebar"' in resp.text
+    # Source-map data (consumed by bridge.js's _aceRenderSourceGrid) is OOB.
+    assert 'id="ace-sources-data"' in resp.text
+    # Annotation-only routes deliberately omit the sidebar OOB so the aside
+    # isn't torn down on every navigate; bridge.js's _syncCodeCounts patches
+    # per-row counts in place.
+    assert 'id="code-sidebar"' not in resp.text
     # Should have HX-Trigger header with ace-navigate event
     assert "HX-Trigger" in resp.headers
     assert "ace-navigate" in resp.headers["HX-Trigger"]
@@ -1010,7 +1019,8 @@ def test_annotate_refreshes_grid(client_with_codes):
         },
     )
     assert resp.status_code == 200
-    assert 'id="code-sidebar"' in resp.text
+    # Annotation apply omits the sidebar OOB — counts are patched client-side.
+    assert 'id="code-sidebar"' not in resp.text
     assert 'id="ace-sources-data"' in resp.text
 
     # Parse the OOB blob and confirm the first source now has count == 1.
@@ -1064,7 +1074,8 @@ def test_delete_refreshes_grid(client_with_codes):
     assert resp.status_code == 200, (
         f"delete returned {resp.status_code}: {resp.text[:200]}"
     )
-    assert 'id="code-sidebar"' in resp.text
+    # Annotation delete omits the sidebar OOB — counts are patched client-side.
+    assert 'id="code-sidebar"' not in resp.text
     assert 'id="ace-sources-data"' in resp.text
 
     # Parse the OOB sources blob — source 0's count should be back to 0
@@ -1317,19 +1328,19 @@ def test_coding_page_has_page_title(client_with_codes):
     assert h1_pos < nav_pos
 
 
-def test_applied_codes_caption_hidden_when_empty(client_with_codes):
-    """Applied-codes bar does not render when no codes have been applied to the source."""
+def test_applied_codes_panel_empty_state(client_with_codes):
+    """Applied-codes inspector renders an empty state before any source codes exist."""
     client, coder_id, _, _, _ = client_with_codes
     client.cookies.set("coder_id", coder_id)
     r = client.get("/code?index=0")
     body = r.text
-    # No chips applied → whole bar (including caption) absent
-    assert 'class="ace-code-bar"' not in body
-    assert 'Applied codes' not in body
+    assert 'id="ace-applied-codes-panel"' in body
+    assert 'No codes applied to this source.' in body
+    assert 'class="ace-applied-code-row"' not in body
 
 
-def test_applied_codes_caption_when_present(client_with_codes):
-    """Applied-codes bar carries a leading 'Applied codes' caption when ≥1 chip is rendered."""
+def test_applied_codes_panel_when_present(client_with_codes):
+    """Applied-codes inspector shows the source-position timeline and code rows."""
     client, coder_id, code_a, _, _ = client_with_codes
     client.cookies.set("coder_id", coder_id)
     # Apply one code to source 0
@@ -1346,184 +1357,14 @@ def test_applied_codes_caption_when_present(client_with_codes):
     assert apply_resp.status_code == 200
     r = client.get("/code?index=0")
     body = r.text
-    assert 'class="ace-code-bar"' in body
-    assert '<span class="ace-code-bar-label">Applied codes</span>' in body
-    # Label appears before the first chip
-    label_pos = body.index('Applied codes</span>')
-    chip_pos = body.index('class="ace-code-chip"')
-    assert label_pos < chip_pos
-
-
-# ---------------------------------------------------------------------------
-# PATCH /api/codes/{id}/chord — Task 7
-# ---------------------------------------------------------------------------
-
-
-def test_patch_code_chord_success(tmp_path):
-    """PATCH /api/codes/{id}/chord with valid chord updates DB."""
-    from ace.db.connection import open_project
-    from ace.models.codebook import list_codes
-
-    project_path = tmp_path / "patch_chord.ace"
-    conn = create_project(str(project_path), "Test")
-
-    # Seed 32 codes so the 32nd has a chord
-    try:
-        for i in range(32):
-            add_code(conn, f"Code {i:02d}", "#A91818")
-        codes = list_codes(conn)
-        last_id = codes[31]["id"]  # 32nd code (0-indexed), has a chord
-    finally:
-        conn.close()
-
-    app = create_app()
-    with TestClient(app) as c:
-        c.post("/api/project/open", data={"path": str(project_path)})
-        response = c.patch(f"/api/codes/{last_id}/chord", data={"chord": "xy"})
-        assert response.status_code == 200
-
-    # Verify in DB
-    conn = open_project(str(project_path))
-    try:
-        row = conn.execute(
-            "SELECT chord FROM codebook_code WHERE id = ?", (last_id,)
-        ).fetchone()
-        assert row["chord"] == "xy"
-    finally:
-        conn.close()
-
-
-def test_patch_code_chord_conflict_returns_409(tmp_path):
-    """PATCH with chord already in use returns 409."""
-    from ace.db.connection import open_project
-    from ace.models.codebook import list_codes
-
-    project_path = tmp_path / "patch_conflict.ace"
-    conn = create_project(str(project_path), "Test")
-
-    # Seed 33 codes so two codes have chords
-    try:
-        for i in range(33):
-            add_code(conn, f"Code {i:02d}", "#A91818")
-        codes = list_codes(conn)
-        id_a = codes[31]["id"]  # 32nd
-        id_b = codes[32]["id"]  # 33rd
-    finally:
-        conn.close()
-
-    app = create_app()
-    with TestClient(app) as c:
-        c.post("/api/project/open", data={"path": str(project_path)})
-        # First: set ab on code A
-        r1 = c.patch(f"/api/codes/{id_a}/chord", data={"chord": "ab"})
-        assert r1.status_code == 200
-        # Then: try ab on code B — must fail
-        r2 = c.patch(f"/api/codes/{id_b}/chord", data={"chord": "ab"})
-        assert r2.status_code == 409
-
-
-def test_patch_code_chord_invalid_format_returns_400(tmp_path):
-    """PATCH with non-2-lowercase-letter chord returns 400."""
-    from ace.db.connection import open_project
-    from ace.models.codebook import list_codes
-
-    project_path = tmp_path / "patch_invalid.ace"
-    conn = create_project(str(project_path), "Test")
-
-    try:
-        for i in range(32):
-            add_code(conn, f"Code {i:02d}", "#A91818")
-        codes = list_codes(conn)
-        last_id = codes[31]["id"]
-    finally:
-        conn.close()
-
-    app = create_app()
-    with TestClient(app) as c:
-        c.post("/api/project/open", data={"path": str(project_path)})
-        for bad in ["a", "abc", "AB", "1a", "a1", ""]:
-            r = c.patch(f"/api/codes/{last_id}/chord", data={"chord": bad})
-            assert r.status_code in (400, 422), (
-                f"expected 400/422 for chord={bad!r}, got {r.status_code}"
-            )
-
-
-def test_patch_code_chord_unknown_id_returns_404(tmp_path):
-    """PATCH with non-existent code_id returns 404."""
-    project_path = tmp_path / "patch_404.ace"
-    conn = create_project(str(project_path), "Test")
-    conn.close()
-
-    app = create_app()
-    with TestClient(app) as c:
-        c.post("/api/project/open", data={"path": str(project_path)})
-        r = c.patch("/api/codes/nonexistent-uuid/chord", data={"chord": "ab"})
-        assert r.status_code == 404
-
-
-def test_patch_code_chord_records_undo(tmp_path):
-    """Setting a chord pushes an undo entry — Z restores the prior chord
-    (NULL in this case, since the seed code had no chord override)."""
-    from ace.db.connection import open_project
-    from ace.models.codebook import list_codes
-
-    project_path = tmp_path / "chord_undo.ace"
-    conn = create_project(str(project_path), "Test")
-    try:
-        for i in range(32):
-            add_code(conn, f"Code {i:02d}", "#A91818")
-        codes = list_codes(conn)
-        target_id = codes[0]["id"]
-        prior_chord = codes[0]["chord"]  # row 0 is in the single-key range → None
-    finally:
-        conn.close()
-
-    app = create_app()
-    with TestClient(app) as c:
-        c.post("/api/project/open", data={"path": str(project_path)})
-        r = c.patch(f"/api/codes/{target_id}/chord", data={"chord": "qz"})
-        assert r.status_code == 200
-
-        r = c.post("/api/undo", data={"current_index": 0})
-        assert r.status_code == 200
-        assert "Undone:" in r.text
-
-    conn = open_project(str(project_path))
-    try:
-        row = conn.execute(
-            "SELECT chord FROM codebook_code WHERE id = ?", (target_id,)
-        ).fetchone()
-    finally:
-        conn.close()
-    assert row["chord"] == prior_chord, "undo must restore the prior chord value"
-
-
-def test_patch_code_chord_noop_does_not_record(tmp_path):
-    """Re-saving the same chord is a no-op — the undo stack stays empty."""
-    from ace.models.codebook import list_codes
-
-    project_path = tmp_path / "chord_noop.ace"
-    conn = create_project(str(project_path), "Test")
-    try:
-        for i in range(32):
-            add_code(conn, f"Code {i:02d}", "#A91818")
-        target_id = list_codes(conn)[31]["id"]  # 32nd code has an auto-chord
-        existing_chord = list_codes(conn)[31]["chord"]
-    finally:
-        conn.close()
-
-    assert existing_chord, "setup precondition — 32nd code should have a chord"
-
-    app = create_app()
-    with TestClient(app) as c:
-        c.post("/api/project/open", data={"path": str(project_path)})
-        # PATCH with the same chord — should be a no-op for undo.
-        r = c.patch(f"/api/codes/{target_id}/chord", data={"chord": existing_chord})
-        assert r.status_code == 200
-
-        r = c.post("/api/undo", data={"current_index": 0})
-        assert r.status_code == 200
-        assert "Nothing to undo" in r.text
+    assert 'id="ace-applied-codes-panel"' in body
+    assert 'class="ace-applied-code-row"' in body
+    assert 'class="ace-applied-timeline-marker"' in body
+    assert 'Code positions in source' in body
+    # Title appears before the first row
+    title_pos = body.index('Applied codes</span>')
+    row_pos = body.index('class="ace-applied-code-row"')
+    assert title_pos < row_pos
 
 
 # ---------------------------------------------------------------------------

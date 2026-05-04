@@ -22,8 +22,8 @@ SINGLE_KEY_LIMIT = 31
 
 _INSERT_CODE_SQL = (
     "INSERT INTO codebook_code "
-    "(id, name, colour, sort_order, kind, parent_id, chord, created_at) "
-    "VALUES (?, ?, ?, ?, 'code', ?, ?, ?)"
+    "(id, name, colour, sort_order, kind, parent_id, created_at) "
+    "VALUES (?, ?, ?, ?, 'code', ?, ?)"
 )
 
 
@@ -51,19 +51,6 @@ def next_colour(existing_count: int) -> str:
     """Return the next colour from the palette, cycling if needed."""
     return COLOUR_PALETTE[existing_count % len(COLOUR_PALETTE)][0]
 
-def _taken_chords(conn: sqlite3.Connection) -> set[str]:
-    """Return the set of chord values currently in use (non-NULL only, undeleted).
-
-    Folders never have chords, so the kind filter is defensive only.
-    """
-    return {
-        r[0] for r in conn.execute(
-            "SELECT chord FROM codebook_code "
-            "WHERE chord IS NOT NULL AND deleted_at IS NULL AND kind = 'code'"
-        )
-    }
-
-
 def add_code(
     conn: sqlite3.Connection,
     name: str,
@@ -79,21 +66,9 @@ def add_code(
     ).fetchone()[0]
     sort_order = max_order + 1
 
-    # Position of the new code = current count of code rows (0-indexed). Folders
-    # never consume single-key slots, so they're excluded. If position >=
-    # SINGLE_KEY_LIMIT, the keyboard's single-key slots are exhausted and the
-    # code needs a chord shortcut.
-    existing_code_count = conn.execute(
-        "SELECT COUNT(*) FROM codebook_code "
-        "WHERE deleted_at IS NULL AND kind = 'code'"
-    ).fetchone()[0]
-    chord = None
-    if existing_code_count >= SINGLE_KEY_LIMIT:
-        chord = assign_chord(name, _taken_chords(conn))
-
     conn.execute(
         _INSERT_CODE_SQL,
-        (code_id, name, colour, sort_order, parent_id, chord, now),
+        (code_id, name, colour, sort_order, parent_id, now),
     )
     conn.commit()
     return code_id
@@ -113,8 +88,8 @@ def _add_folder_no_commit(conn: sqlite3.Connection, name: str) -> str:
     ).fetchone()[0]
     conn.execute(
         "INSERT INTO codebook_code "
-        "(id, name, colour, sort_order, kind, parent_id, chord, created_at) "
-        "VALUES (?, ?, '', ?, 'folder', NULL, NULL, ?)",
+        "(id, name, colour, sort_order, kind, parent_id, created_at) "
+        "VALUES (?, ?, '', ?, 'folder', NULL, ?)",
         (folder_id, name, max_order + 1, now),
     )
     return folder_id
@@ -139,12 +114,29 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
     Order: each folder row, immediately followed by its child code rows
     (in sort_order), then root-level code rows (in sort_order). Each folder
     row carries `child_count` and `child_ids` for the renderer.
+
+    Chord shortcuts are derived here, not stored: codes at sort_order rank
+    >= SINGLE_KEY_LIMIT get a 2-letter chord assigned by `assign_chord`,
+    walking codes in rank order with a growing `taken` set so values are
+    deterministic and unique within the snapshot.
     """
     rows = conn.execute(
-        "SELECT id, name, colour, sort_order, kind, parent_id, chord "
+        "SELECT id, name, colour, sort_order, kind, parent_id "
         "FROM codebook_code WHERE deleted_at IS NULL "
         "ORDER BY sort_order"
     ).fetchall()
+
+    chord_for: dict[str, str] = {}
+    rank = 0
+    taken: set[str] = set()
+    for r in rows:
+        if r["kind"] != "code":
+            continue
+        if rank >= SINGLE_KEY_LIMIT:
+            chord = assign_chord(r["name"], taken)
+            chord_for[r["id"]] = chord
+            taken.add(chord)
+        rank += 1
 
     by_parent: dict[str | None, list[sqlite3.Row]] = {}
     for r in rows:
@@ -164,6 +156,13 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
             continue
         orphan_codes.extend(codes)
 
+    def _code_dict(c: sqlite3.Row, parent_id: str | None) -> dict:
+        return {
+            "id": c["id"], "name": c["name"], "colour": c["colour"],
+            "sort_order": c["sort_order"], "kind": "code",
+            "parent_id": parent_id, "chord": chord_for.get(c["id"]),
+        }
+
     out: list[dict] = []
     for f in folders:
         children = by_parent.get(f["id"], [])
@@ -175,24 +174,11 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
             "child_ids": [c["id"] for c in children],
         })
         for c in children:
-            out.append({
-                "id": c["id"], "name": c["name"], "colour": c["colour"],
-                "sort_order": c["sort_order"], "kind": "code",
-                "parent_id": f["id"], "chord": c["chord"],
-            })
+            out.append(_code_dict(c, f["id"]))
     for c in root_codes:
-        out.append({
-            "id": c["id"], "name": c["name"], "colour": c["colour"],
-            "sort_order": c["sort_order"], "kind": "code",
-            "parent_id": None, "chord": c["chord"],
-        })
+        out.append(_code_dict(c, None))
     for c in orphan_codes:
-        out.append({
-            "id": c["id"], "name": c["name"], "colour": c["colour"],
-            "sort_order": c["sort_order"], "kind": "code",
-            "parent_id": None,  # display as root
-            "chord": c["chord"],
-        })
+        out.append(_code_dict(c, None))
     return out
 
 
@@ -218,57 +204,6 @@ def update_code(
         params,
     )
     conn.commit()
-
-
-def set_chord(conn: sqlite3.Connection, code_id: str, chord: str | None) -> None:
-    """Set or clear the chord for a code. Raises IntegrityError on conflict."""
-    conn.execute(
-        "UPDATE codebook_code SET chord = ? WHERE id = ?",
-        (chord, code_id),
-    )
-    conn.commit()
-
-
-def backfill_chords(conn: sqlite3.Connection) -> int:
-    """Assign chords to any code at position >= SINGLE_KEY_LIMIT with chord IS NULL.
-
-    Position is 0-indexed rank ordered by sort_order, so this is robust to
-    0-indexed, 1-indexed, or sparse sort_order values. Idempotent: codes that
-    already have a chord are untouched. Returns the number of chords assigned.
-
-    NOTE: does NOT commit. Caller is responsible for committing — this is the
-    only write function in this module with that contract, intentionally so
-    that bulk-import callers can keep inserts + backfill in one transaction.
-    """
-    rows = conn.execute(
-        """
-        WITH ranked AS (
-          SELECT id, name, chord,
-                 ROW_NUMBER() OVER (ORDER BY sort_order) - 1 AS pos
-          FROM codebook_code
-          WHERE deleted_at IS NULL AND kind = 'code'
-        )
-        SELECT id, name FROM ranked
-        WHERE pos >= ? AND chord IS NULL
-        ORDER BY pos
-        """,
-        (SINGLE_KEY_LIMIT,),
-    ).fetchall()
-
-    if not rows:
-        return 0
-
-    taken = _taken_chords(conn)
-    assigned = 0
-    for row in rows:
-        chord = assign_chord(row["name"], taken)
-        conn.execute(
-            "UPDATE codebook_code SET chord = ? WHERE id = ?",
-            (chord, row["id"]),
-        )
-        taken.add(chord)
-        assigned += 1
-    return assigned
 
 
 def reorder_codes(conn: sqlite3.Connection, code_ids: list[str]) -> None:
@@ -550,8 +485,8 @@ def _ensure_folder_at(
     folder_id = uuid.uuid4().hex
     conn.execute(
         "INSERT INTO codebook_code "
-        "(id, name, colour, sort_order, kind, parent_id, chord, created_at) "
-        "VALUES (?, ?, '', ?, 'folder', NULL, NULL, ?)",
+        "(id, name, colour, sort_order, kind, parent_id, created_at) "
+        "VALUES (?, ?, '', ?, 'folder', NULL, ?)",
         (folder_id, name, sort_order, now),
     )
     return folder_id, True
@@ -602,14 +537,13 @@ def import_selected_codes(conn: sqlite3.Connection, codes: list[dict]) -> list[s
             code_id = uuid.uuid4().hex
             conn.execute(
                 "INSERT INTO codebook_code "
-                "(id, name, colour, sort_order, kind, parent_id, chord, created_at) "
-                "VALUES (?, ?, ?, ?, 'code', ?, NULL, ?)",
+                "(id, name, colour, sort_order, kind, parent_id, created_at) "
+                "VALUES (?, ?, ?, ?, 'code', ?, ?)",
                 (code_id, code["name"], code["colour"], next_sort,
                  parent_id, now),
             )
             next_sort += 1
             inserted_ids.append(code_id)
-        backfill_chords(conn)
         conn.commit()
     except Exception:
         conn.rollback()
@@ -639,13 +573,12 @@ def import_codebook_from_csv(conn: sqlite3.Connection, path: str | Path) -> int:
             code_id = uuid.uuid4().hex
             conn.execute(
                 "INSERT INTO codebook_code "
-                "(id, name, colour, sort_order, kind, parent_id, chord, created_at) "
-                "VALUES (?, ?, ?, ?, 'code', ?, NULL, ?)",
+                "(id, name, colour, sort_order, kind, parent_id, created_at) "
+                "VALUES (?, ?, ?, ?, 'code', ?, ?)",
                 (code_id, row["name"], row["colour"], next_sort,
                  parent_id, now),
             )
             next_sort += 1
-        backfill_chords(conn)
         conn.commit()
     except Exception:
         conn.rollback()

@@ -186,43 +186,80 @@ rect.ace-flash-{{ code["id"] }} {
         {% else %}
         <p class="ace-text-empty">No source content.</p>
         {% endif %}
-        {% if margin_codes %}
-        <div class="ace-code-bar">
-          <span class="ace-code-bar-label">Applied codes</span><span class="ace-code-sep"> · </span>{% for code in margin_codes %}{% if not loop.first %}<span class="ace-code-sep"> · </span>{% endif %}<span class="ace-code-chip" data-code-id="{{ code['code_id'] }}" data-colour="{{ code['colour'] }}" style="color: {{ code['colour'] }};">{{ code['code_name'] }}</span>{% endfor %}
-        </div>
-        {% endif %}
         <div class="ace-legend" aria-hidden="true"><span class="k">&uarr;&darr;</span> sentences &middot; <span class="k">&#8679;&larr;&#8679;&rarr;</span> sources &middot; <span class="k">Q</span> repeat &middot; <span class="k">Z</span> undo &middot; <span class="k">&#8679;Z</span> redo &middot; <span class="k">X</span> delete &middot; <span class="k">N</span> note &middot; <span class="k">/</span> filter &middot; <span class="k">Tab</span> codebook</div>
       </main>
       {% endblock %}
 
-      {# Right-edge rail — click to open note drawer #}
-      <button type="button"
-              id="note-rail"
-              class="ace-note-rail"
-              aria-label="Open source note"
-              aria-controls="note-drawer"
-              aria-expanded="false"
-              title="Open source note (n)">
-        <span class="ace-note-rail-dot" aria-hidden="true"></span>
-      </button>
+      {% block right_inspector %}
+      <aside id="ace-right-inspector"
+             class="ace-right-inspector"
+             aria-label="Coding inspector">
+        {% block applied_codes_panel %}
+        <section id="ace-applied-codes-panel"
+                 class="ace-applied-codes-panel"
+                 aria-labelledby="ace-applied-codes-title"
+                 {% if open_note_drawer|default(false) %}aria-hidden="true" inert{% endif %}>
+          <header class="ace-applied-codes-header">
+            <span>
+              <span id="ace-applied-codes-title" class="ace-applied-codes-kicker">Applied codes</span>
+            </span>
+            <span class="ace-applied-codes-total"
+                  aria-label="{{ applied_code_rows|length }} applied {{ 'code' if applied_code_rows|length == 1 else 'codes' }}">{{ applied_code_rows|length }}</span>
+          </header>
 
-      {# Source note drawer (push layout — shrinks text panel when open) #}
-      <aside id="note-drawer"
-             class="ace-note-drawer"
-             role="complementary"
-             aria-labelledby="note-drawer-title"
-             aria-hidden="true">
-        <header class="ace-note-drawer-header">
-          <h2 id="note-drawer-title" class="ace-panel-heading">Source note</h2>
-          <span id="note-mode" class="ace-note-mode-indicator" aria-hidden="true"></span>
-          <span id="note-status" aria-live="polite" class="ace-note-drawer-status"></span>
-        </header>
-        <textarea id="note-textarea"
-                  class="ace-note-textarea"
-                  placeholder="Write anything about this source…"
-                  data-source-id="{{ current_source['id'] if current_source else '' }}"
-                  tabindex="-1">{{ current_note_text }}</textarea>
+          <div class="ace-applied-timeline" aria-hidden="true">
+            <span class="ace-applied-timeline-title">Code positions in source</span>
+            <span class="ace-applied-timeline-track">
+              <span class="ace-applied-timeline-line"></span>
+              {% for code in applied_code_rows %}
+                {% for segment in code["segments"] %}
+                <span class="ace-applied-timeline-marker"
+                      data-code-id="{{ code['code_id'] }}"
+                      style="--marker-colour: {{ code['colour'] }}; left: {{ segment['left'] }}%; width: {{ segment['width'] }}%;"></span>
+                {% endfor %}
+              {% endfor %}
+            </span>
+          </div>
+
+          {% if applied_code_rows %}
+          <div class="ace-applied-codes-list" aria-label="Codes applied to this source">
+            {% for code in applied_code_rows %}
+            <button type="button"
+                    class="ace-applied-code-row"
+                    data-code-id="{{ code['code_id'] }}"
+                    data-colour="{{ code['colour'] }}"
+                    style="--row-colour: {{ code['colour'] }};"
+                    aria-label="Preview {{ code['code_name'] }}, {{ code['count'] }} {{ 'annotation' if code['count'] == 1 else 'annotations' }}">
+              <span class="ace-applied-code-name" title="{{ code['code_name'] }}">{{ code["code_name"] }}</span>
+              <span class="ace-applied-code-count">{{ code["count"] }}<span aria-hidden="true">x</span></span>
+            </button>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="ace-applied-codes-empty">No codes applied to this source.</p>
+          {% endif %}
+        </section>
+        {% endblock %}
+
+        {# Source note drawer overlays the applied-codes panel when open. #}
+        <aside id="note-drawer"
+               class="ace-note-drawer"
+               role="complementary"
+               aria-labelledby="note-drawer-title"
+               aria-hidden="{{ 'false' if open_note_drawer|default(false) else 'true' }}">
+          <header class="ace-note-drawer-header">
+            <h2 id="note-drawer-title" class="ace-panel-heading">Source note</h2>
+            <span id="note-mode" class="ace-note-mode-indicator" aria-hidden="true"></span>
+            <span id="note-status" aria-live="polite" class="ace-note-drawer-status"></span>
+          </header>
+          <textarea id="note-textarea"
+                    class="ace-note-textarea"
+                    placeholder="Write anything about this source…"
+                    data-source-id="{{ current_source['id'] if current_source else '' }}"
+                    tabindex="-1">{{ current_note_text }}</textarea>
+        </aside>
       </aside>
+      {% endblock %}
 
     </div>
 

@@ -137,11 +137,15 @@ def _coding_context(
     # --- Tree-shaped codebook for sidebar ---
     tree_codes = list_codes_with_tree(conn)
 
-    # Deduplicated codes applied to this source (for bottom code bar)
+    # Deduplicated codes applied to this source, preserving first occurrence
+    # order for the right-side applied-codes inspector.
     seen_codes: set[str] = set()
     margin_codes: list[dict] = []
+    applied_code_rows: list[dict] = []
+    annotations_by_code: dict[str, list[dict]] = {}
     for ann in annotations_list:
         cid = ann["code_id"]
+        annotations_by_code.setdefault(cid, []).append(ann)
         if cid not in seen_codes:
             code = codes_by_id.get(cid)
             if code:
@@ -157,6 +161,24 @@ def _coding_context(
     for ann in annotations_list:
         cid = ann["code_id"]
         code_counts[cid] = code_counts.get(cid, 0) + 1
+    source_length = max(len(source_text), 1)
+    for code in margin_codes:
+        cid = code["code_id"]
+        segments = []
+        for ann in annotations_by_code.get(cid, []):
+            start_pct = max(0.0, min(100.0, 100.0 * ann["start_offset"] / source_length))
+            width_pct = max(0.2, min(100.0 - start_pct, 100.0 * (ann["end_offset"] - ann["start_offset"]) / source_length))
+            segments.append({
+                "left": round(start_pct, 3),
+                "width": round(width_pct, 3),
+            })
+        applied_code_rows.append({
+            "code_id": cid,
+            "code_name": code["code_name"],
+            "colour": code["colour"],
+            "count": code_counts.get(cid, 0),
+            "segments": segments,
+        })
 
     # Annotation data for the SVG overlay (client-side rendering via _paintSvg).
     # Only id/code_id/start/end — colour comes from rect.ace-hl-{cid} CSS rules.
@@ -209,6 +231,7 @@ def _coding_context(
         "tree_codes": tree_codes,
         "code_counts_by_id": code_counts_by_id,
         "margin_codes": margin_codes,
+        "applied_code_rows": applied_code_rows,
         "annotation_highlights_json": annotation_highlights_json,
         "version": __version__,
     }
@@ -285,7 +308,6 @@ async def code_view_page(request: Request, code_id: str):
         data = get_code_view_data(conn, code_id, coder_id)
         if data is None:
             raise HtmxRedirect("/code")
-        codes_list = [dict(c) for c in list_codes(conn)]
         tree_codes = list_codes_with_tree(conn)
         code_counts_by_id = get_annotation_counts_by_code(conn, coder_id)
     finally:
@@ -299,7 +321,6 @@ async def code_view_page(request: Request, code_id: str):
         "code_view.html",
         {
             "code_view_data": data,
-            "codes": codes_list,
             "tree_codes": tree_codes,
             "code_counts_by_id": code_counts_by_id,
             "project_file_stem": project_file_stem,

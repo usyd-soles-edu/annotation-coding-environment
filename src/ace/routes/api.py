@@ -364,11 +364,6 @@ async def project_open(request: Request, path: str = Form(...)):
         request.app.state.coder_id = coder_id
     request.app.state.active_projects.add(str(path))
 
-    from ace.models.codebook import backfill_chords
-    with _project_db(request) as conn:
-        backfill_chords(conn)
-        conn.commit()
-
     redirect = "/code" if sources else "/import"
     return Response(
         status_code=200,
@@ -571,6 +566,27 @@ async def import_folder(
     )
 
 
+@router.get("/code/{code_id}/view-data")
+async def code_view_data_json(request: Request, code_id: str):
+    """JSON payload that drives the /code/{id}/view audit view.
+
+    Same dict that the page route embeds into <script id="ace-codeview-data">.
+    Used by the client to switch between codes without a full page reload.
+    """
+    from ace.app import HtmxRedirect
+    from ace.models.annotation import get_code_view_data
+
+    project_path = getattr(request.app.state, "project_path", None)
+    if project_path is None or not Path(project_path).exists():
+        raise HtmxRedirect("/")
+    coder_id = _require_coder(request)
+    with _project_db(request) as conn:
+        data = get_code_view_data(conn, code_id, coder_id)
+    if data is None:
+        raise HTTPException(status_code=404)
+    return JSONResponse(data)
+
+
 @router.get("/import/preview")
 async def import_preview(folder: str = Query(...)):
     """Return an HTML fragment previewing a random text file from the folder."""
@@ -738,8 +754,20 @@ def _render_sources_data_oob(ctx: dict) -> str:
     )
 
 
-def _render_full_coding_oob(request: Request, conn, coder_id: str, target_index: int) -> str:
-    """Render all coding swap zones."""
+def _render_full_coding_oob(
+    request: Request,
+    conn,
+    coder_id: str,
+    target_index: int,
+    include_sidebar: bool = True,
+) -> str:
+    """Render all coding swap zones with text-panel as the primary target.
+
+    `include_sidebar=False` is for navigate/flag/undo paths where the
+    sidebar's structure is unchanged — bridge.js's _syncCodeCounts patches
+    the per-row count chips from the swapped-in #ace-ann-data so the aside
+    doesn't need to be torn down and rebuilt on every action.
+    """
     from ace.routes.pages import _coding_context
     from jinja2_fragments import render_block
 
@@ -748,21 +776,48 @@ def _render_full_coding_oob(request: Request, conn, coder_id: str, target_index:
     ctx = _coding_context(conn, coder_id, target_index, project_path=project_path)
     ctx["request"] = request
 
-    primary = render_block(templates.env, "coding.html", "text_panel", ctx)
-
-    oob_blocks = [
-        ("code_sidebar", "code-sidebar"),
-    ]
-
-    parts = [primary]
-    for block_name, element_id in oob_blocks:
-        block_html = render_block(templates.env, "coding.html", block_name, ctx)
-        parts.append(_inject_oob(block_html, element_id))
-
+    parts = [render_block(templates.env, "coding.html", "text_panel", ctx)]
+    inspector_html = render_block(templates.env, "coding.html", "right_inspector", ctx)
+    parts.append(_inject_oob(inspector_html, "ace-right-inspector"))
+    if include_sidebar:
+        block_html = render_block(templates.env, "coding.html", "code_sidebar", ctx)
+        parts.append(_inject_oob(block_html, "code-sidebar"))
     parts.append(_render_colour_style_oob(ctx["codes"]))
     parts.append(_render_ann_data_oob(ctx))
     parts.append(_render_sources_data_oob(ctx))
     return "".join(parts)
+
+
+def _annotation_only_response(
+    request: Request,
+    conn,
+    coder_id: str,
+    target_index: int,
+    extra: str = "",
+) -> HTMLResponse:
+    """OOB-only response for routes that don't change source text or codes.
+
+    Returns applied-codes panel + data blobs only; bridge.js refreshes SVG
+    highlights inside the existing #ace-hl-overlay and patches count chips
+    from the swapped-in ann-data. HX-Reswap: none tells HTMX to leave #text-panel
+    alone (otherwise the empty primary body would wipe it).
+    """
+    from ace.routes.pages import _coding_context
+    from jinja2_fragments import render_block
+
+    templates = request.app.state.templates
+    project_path = request.app.state.project_path
+    ctx = _coding_context(conn, coder_id, target_index, project_path=project_path)
+    ctx["request"] = request
+
+    applied_html = render_block(templates.env, "coding.html", "applied_codes_panel", ctx)
+    parts = [
+        _inject_oob(applied_html, "ace-applied-codes-panel"),
+        _render_colour_style_oob(ctx["codes"]),
+        _render_ann_data_oob(ctx),
+        _render_sources_data_oob(ctx),
+    ]
+    return HTMLResponse("".join(parts) + extra, headers={"HX-Reswap": "none"})
 
 
 def _resolve_source_id(conn, coder_id: str, current_index: int) -> str | None:
@@ -815,8 +870,7 @@ async def annotate(
         else:
             undo.record_add(source_id, ann_id)
 
-        content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
+        return _annotation_only_response(request, conn, coder_id, current_index)
 
 
 @router.post("/code/delete-annotation")
@@ -846,8 +900,7 @@ async def delete_annotation_route(
         undo = _get_undo_manager(request)
         undo.record_delete(source_id, annotation_id)
 
-        content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
+        return _annotation_only_response(request, conn, coder_id, current_index)
 
 
 def _build_undo_response(
@@ -986,7 +1039,9 @@ async def navigate_route(
         if target_index >= total:
             target_index = total - 1
 
-        content = _render_full_coding_oob(request, conn, coder_id, target_index)
+        content = _render_full_coding_oob(
+            request, conn, coder_id, target_index, include_sidebar=False,
+        )
         trigger = json.dumps({"ace-navigate": {"index": target_index, "total": total}})
         return HTMLResponse(content, headers={"HX-Trigger": trigger})
 
@@ -1014,7 +1069,9 @@ async def flag_route(
         _get_undo_manager(request).record_flag_toggle(source_id, coder_id, prev_flagged)
 
         msg = "Source flagged" if new_flagged else "Source unflagged"
-        content = _render_full_coding_oob(request, conn, coder_id, source_index) + _oob_announce(msg)
+        content = _render_full_coding_oob(
+            request, conn, coder_id, source_index, include_sidebar=False,
+        ) + _oob_announce(msg)
         return HTMLResponse(content)
 
 
@@ -1162,8 +1219,7 @@ async def annotate_sentence(
                 )
                 undo.record_add(source_id, ann_id)
 
-        content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
+        return _annotation_only_response(request, conn, coder_id, current_index)
 
 
 @router.post("/code/delete-sentence")
@@ -1213,10 +1269,8 @@ async def delete_sentence_annotations(
             delete_annotation(conn, most_recent["id"])
             undo.record_delete(source_id, most_recent["id"])
 
-        content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        if most_recent:
-            content += _oob_announce("Annotation removed")
-        return HTMLResponse(content)
+        extra = _oob_announce("Annotation removed") if most_recent else ""
+        return _annotation_only_response(request, conn, coder_id, current_index, extra)
 
 
 # ---------------------------------------------------------------------------
@@ -1901,44 +1955,6 @@ async def update_code_route(
             mgr.record_code_recolour(code_id, prev["colour"], kwargs["colour"])
 
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
-
-
-@router.patch("/codes/{code_id}/chord")
-async def patch_code_chord(
-    request: Request,
-    code_id: str,
-    chord: str = Form(...),
-    current_index: int = Form(default=0),
-):
-    """Set a chord override for a code. Returns updated sidebar."""
-    from ace.models.codebook import set_chord
-
-    coder_id = _require_coder(request)
-
-    if not re.fullmatch(r"[a-z]{2}", chord):
-        raise HTTPException(status_code=400, detail="chord must be 2 lowercase letters")
-
-    with _project_db(request) as conn:
-        prev_row = conn.execute(
-            "SELECT chord FROM codebook_code WHERE id = ? AND deleted_at IS NULL",
-            (code_id,),
-        ).fetchone()
-        if not prev_row:
-            raise HTTPException(status_code=404, detail=f"code {code_id} not found")
-        prev_chord = prev_row["chord"]
-
-        try:
-            set_chord(conn, code_id, chord)
-        except sqlite3.IntegrityError:
-            raise HTTPException(status_code=409, detail=f"chord '{chord}' already in use")
-
-        # Skip recording when the chord didn't actually change — a no-op
-        # PATCH (re-saving the same value) shouldn't pollute the undo stack.
-        if prev_chord != chord:
-            _get_undo_manager(request).record_code_chord(code_id, prev_chord, chord)
-
-        content = _render_code_sidebar(request, conn, coder_id, current_index)
         return HTMLResponse(content)
 
 

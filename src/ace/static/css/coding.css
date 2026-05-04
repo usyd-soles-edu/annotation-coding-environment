@@ -423,12 +423,6 @@
   opacity: 0.55;
 }
 
-.ace-code-chip--editing {
-  outline: 2px solid var(--ace-focus);
-  outline-offset: 1px;
-  cursor: text;
-}
-
 /* Chord-mode visuals (carried over from .ace-keycap--chord rules with
    the selectors and the ;-prefix recolour added). */
 body[data-chord-mode] .ace-code-chip--chord {
@@ -617,6 +611,11 @@ rect.ace-flash {
   animation: ace-flash 800ms ease-out;
 }
 
+rect.ace-code-preview {
+  opacity: 0.86;
+  pointer-events: none;
+}
+
 @keyframes ace-flash {
   0%   { opacity: 0; }
   15%  { opacity: 1; }
@@ -656,48 +655,212 @@ rect.ace-flash {
   height: 12px;
 }
 
-/* ---- Bottom code bar ---- */
+/* ---- Right-side applied codes inspector ---- */
 
-.ace-code-bar {
+.ace-right-inspector {
   position: sticky;
-  bottom: 48px;
-  margin-top: var(--ace-space-4);
-  padding: var(--ace-space-2) var(--ace-space-8);
+  top: 0;
+  flex-shrink: 0;
+  align-self: flex-start;
+  width: 320px;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--ace-border-light);
+  background: var(--ace-bg-soft);
+}
+
+.ace-applied-codes-panel {
+  position: absolute;
+  inset: 0;
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--ace-bg-soft);
+}
+
+.ace-applied-codes-header {
+  min-height: 44px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: center;
-  border-top: 1px solid var(--ace-border-light);
-  background: var(--ace-bg);
-  z-index: 1;
+  column-gap: var(--ace-space-2);
+  padding: var(--ace-space-3);
+  border-bottom: 1px solid var(--ace-border-light);
+  background: rgba(255, 255, 255, 0.88);
 }
 
-.ace-code-sep {
-  color: var(--ace-border);
-}
-
-.ace-code-bar-label {
+.ace-applied-codes-kicker,
+.ace-applied-codes-subtitle,
+.ace-applied-codes-total,
+.ace-applied-timeline-title,
+.ace-applied-code-count,
+.ace-applied-codes-empty {
   font-family: var(--ace-font-mono);
   font-size: var(--ace-font-size-2xs);
-  font-weight: var(--ace-weight-medium);
+}
+
+.ace-applied-codes-kicker {
+  display: block;
+  font-weight: var(--ace-weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: rgba(0, 0, 0, 0.48);
+}
+
+.ace-applied-codes-total {
+  min-width: 32px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--ace-border-light);
+  background: var(--ace-bg);
+  font-variant-numeric: tabular-nums;
+}
+
+.ace-applied-timeline {
+  --ace-applied-timeline-inset: var(--ace-space-4);
+  position: relative;
+  height: 104px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--ace-border-light);
+  background: var(--ace-bg);
+}
+
+.ace-applied-timeline-title {
+  position: absolute;
+  left: var(--ace-applied-timeline-inset);
+  right: var(--ace-applied-timeline-inset);
+  top: var(--ace-space-3);
+  padding-bottom: var(--ace-space-2);
+  border-bottom: 1px solid var(--ace-border-light);
+  color: rgba(0, 0, 0, 0.58);
   white-space: nowrap;
-  user-select: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.ace-code-bar .ace-code-chip {
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-size: var(--ace-font-size-xs);
+.ace-applied-timeline-track {
+  position: absolute;
+  left: var(--ace-applied-timeline-inset);
+  right: var(--ace-applied-timeline-inset);
+  top: 51px;
+  height: 16px;
+}
+
+.ace-applied-timeline-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 7px;
+  border-top: 1px solid #e7e7e7;
+}
+
+.ace-applied-timeline-marker {
+  position: absolute;
+  top: 0;
+  box-sizing: border-box;
+  height: 14px;
+  min-width: 7px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  background: var(--marker-colour);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.62);
+  transition: opacity 120ms ease, box-shadow 120ms ease;
+}
+
+.ace-applied-timeline-marker.is-code-preview {
+  box-shadow:
+    0 0 0 2px var(--ace-bg),
+    0 0 0 3px var(--marker-colour),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.72);
+  z-index: 2;
+}
+
+.ace-applied-codes-panel:has(.ace-applied-code-row.is-code-preview) .ace-applied-timeline-marker:not(.is-code-preview) {
+  opacity: 0.24;
+}
+
+.ace-applied-codes-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ace-applied-code-row {
+  width: 100%;
+  min-height: 36px;
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--ace-space-2);
+  border: 0;
+  border-top: 1px solid var(--ace-border-light);
+  padding: 0 var(--ace-space-3) 0 22px;
+  background: transparent;
+  color: var(--ace-text);
+  font-size: var(--ace-font-size-2xs);
   cursor: pointer;
-  transition: background 0.15s;
+  text-align: left;
+  transition: opacity 120ms ease, background 120ms ease, box-shadow 120ms ease;
 }
 
-.ace-code-bar .ace-code-chip:hover {
-  background: rgba(0, 0, 0, 0.06);
+.ace-applied-code-row::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  background: var(--row-colour);
+}
+
+.ace-applied-code-row:hover,
+.ace-applied-code-row:focus-visible,
+.ace-applied-code-row.is-code-preview {
+  background: var(--ace-bg);
+  box-shadow:
+    inset 0 0 0 1px var(--row-colour),
+    inset 4px 0 0 var(--row-colour);
+}
+
+.ace-applied-code-row:hover::before,
+.ace-applied-code-row:focus-visible::before,
+.ace-applied-code-row.is-code-preview::before {
+  width: 3px;
+}
+
+.ace-applied-code-row:focus-visible {
+  outline: 2px solid var(--ace-focus);
+  outline-offset: -2px;
+}
+
+.ace-applied-codes-panel:has(.ace-applied-code-row.is-code-preview) .ace-applied-code-row:not(.is-code-preview) {
+  opacity: 0.58;
+}
+
+.ace-applied-code-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ace-applied-code-count {
+  font-variant-numeric: tabular-nums;
+  color: rgba(0, 0, 0, 0.68);
+}
+
+.ace-applied-code-count span {
+  margin-left: 1px;
+  opacity: 0.5;
+}
+
+.ace-applied-codes-empty {
+  margin: 0;
+  padding: var(--ace-space-3);
+  border-top: 1px solid var(--ace-border-light);
+  color: rgba(0, 0, 0, 0.58);
 }
 
 /* ---- Permanent keyboard-shortcut legend (bottom of text panel) ---- */
@@ -1143,23 +1306,26 @@ body[data-platform="other"] .ace-hint-meta::before { content: "Ctrl"; }
   line-height: 1;
 }
 
-/* ---- Note drawer (right-edge overlay) ---- */
+/* ---- Note drawer (overlays the right inspector) ---- */
 
 .ace-note-drawer {
-  width: 0;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
   min-width: 0;
   overflow: hidden;
   background: var(--ace-note-bg);
-  border-left: 1px solid transparent;
+  border-left: 1px solid var(--ace-note-border);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
-  transition: width 180ms cubic-bezier(0.2, 0, 0, 1), border-color 180ms;
+  transform: translateX(100%);
+  box-shadow: -8px 0 22px rgba(0, 0, 0, 0.10);
+  transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
 html[data-ace-note-open="1"] .ace-note-drawer {
-  width: 320px;
-  border-left-color: var(--ace-note-border);
+  transform: translateX(0);
 }
 
 body:has(#note-textarea:focus) .ace-note-drawer {
@@ -1243,59 +1409,10 @@ body:has(#note-textarea:focus) .ace-note-drawer .ace-note-textarea {
   outline: none;  /* amber ring is drawn on the parent .ace-note-drawer via .editing */
 }
 
-/* ---- Note rail (persistent right-edge affordance) ---- */
-
-.ace-note-rail {
-  width: 16px;
-  flex-shrink: 0;
-  padding: 0;
-  border: none;
-  border-left: 1px solid var(--ace-note-border);
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    #fdf6d8 15%,
-    #fdf6d8 85%,
-    transparent 100%
-  );
-  cursor: pointer;
-  transition: width 150ms ease;
-  position: relative;
-}
-
-.ace-note-rail:hover {
-  width: 22px;
-}
-
-.ace-note-rail:focus-visible {
-  outline: 2px solid var(--ace-note-accent);
-  outline-offset: -2px;
-}
-
-.ace-note-rail-dot {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: transparent;
-  transition: background 150ms;
-}
-
-html[data-ace-has-note="1"] .ace-note-rail-dot {
-  background: var(--ace-note-accent);
-}
-
-html[data-ace-note-open="1"] .ace-note-rail {
-  display: none;
-}
-
 /* ---- Reduced motion ---- */
 @media (prefers-reduced-motion: reduce) {
   .ace-note-drawer {
-    transition: width 0.01ms;
+    transition: transform 0.01ms;
   }
 }
 
@@ -1627,6 +1744,17 @@ body[data-active-zone="codebook"] .ace-sentence--focused {
 body[data-active-zone="codebook"]:has(#text-panel) .ace-code-folder-row[tabindex="0"] {
   background: rgba(84, 110, 122, 0.08);
   box-shadow: inset 0 0 0 2px var(--ace-focus);
+}
+
+/* The focused tree-item ring is drawn by the inset box-shadow above; the
+   global :focus-visible outline (2px solid + 2px offset) would otherwise
+   stack a second ring 2px outside, showing as horizontal bars top and
+   bottom of the row. Suppress it for treeitems in both zones. */
+.ace-code-folder-row:focus,
+.ace-code-folder-row:focus-visible,
+.ace-code-row:focus,
+.ace-code-row:focus-visible {
+  outline: none;
 }
 
 /* Folder children: indent so stripes sit under the parent caret centre.
