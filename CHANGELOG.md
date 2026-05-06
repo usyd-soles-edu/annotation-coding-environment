@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.5
+
+### Changes
+
+- **Applied codes timeline** — moved applied codes into a persistent right-side timeline panel with compact rows, colour markers, and text-preview highlighting.
+- **Notes drawer overlay** — the source note drawer now opens over the applied-codes panel so the right column keeps a stable footprint.
+- **Coded-text selection polish** — the coded-text view now uses the same selected-code styling as the coding sidebar.
+
 ## 0.10.0
 
 ### Features
