@@ -930,22 +930,15 @@
     const cols = Math.max(1, Math.floor((contentW + GAP) / (TILE + GAP)));
     const rows = Math.max(1, Math.floor((contentH + GAP) / (TILE + GAP)));
     st.visibleCount = Math.min(st.sources.length, cols * rows);
+    st.windowStart = _aceClampGridWindowStart(
+      st.windowStart, st.sources.length, st.visibleCount, cols);
 
-    // Auto-centre on active ONLY when the active source has changed since
-    // the previous render (i.e. real navigation). Otherwise respect
-    // st.windowStart so sparkline clicks to a far range aren't snapped back.
-    if (active !== st.lastActive &&
-        (active < st.windowStart ||
-         active >= st.windowStart + st.visibleCount)) {
-      st.windowStart = Math.max(0, Math.min(
-        st.sources.length - st.visibleCount,
-        active - Math.floor(st.visibleCount / 2),
-      ));
+    // Move the tile viewport only when the active source has changed.
+    // Sequential source navigation should scroll by whole tile rows, not
+    // recenter around the new tile, so the grid keeps its column rhythm.
+    if (active !== st.lastActive) {
+      _aceRevealGridIndex(active, st.lastActive, cols);
     }
-    // Always clamp so windowStart stays in valid range (e.g. after resize).
-    st.windowStart = Math.max(0, Math.min(
-      st.windowStart, Math.max(0, st.sources.length - st.visibleCount),
-    ));
     st.lastActive = active;
 
     const from = st.windowStart;
@@ -1100,10 +1093,13 @@
       const x = ev.clientX - r.left;
       const normalised = (x - padX) / innerW;
       const idx = Math.round(Math.max(0, Math.min(1, normalised)) * denom);
-      _aceSourceGridState.windowStart = Math.max(0, Math.min(
-        total - _aceSourceGridState.visibleCount,
+      _aceSourceGridState.windowStart = _aceWindowStartForGridTarget(
+        idx,
         idx - Math.floor(_aceSourceGridState.visibleCount / 2),
-      ));
+        total,
+        _aceSourceGridState.visibleCount,
+        _aceTileCols(),
+      );
       _aceRenderSparkline();
       _aceRenderTiles();
     });
@@ -1122,19 +1118,69 @@
     return Math.max(1, Math.floor((contentW + GAP) / (TILE + GAP)));
   }
 
-  function _aceNavigateFocus(targetIndex) {
+  function _aceMaxGridWindowStart(total, visibleCount, cols) {
+    if (total <= visibleCount) return 0;
+    const safeCols = Math.max(1, cols);
+    return Math.ceil((total - visibleCount) / safeCols) * safeCols;
+  }
+
+  function _aceClampGridWindowStart(start, total, visibleCount, cols) {
+    const safeCols = Math.max(1, cols);
+    const maxStart = _aceMaxGridWindowStart(total, visibleCount, safeCols);
+    const rowStart = Math.floor(Math.max(0, start) / safeCols) * safeCols;
+    return Math.max(0, Math.min(maxStart, rowStart));
+  }
+
+  function _aceWindowStartForGridTarget(targetIndex, start, total, visibleCount, cols) {
+    const safeCols = Math.max(1, cols);
+    const maxStart = _aceMaxGridWindowStart(total, visibleCount, safeCols);
+    let rowStart = _aceClampGridWindowStart(start, total, visibleCount, safeCols);
+    while (targetIndex < rowStart) {
+      rowStart = Math.max(0, rowStart - safeCols);
+    }
+    while (targetIndex >= rowStart + visibleCount) {
+      rowStart = Math.min(maxStart, rowStart + safeCols);
+    }
+    return rowStart;
+  }
+
+  function _aceRevealGridIndex(targetIndex, previousIndex, cols) {
+    const st = _aceSourceGridState;
+    if (!st.visibleCount || st.sources.length === 0) return false;
+    const safeCols = Math.max(1, cols);
+    const total = st.sources.length;
+    const maxStart = _aceMaxGridWindowStart(total, st.visibleCount, safeCols);
+
+    st.windowStart = _aceClampGridWindowStart(
+      st.windowStart, total, st.visibleCount, safeCols);
+    const start = st.windowStart;
+    const end = start + st.visibleCount;
+    if (targetIndex >= start && targetIndex < end) return false;
+
+    const previousWasVisible = previousIndex >= start && previousIndex < end;
+    if (previousWasVisible && targetIndex === previousIndex + 1 && targetIndex >= end) {
+      st.windowStart = Math.min(maxStart, start + safeCols);
+    } else if (previousWasVisible && targetIndex === previousIndex - 1 && targetIndex < start) {
+      st.windowStart = Math.max(0, start - safeCols);
+    } else {
+      st.windowStart = _aceWindowStartForGridTarget(
+        targetIndex,
+        targetIndex - Math.floor(st.visibleCount / 2),
+        total,
+        st.visibleCount,
+        safeCols,
+      );
+    }
+    return true;
+  }
+
+  function _aceNavigateFocus(targetIndex, previousIndex) {
     const st = _aceSourceGridState;
     const total = st.sources.length;
     if (total === 0) return;
     targetIndex = Math.max(0, Math.min(total - 1, targetIndex));
 
-    // Shift window if target is outside; center on target
-    if (targetIndex < st.windowStart ||
-        targetIndex >= st.windowStart + st.visibleCount) {
-      st.windowStart = Math.max(0, Math.min(
-        total - st.visibleCount,
-        targetIndex - Math.floor(st.visibleCount / 2),
-      ));
+    if (_aceRevealGridIndex(targetIndex, previousIndex, _aceTileCols())) {
       _aceRenderTiles();
       _aceRenderSparkline();
     }
@@ -1201,7 +1247,7 @@
       // so we can tell "key consumed" vs "already at target".
       const clamped = Math.max(0, Math.min(total - 1, dest));
       if (clamped !== idx) {
-        _aceNavigateFocus(clamped);
+        _aceNavigateFocus(clamped, idx);
       }
       e.preventDefault();
     });
