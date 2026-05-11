@@ -19,7 +19,7 @@ def _build_sparse_counts(
     coder_ids: Sequence[str],
     code_names: Sequence[str],
 ) -> tuple[dict[str, Counter[int]], dict[str, Counter[int]], dict[str, set[str]]]:
-    """Build per-code and per-source bitmask counts from annotation intervals."""
+    """Build per-code/per-source bitmask counts and per-code source sets."""
     coder_bit = {cid: bit for bit, cid in enumerate(coder_ids)}
     code_index = {name: i for i, name in enumerate(code_names)}
     source_by_hash = {s.content_hash: s for s in dataset.sources}
