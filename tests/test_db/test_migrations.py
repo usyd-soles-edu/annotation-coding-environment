@@ -348,7 +348,7 @@ def test_v7_migration_preserves_chord_column(tmp_path):
 
 
 def test_v7_check_and_migrate_runs_through_full_chain(tmp_path):
-    """End-to-end: a fresh v1-style DB migrates all the way to v7."""
+    """End-to-end: a fresh v1-style DB migrates all the way to current schema."""
     conn = sqlite3.connect(tmp_path / "fresh.ace")
     # Build minimal v1 codebook
     conn.executescript("""
@@ -361,7 +361,6 @@ def test_v7_check_and_migrate_runs_through_full_chain(tmp_path):
     conn.commit()
     final = check_and_migrate(conn)
     assert final == SCHEMA_VERSION
-    assert final == 7
 
 
 def test_v7_folder_and_code_share_name_namespace(tmp_path):
@@ -402,6 +401,47 @@ def test_v7_check_constraint_blocks_folder_with_chord(tmp_path):
             "(id, name, colour, sort_order, kind, parent_id, chord, created_at) "
             "VALUES ('f1', 'Themes', '#FF0000', 1, 'folder', NULL, 'qa', '2026-01-01')"
         )
+
+
+def test_v8_migration_adds_annotation_hot_path_indexes(tmp_path):
+    """Existing v7 projects gain the annotation indexes used by coding renders."""
+    db = tmp_path / "v7.ace"
+    conn = sqlite3.connect(db)
+    conn.execute(f"PRAGMA application_id = {ACE_APPLICATION_ID}")
+    conn.executescript("""
+        CREATE TABLE annotation (
+            id                TEXT PRIMARY KEY,
+            source_id         TEXT NOT NULL,
+            coder_id          TEXT NOT NULL,
+            code_id           TEXT NOT NULL,
+            start_offset      INTEGER NOT NULL CHECK (start_offset >= 0),
+            end_offset        INTEGER NOT NULL CHECK (end_offset > start_offset),
+            selected_text     TEXT NOT NULL,
+            memo              TEXT,
+            w3c_selector_json TEXT,
+            created_at        TEXT NOT NULL,
+            updated_at        TEXT NOT NULL,
+            deleted_at        TEXT
+        );
+        CREATE INDEX idx_annotation_source_coder
+            ON annotation(source_id, coder_id) WHERE deleted_at IS NULL;
+        CREATE INDEX idx_annotation_code
+            ON annotation(code_id);
+        PRAGMA user_version = 7;
+    """)
+    conn.commit()
+    conn.close()
+
+    conn = open_project(db)
+    indexes = {row["name"] for row in conn.execute("PRAGMA index_list(annotation)")}
+    assert "idx_annotation_source_coder" not in indexes
+    assert {
+        "idx_annotation_coder_source_active",
+        "idx_annotation_coder_code_active",
+        "idx_annotation_source_coder_start_active",
+        "idx_annotation_source_coder_code_offsets_active",
+    }.issubset(indexes)
+    conn.close()
 
 
 def test_v7_migration_skips_groups_with_only_soft_deleted_children(tmp_path):

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from ace.db.connection import open_project, create_project
+from ace.db.schema import SCHEMA_VERSION
 
 
 def test_new_project_has_chord_column():
@@ -43,12 +44,12 @@ def test_v4_to_v5_migration_adds_column():
         conn.commit()
         conn.close()
 
-        # Open: triggers migration through to current schema (v7).
+        # Open: triggers migration through to current schema.
         conn = open_project(str(path))
         version = conn.execute("PRAGMA user_version").fetchone()[0]
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(codebook_code)")}
         conn.close()
-        assert version == 7
+        assert version == SCHEMA_VERSION
         assert "chord" in cols
 
 
@@ -69,14 +70,14 @@ def test_migration_is_idempotent():
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(codebook_code)")}
         conn.close()
 
-        assert v1 == v2 == 7
+        assert v1 == v2 == SCHEMA_VERSION
         assert "chord" in cols
 
 
 def test_v5_to_v6_tightens_index_for_soft_deletes():
     """v5→v6 migration recreates idx_codebook_chord to exclude deleted rows.
 
-    Migration chain runs through to v7. The behaviour under test (re-using a
+    Migration chain runs through to current schema. The behaviour under test (re-using a
     soft-deleted chord) still holds.
     """
     with tempfile.TemporaryDirectory() as tmp:
@@ -110,11 +111,11 @@ def test_v5_to_v6_tightens_index_for_soft_deletes():
         conn.commit()
         conn.close()
 
-        # Open: triggers full v5→v7 migration chain. New code with chord "ab"
+        # Open: triggers the full migration chain. New code with chord "ab"
         # should now be insertable.
         conn = open_project(str(path))
         try:
-            assert conn.execute("PRAGMA user_version").fetchone()[0] == 7
+            assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
             conn.execute(
                 "INSERT INTO codebook_code (id, name, colour, sort_order, kind, chord, created_at) "
                 "VALUES ('b', 'B', '#557FE6', 1, 'code', 'ab', datetime('now'))"

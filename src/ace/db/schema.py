@@ -3,7 +3,7 @@
 import sqlite3
 
 ACE_APPLICATION_ID = 0x41434500  # "ACE\0"
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS project (
@@ -88,11 +88,21 @@ CREATE TABLE IF NOT EXISTS source_note (
     UNIQUE(source_id, coder_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_annotation_source_coder
-    ON annotation(source_id, coder_id) WHERE deleted_at IS NULL;
-
 CREATE INDEX IF NOT EXISTS idx_annotation_code
     ON annotation(code_id);
+
+CREATE INDEX IF NOT EXISTS idx_annotation_coder_source_active
+    ON annotation(coder_id, source_id) WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_annotation_coder_code_active
+    ON annotation(coder_id, code_id) WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_annotation_source_coder_start_active
+    ON annotation(source_id, coder_id, start_offset) WHERE deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_annotation_source_coder_code_offsets_active
+    ON annotation(source_id, coder_id, code_id, start_offset, end_offset)
+    WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_assignment_coder
     ON assignment(coder_id);
