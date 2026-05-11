@@ -347,7 +347,7 @@ def test_v7_migration_preserves_chord_column(tmp_path):
     assert chord == "qa"
 
 
-def test_v7_check_and_migrate_runs_through_full_chain(tmp_path):
+def test_check_and_migrate_runs_through_full_chain(tmp_path):
     """End-to-end: a fresh v1-style DB migrates all the way to current schema."""
     conn = sqlite3.connect(tmp_path / "fresh.ace")
     # Build minimal v1 codebook
