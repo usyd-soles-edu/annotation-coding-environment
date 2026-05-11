@@ -246,6 +246,31 @@ def _migrate_v6_to_v7(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE codebook_code DROP COLUMN group_name")
 
 
+def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
+    """Add annotation indexes for coding-page render hot paths."""
+    has_annotation = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='annotation'"
+    ).fetchone()
+    if has_annotation is None:
+        return
+
+    conn.execute("DROP INDEX IF EXISTS idx_annotation_source_coder")
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_annotation_coder_source_active
+            ON annotation(coder_id, source_id) WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_annotation_coder_code_active
+            ON annotation(coder_id, code_id) WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_annotation_source_coder_start_active
+            ON annotation(source_id, coder_id, start_offset) WHERE deleted_at IS NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_annotation_source_coder_code_offsets_active
+            ON annotation(source_id, coder_id, code_id, start_offset, end_offset)
+            WHERE deleted_at IS NULL;
+    """)
+
+
 # Registry of migration functions keyed by target version.
 # Each function takes a connection and migrates from version (key - 1) to key.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
@@ -255,6 +280,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     5: _migrate_v4_to_v5,
     6: _migrate_v5_to_v6,
     7: _migrate_v6_to_v7,
+    8: _migrate_v7_to_v8,
 }
 
 

@@ -40,6 +40,18 @@ def test_create_schema_sets_user_version(schema_conn):
     assert row[0] == SCHEMA_VERSION
 
 
+def test_create_schema_adds_annotation_hot_path_indexes(schema_conn):
+    rows = schema_conn.execute("PRAGMA index_list(annotation)").fetchall()
+    indexes = {row["name"] for row in rows}
+    assert "idx_annotation_source_coder" not in indexes
+    assert {
+        "idx_annotation_coder_source_active",
+        "idx_annotation_coder_code_active",
+        "idx_annotation_source_coder_start_active",
+        "idx_annotation_source_coder_code_offsets_active",
+    }.issubset(indexes)
+
+
 def test_create_schema_enables_foreign_keys(schema_conn):
     row = schema_conn.execute("PRAGMA foreign_keys").fetchone()
     assert row[0] == 1
