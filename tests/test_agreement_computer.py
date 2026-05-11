@@ -28,7 +28,7 @@ def test_pooled_overall_kappa_differs_from_macro_average():
     one near-zero), the pooled kappa (computed on the combined vector) differs
     from the macro-average kappa (arithmetic mean of per-code kappas).
 
-    This test proves the overall uses `_compute_metrics()` on pooled vectors
+    This test proves the overall uses a pooled computation
     rather than `_macro_average()` by checking that overall.cohens_kappa does
     not equal the arithmetic mean of the per-code kappas.
     """
