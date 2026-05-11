@@ -1,5 +1,7 @@
 """Tests for AgreementComputer."""
 
+import pytest
+
 from ace.services.agreement_types import (
     AgreementDataset,
     CoderInfo,
@@ -24,6 +26,85 @@ def _make_dataset(annotations: list[MatchedAnnotation], n_coders=2) -> Agreement
         annotations=annotations,
         warnings=[],
     )
+
+
+def _make_dataset_from_parts(
+    sources: list[MatchedSource],
+    coders: list[CoderInfo],
+    codes: list[MatchedCode],
+    annotations: list[MatchedAnnotation],
+) -> AgreementDataset:
+    return AgreementDataset(
+        sources=sources,
+        coders=coders,
+        codes=codes,
+        annotations=annotations,
+        warnings=[],
+    )
+
+
+def test_sparse_compute_preserves_current_coded_position_rule():
+    sources = [MatchedSource(content_hash="h1", display_id="S1", content_text="x" * 12)]
+    coders = [
+        CoderInfo(id="c1", label="C1", source_file="a.ace"),
+        CoderInfo(id="c2", label="C2", source_file="b.ace"),
+    ]
+    codes = [
+        MatchedCode(name="A", present_in={"c1", "c2"}),
+        MatchedCode(name="B", present_in={"c1", "c2"}),
+    ]
+    annotations = [
+        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A", start_offset=0, end_offset=5),
+        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="A", start_offset=2, end_offset=7),
+        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="B", start_offset=8, end_offset=10),
+    ]
+
+    dataset = _make_dataset_from_parts(sources, coders, codes, annotations)
+    result = compute_agreement(dataset)
+
+    assert result.per_code["A"].n_positions == 9
+    assert result.per_code["B"].n_positions == 9
+    assert result.per_source["S1"].n_positions == 18
+    assert result.overall.n_positions == 18
+
+
+def test_sparse_compute_treats_overlapping_same_coder_annotations_as_binary():
+    sources = [MatchedSource(content_hash="h1", display_id="S1", content_text="x" * 10)]
+    coders = [
+        CoderInfo(id="c1", label="C1", source_file="a.ace"),
+        CoderInfo(id="c2", label="C2", source_file="b.ace"),
+    ]
+    codes = [MatchedCode(name="A", present_in={"c1", "c2"})]
+    annotations = [
+        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A", start_offset=0, end_offset=6),
+        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A", start_offset=3, end_offset=9),
+        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="A", start_offset=0, end_offset=9),
+    ]
+
+    dataset = _make_dataset_from_parts(sources, coders, codes, annotations)
+    result = compute_agreement(dataset)
+
+    assert result.per_code["A"].n_positions == 9
+    assert result.per_code["A"].percent_agreement == pytest.approx(1.0)
+
+
+def test_sparse_compute_clips_annotations_at_source_length():
+    sources = [MatchedSource(content_hash="h1", display_id="S1", content_text="x" * 5)]
+    coders = [
+        CoderInfo(id="c1", label="C1", source_file="a.ace"),
+        CoderInfo(id="c2", label="C2", source_file="b.ace"),
+    ]
+    codes = [MatchedCode(name="A", present_in={"c1", "c2"})]
+    annotations = [
+        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A", start_offset=2, end_offset=99),
+        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="A", start_offset=2, end_offset=5),
+    ]
+
+    dataset = _make_dataset_from_parts(sources, coders, codes, annotations)
+    result = compute_agreement(dataset)
+
+    assert result.per_code["A"].n_positions == 3
+    assert result.per_code["A"].percent_agreement == pytest.approx(1.0)
 
 
 def test_perfect_agreement():
