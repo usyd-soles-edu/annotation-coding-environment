@@ -32,6 +32,20 @@ def tmp_project(tmp_path):
 # ── Create ──────────────────────────────────────────────────────────────
 
 
+def test_landing_project_form_is_hidden_and_keyboard_named(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert '<button id="new-project-link"' in resp.text
+    assert "<button" in resp.text and "Open existing" in resp.text
+    assert 'id="new-project-form"' in resp.text
+    assert "hidden" in resp.text
+    assert 'id="new-project-input"' in resp.text
+    assert 'id="choose-project-folder-btn"' in resp.text
+    assert 'id="new-project-path-preview"' in resp.text
+    assert 'id="ace-home-message"' in resp.text
+    assert "Cloud-synced folders" not in resp.text
+
+
 def test_create_project(client, tmp_path):
     """POST /api/project/create creates .ace file and redirects."""
     path = str(tmp_path / "new.ace")
@@ -46,6 +60,19 @@ def test_create_project_overwrite_dialog(client, tmp_project):
         "/api/project/create", data={"name": "Test", "path": str(tmp_project)}
     )
     assert "overwrite" in resp.text.lower() or "already exists" in resp.text.lower()
+
+
+def test_create_project_existing_returns_inline_overwrite_panel(client, tmp_project):
+    resp = client.post(
+        "/api/project/create",
+        data={"name": "Existing", "path": str(tmp_project)},
+    )
+    assert resp.status_code == 200
+    assert 'id="project-overwrite-panel"' in resp.text
+    assert "A project already exists at this path" in resp.text
+    assert 'name="overwrite"' in resp.text
+    assert 'value="true"' in resp.text
+    assert "<dialog" not in resp.text
 
 
 def test_create_project_overwrite_confirmed(client, tmp_project):

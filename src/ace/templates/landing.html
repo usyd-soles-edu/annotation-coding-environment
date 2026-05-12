@@ -17,19 +17,43 @@
 
     <!-- Actions -->
     <div class="ace-home-actions">
-      <a id="new-project-link" class="ace-home-action-primary" href="#"
-         onclick="toggleNewProject(); return false">New project</a>
-      <a class="ace-home-action-secondary" href="#"
-         onclick="openExisting(); return false">Open file</a>
+      <button id="new-project-link" class="ace-home-action-primary" type="button">
+        New project
+      </button>
+      <button id="open-existing-btn" class="ace-home-action-secondary" type="button">
+        Open existing
+      </button>
     </div>
 
-    <!-- New project expand (hidden by default) -->
-    <div id="new-project-wrap" class="ace-home-expand">
-      <input id="new-project-input" class="ace-home-input"
-             placeholder="Project name..." aria-label="New project name">
-      <p class="ace-home-input-hint">press Enter to choose folder</p>
-    </div>
+    <form id="new-project-form" class="ace-home-form" hidden>
+      <label class="ace-home-field">
+        <span class="ace-home-label">Project name</span>
+        <input id="new-project-input" class="ace-home-input"
+               name="name" autocomplete="off">
+      </label>
 
+      <div class="ace-home-location">
+        <span class="ace-home-label">Location</span>
+        <button id="choose-project-folder-btn" class="ace-btn" type="button">
+          Choose folder
+        </button>
+        <span id="new-project-folder-label" class="ace-home-path">No folder chosen</span>
+        <input id="new-project-folder" name="folder" type="hidden" value="">
+      </div>
+
+      <p id="new-project-path-preview" class="ace-home-path-preview" aria-live="polite"></p>
+
+      <div class="ace-home-form-actions">
+        <button id="create-project-btn" class="ace-btn ace-btn--primary" type="submit" disabled>
+          Create project
+        </button>
+        <button id="cancel-new-project-btn" class="ace-btn" type="button">
+          Cancel
+        </button>
+      </div>
+    </form>
+
+    <p id="ace-home-message" class="ace-home-message" role="status" aria-live="polite"></p>
 
 
     <!-- Tools -->
@@ -49,64 +73,132 @@
   "use strict";
 
   var STORAGE_KEY = "ace-recent-files";
-  var cloudPatterns = [/dropbox/i, /onedrive/i, /icloud/i, /google\s*drive/i];
+  var selectedFolder = "";
+  var pendingOverwrite = false;
+  var pendingRecentPath = "";
 
-  // --- New project flow ---
-  var newWrap = document.getElementById("new-project-wrap");
-  var newInput = document.getElementById("new-project-input");
+  var newProjectBtn = document.getElementById("new-project-link");
+  var openExistingBtn = document.getElementById("open-existing-btn");
+  var form = document.getElementById("new-project-form");
+  var nameInput = document.getElementById("new-project-input");
+  var folderInput = document.getElementById("new-project-folder");
+  var folderLabel = document.getElementById("new-project-folder-label");
+  var chooseFolderBtn = document.getElementById("choose-project-folder-btn");
+  var pathPreview = document.getElementById("new-project-path-preview");
+  var createBtn = document.getElementById("create-project-btn");
+  var cancelBtn = document.getElementById("cancel-new-project-btn");
+  var message = document.getElementById("ace-home-message");
+  var modal = document.getElementById("modal-container");
 
-  window.toggleNewProject = function() {
-    if (newWrap.classList.contains("open")) {
-      newWrap.classList.remove("open");
-      newInput.value = "";
-    } else {
-      newWrap.classList.add("open");
-      setTimeout(function() { newInput.focus(); }, 180);
-    }
-  };
+  function setMessage(text, kind) {
+    message.textContent = text || "";
+    message.dataset.kind = kind || "";
+    var live = document.getElementById(kind === "err" ? "ace-live-region-assertive" : "ace-live-region");
+    if (live) live.textContent = text || "";
+  }
 
-  newInput.addEventListener("keydown", function(e) {
+  function projectName() {
+    return nameInput.value.trim();
+  }
+
+  function projectPath() {
+    if (!selectedFolder || !projectName()) return "";
+    return selectedFolder.replace(/\/$/, "") + "/" + projectName().replace(/\.ace$/, "") + ".ace";
+  }
+
+  function updateFormState() {
+    var path = projectPath();
+    folderInput.value = selectedFolder;
+    folderLabel.textContent = selectedFolder || "No folder chosen";
+    pathPreview.textContent = path ? "Project file: " + path : "";
+    createBtn.disabled = !(projectName() && selectedFolder);
+  }
+
+  function showNewProjectForm() {
+    form.hidden = false;
+    pendingOverwrite = false;
+    modal.innerHTML = "";
+    setMessage("", "");
+    nameInput.focus();
+    updateFormState();
+  }
+
+  function hideNewProjectForm() {
+    form.hidden = true;
+    nameInput.value = "";
+    selectedFolder = "";
+    pendingOverwrite = false;
+    pendingRecentPath = "";
+    modal.innerHTML = "";
+    setMessage("", "");
+    updateFormState();
+    newProjectBtn.focus();
+  }
+
+  function handlePickerFailure() {
+    chooseFolderBtn.disabled = false;
+    chooseFolderBtn.textContent = "Choose folder";
+    setMessage("Could not open the folder picker. Try again.", "err");
+  }
+
+  newProjectBtn.addEventListener("click", showNewProjectForm);
+  cancelBtn.addEventListener("click", hideNewProjectForm);
+  nameInput.addEventListener("input", updateFormState);
+  form.addEventListener("keydown", function(e) {
     if (e.key === "Escape") {
-      window.toggleNewProject();
-      return;
+      e.preventDefault();
+      hideNewProjectForm();
     }
-    if (e.key !== "Enter") return;
-    var name = this.value.trim();
-    if (!name) return;
-    this.value = "";
-    this.disabled = true;
-    this.placeholder = "Choosing folder\u2026";
+  });
 
+  chooseFolderBtn.addEventListener("click", function() {
+    setMessage("", "");
+    chooseFolderBtn.disabled = true;
+    chooseFolderBtn.textContent = "Choosing folder...";
     fetch("/api/native/pick-folder", { method: "POST" })
       .then(function(r) { return r.json(); })
       .then(function(data) {
-        newInput.disabled = false;
-        newInput.placeholder = "Project name...";
-        if (!data.path) { newInput.value = name; return; }
-
-        // Cloud sync warning
-        var lower = data.path.toLowerCase();
-        var isCloud = cloudPatterns.some(function(re) { return re.test(lower); });
-        if (isCloud && !confirm(
-          "This folder appears to be cloud-synced (Dropbox, OneDrive, iCloud). " +
-          "SQLite databases can corrupt when synced.\n\nContinue anyway?"
-        )) return;
-
-        var projectPath = data.path.replace(/\/$/, "") + "/" + name.replace(/\.ace$/, "") + ".ace";
-
-        newWrap.classList.remove("open");
-        addRecent(projectPath);
-
-        htmx.ajax("POST", "/api/project/create", {
-          values: { name: name, path: projectPath },
-          target: "#modal-container",
-          swap: "innerHTML"
-        });
-      });
+        chooseFolderBtn.disabled = false;
+        chooseFolderBtn.textContent = "Choose folder";
+        if (!data.path) return;
+        selectedFolder = data.path;
+        updateFormState();
+      })
+      .catch(handlePickerFailure);
   });
 
+  form.addEventListener("submit", function(e) {
+    e.preventDefault();
+    var path = projectPath();
+    if (!path) return;
+    setMessage("Creating project...", "");
+    createBtn.disabled = true;
+    pendingRecentPath = path;
+    Promise.resolve(htmx.ajax("POST", "/api/project/create", {
+      values: { name: projectName(), path: path, overwrite: pendingOverwrite ? "true" : "false" },
+      target: "#modal-container",
+      swap: "innerHTML"
+    })).finally(function() {
+      createBtn.disabled = false;
+      updateFormState();
+    });
+  });
+
+  window._aceConfirmOverwrite = function() {
+    pendingOverwrite = true;
+    form.requestSubmit();
+  };
+
+  window._aceChooseAnotherFolder = function() {
+    pendingOverwrite = false;
+    pendingRecentPath = "";
+    modal.innerHTML = "";
+    chooseFolderBtn.focus();
+  };
+
   // --- Open existing ---
-  window.openExisting = function() {
+  function openExisting() {
+    setMessage("", "");
     fetch("/api/native/pick-file", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -115,11 +207,14 @@
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (data.path) openProject(data.path);
+      })
+      .catch(function() {
+        setMessage("Could not open the file picker. Try again.", "err");
       });
-  };
+  }
 
   function openProject(path) {
-    addRecent(path);
+    pendingRecentPath = path;
     htmx.ajax("POST", "/api/project/open", {
       values: { path: path },
       target: "#modal-container",
@@ -173,21 +268,52 @@
     var parts = list[0].path.split("/");
     var filename = parts.pop();
     var path = list[0].path;
-    el.innerHTML = '<a href="#" onclick="event.preventDefault(); window._aceOpenProject(\'' +
-      path.replace(/'/g, "\\'") + '\'); return false;">' + escapeHtml(filename) + '</a>' +
-      '<button class="ace-home-resume-close" onclick="window._aceClearResume()" title="Dismiss">\u00d7</button>';
+    el.innerHTML = '<a href="#">' + escapeHtml(filename) + '</a>' +
+      '<button class="ace-home-resume-close" title="Dismiss">\u00d7</button>';
+    el.querySelector("a").addEventListener("click", function(event) {
+      event.preventDefault();
+      openProject(path);
+    });
+    el.querySelector("button").addEventListener("click", clearResume);
     el.hidden = false;
   }
 
-  window._aceOpenProject = openProject;
-  window._aceAddRecent = addRecent;
-  window._aceClearResume = clearResume;
+  openExistingBtn.addEventListener("click", openExisting);
 
-  // Dialog auto-open for overwrite confirmation
-  document.addEventListener("htmx:afterSwap", function(evt) {
-    if (evt.detail.target.id === "modal-container") {
-      var dialog = evt.detail.target.querySelector("dialog");
-      if (dialog && !dialog.open) dialog.showModal();
+  function getResponseHeader(xhr, name) {
+    if (!xhr) return "";
+    return xhr.getResponseHeader(name) || xhr.getResponseHeader(name.toLowerCase()) || "";
+  }
+
+  function getOobErrorText(body) {
+    if (!body || body.indexOf("ace-statusbar-event--err") === -1) return null;
+    var template = document.createElement("template");
+    template.innerHTML = body;
+    var event = template.content.querySelector("#ace-statusbar-event.ace-statusbar-event--err");
+    return event ? event.textContent.trim() : "Could not complete request.";
+  }
+
+  document.addEventListener("htmx:afterRequest", function(evt) {
+    var pathInfo = evt.detail.pathInfo || {};
+    var requestConfig = evt.detail.requestConfig || {};
+    var path = pathInfo.requestPath || pathInfo.finalRequestPath || requestConfig.path;
+    if (path !== "/api/project/open" && path !== "/api/project/create") return;
+    var xhr = evt.detail.xhr;
+    var body = (xhr && xhr.responseText) || "";
+    var redirected = getResponseHeader(xhr, "HX-Redirect");
+    var errorText = getOobErrorText(body);
+    var is2xx = xhr && xhr.status >= 200 && xhr.status < 300;
+    if (errorText !== null) {
+      setMessage(errorText, "err");
+      pendingRecentPath = "";
+      return;
+    }
+    if (is2xx && redirected && pendingRecentPath) {
+      addRecent(pendingRecentPath);
+    }
+    if (redirected || path === "/api/project/create") {
+      pendingRecentPath = "";
+      setMessage("", "");
     }
   });
 

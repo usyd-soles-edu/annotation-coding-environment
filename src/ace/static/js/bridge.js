@@ -2410,10 +2410,11 @@
   /** Clear the search filter input and trigger the input handler to restore all rows. */
   function _clearSearchFilter() {
     let el = document.getElementById("code-search-input");
-    if (el && el.value) {
-      el.value = "";
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }
+    _exitSlashMode();
+    _resetSearchFilterState();
+    if (!el) return;
+    el.value = "";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
   /* ================================================================
@@ -4404,6 +4405,23 @@
       return;
     }
 
+    if (e.target.closest("#create-first-code-btn")) {
+      if (dropdown) dropdown.style.display = "none";
+      const input = document.getElementById("code-search-input");
+      if (input) {
+        _clearSearchFilter();
+        input.focus();
+      }
+      window._setStatus("Type a code name, then press Enter", "ok");
+      return;
+    }
+
+    if (e.target.closest("#empty-import-codebook-btn")) {
+      const importBtn = document.getElementById("codebook-menu-import-btn");
+      if (importBtn) importBtn.click();
+      return;
+    }
+
     // Import button
     if (e.target.closest("#codebook-menu-import-btn")) {
       if (dropdown) dropdown.style.display = "none";
@@ -4547,6 +4565,12 @@
    * 19. Import form column-role assignment (delegated)
    * ================================================================ */
 
+  function _setImportRoleButton(btn, active) {
+    if (!btn) return;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+
   document.addEventListener("click", function (e) {
     const btn = e.target.closest(".ace-role-btn");
     if (!btn) return;
@@ -4559,23 +4583,23 @@
     if (role === "id") {
       // Radio: clear all other IDs
       form.querySelectorAll('.ace-role-btn[data-role="id"].active').forEach(function (b) {
-        b.classList.remove("active");
+        _setImportRoleButton(b, false);
         b.closest(".ace-glimpse-row").dataset.role = b.closest(".ace-glimpse-row").querySelector('.ace-role-btn[data-role="text"].active') ? "text" : "";
       });
       // Clear text on this row if setting ID
       const textBtn = row.querySelector('.ace-role-btn[data-role="text"]');
-      if (textBtn) { textBtn.classList.remove("active"); }
+      _setImportRoleButton(textBtn, false);
     } else {
       // Clear ID on this row if setting text
       const idBtn = row.querySelector('.ace-role-btn[data-role="id"]');
-      if (idBtn) { idBtn.classList.remove("active"); }
+      _setImportRoleButton(idBtn, false);
     }
 
     if (wasActive) {
-      btn.classList.remove("active");
+      _setImportRoleButton(btn, false);
       row.dataset.role = "";
     } else {
-      btn.classList.add("active");
+      _setImportRoleButton(btn, true);
       row.dataset.role = role;
     }
 

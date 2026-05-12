@@ -111,10 +111,16 @@
 
   {% if not tree_codes %}
   <div class="ace-sidebar-empty">
-    No codes yet. Type a name + <kbd>Enter</kbd> for a code,
-    or <kbd>&#8679;</kbd>+<kbd>Enter</kbd> for a folder.
-    Or <a href="#" style="color:var(--ace-text);text-decoration:underline"
-          onclick="event.preventDefault();document.getElementById('codebook-menu-import-btn').click()">import from CSV</a>.
+    <p>No codes yet.</p>
+    <div class="ace-empty-actions">
+      <button type="button" class="ace-empty-action" id="create-first-code-btn">
+        Create first code
+      </button>
+      <button type="button" class="ace-empty-action" id="empty-import-codebook-btn">
+        Import codebook CSV
+      </button>
+    </div>
+    <p class="ace-empty-hint">You can also type a name and press <kbd>Enter</kbd>.</p>
   </div>
   {% endif %}
 </div>

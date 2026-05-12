@@ -5,25 +5,26 @@
 {% block content %}
 <a href="/" class="ace-back">&larr; Home</a>
 <main class="ace-wizard">
+  <p id="import-message" class="ace-wizard-message" role="status" aria-live="polite"></p>
 
   {% if source_count > 0 %}
   <!-- Already have data — offer to continue or import more -->
-  <div class="ace-wizard-step" id="step-existing">
-    <p class="ace-wizard-count">{{ source_count }} source{{ "s" if source_count != 1 else "" }} imported</p>
+  <div class="ace-wizard-step active" id="step-existing">
+    <h1 class="ace-wizard-count ace-wizard-title" tabindex="-1">{{ source_count }} source{{ "s" if source_count != 1 else "" }} imported</h1>
     <a href="/code" class="ace-wizard-action">Start coding &rarr;</a>
-    <button class="ace-wizard-link" onclick="showStep('step-choose')">or import more data</button>
+    <button class="ace-wizard-link" type="button" onclick="showStep('step-choose')">Import more data</button>
   </div>
   {% endif %}
 
   <!-- Step 1: Choose import type -->
-  <div class="ace-wizard-step {% if source_count == 0 %}active{% endif %}" id="step-choose">
-    <p class="ace-wizard-q">What would you like to import?</p>
+  <div class="ace-wizard-step {% if source_count == 0 %}active{% endif %}" id="step-choose"{% if source_count > 0 %} hidden{% endif %}>
+    <h1 class="ace-wizard-title" tabindex="-1">What would you like to import?</h1>
     <div class="ace-wizard-options">
-      <button class="ace-wizard-option" onclick="chooseFile()">
+      <button class="ace-wizard-option" type="button" onclick="chooseFile()">
         <span class="ace-wizard-option-title">CSV or Excel file</span>
         <span class="ace-wizard-option-desc">Tabular data with columns</span>
       </button>
-      <button class="ace-wizard-option" onclick="chooseFolder()">
+      <button class="ace-wizard-option" type="button" onclick="chooseFolder()">
         <span class="ace-wizard-option-title">Folder of text files</span>
         <span class="ace-wizard-option-desc">One .txt or .md file per source</span>
       </button>
@@ -31,43 +32,44 @@
   </div>
 
   <!-- Step 2a: File upload -->
-  <div class="ace-wizard-step" id="step-upload">
-    <p class="ace-wizard-q">Choose your file</p>
+  <div class="ace-wizard-step" id="step-upload" hidden>
+    <h1 class="ace-wizard-title" tabindex="-1">Choose your file</h1>
     <p class="ace-wizard-hint">.csv or .xlsx</p>
     <form hx-post="/api/import/upload"
           hx-target="#step-columns"
           hx-swap="innerHTML"
           hx-encoding="multipart/form-data"
-          hx-on::after-request="if(event.detail.successful) showStep('step-columns')">
+          hx-on::after-request="window.handleImportUpload(event)">
       <div class="ace-wizard-options">
-        <label class="ace-wizard-option">
-          <input type="file" name="file" accept=".csv,.xlsx" style="display:none"
-                 onchange="this.closest('form').requestSubmit()">
+        <input id="import-file-input" class="ace-sr-only" tabindex="-1" type="file"
+               aria-label="Import file"
+               name="file" accept=".csv,.xlsx">
+        <button id="import-file-button" class="ace-wizard-option" type="button">
           <span class="ace-wizard-option-title">Browse for file</span>
-        </label>
+        </button>
       </div>
     </form>
-    <button class="ace-wizard-back" onclick="showStep('step-choose')">&larr; Back</button>
+    <button class="ace-wizard-back" type="button" onclick="showStep('step-choose')">&larr; Back</button>
   </div>
 
   <!-- Step 2b: Folder picker -->
-  <div class="ace-wizard-step" id="step-folder">
-    <p class="ace-wizard-q">Choose a folder</p>
+  <div class="ace-wizard-step" id="step-folder" hidden>
+    <h1 class="ace-wizard-title" tabindex="-1">Choose a folder</h1>
     <p class="ace-wizard-hint">All .txt and .md files will be imported as sources</p>
     <div class="ace-wizard-options">
-      <button class="ace-wizard-option" onclick="pickAndImportFolder()">
+      <button id="import-folder-button" class="ace-wizard-option" type="button" onclick="pickAndImportFolder()">
         <span class="ace-wizard-option-title">Browse for folder</span>
       </button>
     </div>
     <div id="folder-result"></div>
-    <button class="ace-wizard-back" onclick="showStep('step-choose')">&larr; Back</button>
+    <button class="ace-wizard-back" type="button" onclick="showStep('step-choose')">&larr; Back</button>
   </div>
 
   <!-- Step 3: Column selection (populated by HTMX) -->
-  <div class="ace-wizard-step" id="step-columns"></div>
+  <div class="ace-wizard-step" id="step-columns" hidden></div>
 
   <!-- Step 4: Done (populated by HTMX on import commit) -->
-  <div class="ace-wizard-step" id="step-done"></div>
+  <div class="ace-wizard-step" id="step-done" hidden></div>
 
 </main>
 {% endblock %}
@@ -77,28 +79,130 @@
 (function() {
   "use strict";
 
+  function setImportMessage(text, kind) {
+    var message = document.getElementById("import-message");
+    message.textContent = text || "";
+    message.dataset.kind = kind || "";
+    var live = document.getElementById(kind === "err" ? "ace-live-region-assertive" : "ace-live-region");
+    if (live) live.textContent = text || "";
+  }
+
+  function extractOobError(html) {
+    if (!html || html.indexOf("ace-statusbar-event--err") === -1) return null;
+    var template = document.createElement("template");
+    template.innerHTML = html;
+    var event = template.content.querySelector("#ace-statusbar-event.ace-statusbar-event--err");
+    return event ? event.textContent.trim() : "Could not complete request.";
+  }
+
+  function responseIsSuccessful(evt) {
+    var xhr = evt.detail.xhr;
+    var body = (xhr && xhr.responseText) || "";
+    var error = extractOobError(body);
+    if (error !== null) {
+      setImportMessage(error, "err");
+      return false;
+    }
+    return !!(xhr && xhr.status >= 200 && xhr.status < 300);
+  }
+
   window.showStep = function(id) {
-    document.querySelectorAll('.ace-wizard-step').forEach(function(el) {
-      el.classList.remove('active');
+    document.querySelectorAll(".ace-wizard-step").forEach(function(el) {
+      var active = el.id === id;
+      el.hidden = !active;
+      el.classList.toggle("active", active);
     });
     var step = document.getElementById(id);
-    if (step) step.classList.add('active');
+    if (!step) return;
+    var title = step.querySelector(".ace-wizard-title, .ace-wizard-count");
+    if (title) {
+      if (!title.hasAttribute("tabindex")) title.setAttribute("tabindex", "-1");
+      title.focus();
+      setImportMessage(title.textContent.trim(), "");
+    }
   };
 
-  window.chooseFile = function() { showStep('step-upload'); };
+  window.chooseFile = function() { showStep("step-upload"); };
 
-  window.chooseFolder = function() { showStep('step-folder'); };
+  window.chooseFolder = function() { showStep("step-folder"); };
+
+  window.handleImportUpload = function(evt) {
+    if (responseIsSuccessful(evt)) showStep("step-columns");
+  };
+
+  window.handleImportCommit = function(evt) {
+    if (responseIsSuccessful(evt)) showStep("step-done");
+  };
+
+  var fileInput = document.getElementById("import-file-input");
+  var fileButton = document.getElementById("import-file-button");
+  if (fileInput && fileButton) {
+    fileButton.addEventListener("click", function() {
+      fileInput.click();
+    });
+    fileInput.addEventListener("change", function() {
+      if (fileInput.files && fileInput.files.length > 0) {
+        fileInput.closest("form").requestSubmit();
+      }
+    });
+  }
+
+  document.addEventListener("click", function(evt) {
+    var button = evt.target.closest("[data-import-preview-file]");
+    if (!button) return;
+    var browser = button.closest(".ace-folder-import-browser");
+    if (!browser) return;
+    browser.querySelectorAll("[data-import-preview-file]").forEach(function(other) {
+      other.classList.remove("is-selected");
+      other.removeAttribute("aria-current");
+    });
+    button.classList.add("is-selected");
+    button.setAttribute("aria-current", "true");
+    var title = browser.querySelector("[data-import-preview-title]");
+    var size = browser.querySelector("[data-import-preview-size]");
+    var text = browser.querySelector("[data-import-preview-text]");
+    if (title) title.textContent = button.dataset.filename || "";
+    if (size) size.textContent = button.dataset.sizeLabel || "";
+    if (text) text.textContent = button.dataset.preview || "";
+    var body = browser.querySelector(".ace-folder-import-preview-body");
+    if (body) body.scrollTop = 0;
+  });
 
   window.pickAndImportFolder = function() {
+    var btn = document.getElementById("import-folder-button");
+    setImportMessage("", "");
+    btn.disabled = true;
+    btn.querySelector(".ace-wizard-option-title").textContent = "Choosing folder...";
     fetch("/api/native/pick-folder", { method: "POST" })
       .then(function(r) { return r.json(); })
       .then(function(data) {
+        btn.disabled = false;
+        btn.querySelector(".ace-wizard-option-title").textContent = "Browse for folder";
         if (!data.path) return;
-        htmx.ajax("POST", "/api/import/folder", {
+        setImportMessage("Importing folder...", "");
+        btn.disabled = true;
+        btn.querySelector(".ace-wizard-option-title").textContent = "Importing folder...";
+        var afterFolderRequest = function(evt) {
+          var pathInfo = evt.detail.pathInfo || {};
+          var requestConfig = evt.detail.requestConfig || {};
+          var path = pathInfo.requestPath || pathInfo.finalRequestPath || requestConfig.path;
+          if (path !== "/api/import/folder") return;
+          document.removeEventListener("htmx:afterRequest", afterFolderRequest);
+          btn.disabled = false;
+          btn.querySelector(".ace-wizard-option-title").textContent = "Browse for folder";
+          if (responseIsSuccessful(evt)) showStep("step-done");
+        };
+        document.addEventListener("htmx:afterRequest", afterFolderRequest);
+        return htmx.ajax("POST", "/api/import/folder", {
           values: { path: data.path },
           target: "#step-done",
           swap: "innerHTML"
-        }).then(function() { showStep('step-done'); });
+        });
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.querySelector(".ace-wizard-option-title").textContent = "Browse for folder";
+        setImportMessage("Could not open the folder picker. Try again.", "err");
       });
   };
 })();

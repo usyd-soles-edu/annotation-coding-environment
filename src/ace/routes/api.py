@@ -172,24 +172,100 @@ async def pick_files(accept: str | None = Form(default=None)):
 # Import preview fragment helper
 # ---------------------------------------------------------------------------
 
-def _preview_fragment(filename: str, snippet: str, escaped_folder: str) -> str:
-    """Return the #import-preview HTML fragment (outerHTML-swappable)."""
-    escaped_fn = html.escape(filename)
-    escaped_snippet = html.escape(snippet)
+def _import_done_actions() -> str:
     return (
-        f'<div id="import-preview">'
-        f'<div style="display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:8px;">'
-        f'<span style="font-size:var(--ace-font-size-2xs);color:var(--ace-text-muted);'
-        f'text-transform:uppercase;letter-spacing:0.5px;">Preview — {escaped_fn}</span>'
-        f'<button hx-get="/api/import/preview?folder={escaped_folder}" hx-target="#import-preview"'
-        f' hx-swap="outerHTML" style="background:none;border:1px solid var(--ace-border);'
-        f'border-radius:4px;padding:2px 6px;cursor:pointer;font-size:var(--ace-font-size-2xs);'
-        f'color:var(--ace-text-muted);" title="Preview another file">&#x21BB;</button>'
-        f'</div>'
-        f'<p style="text-align:left;font-size:var(--ace-font-size-md);color:var(--ace-text);'
-        f'margin:0;line-height:1.5;display:-webkit-box;-webkit-line-clamp:4;'
-        f'-webkit-box-orient:vertical;overflow:hidden;">{escaped_snippet}</p>'
-        f'</div>'
+        '<a href="/code" class="ace-wizard-action">Start coding &rarr;</a>'
+        '<button class="ace-wizard-link" type="button" '
+        'onclick="showStep(\'step-choose\')">Import more data</button>'
+    )
+
+
+def _folder_preview_teaser(snippet: str, max_chars: int = 72) -> str:
+    teaser = " ".join(snippet.split())
+    if not teaser:
+        return "(empty file)"
+    if len(teaser) > max_chars:
+        return teaser[:max_chars].rstrip() + "..."
+    return teaser
+
+
+def _folder_preview_button(preview: dict, selected: bool) -> str:
+    filename = str(preview["filename"])
+    snippet = str(preview["snippet"])
+    size_label = str(preview["size_label"])
+    selected_class = " is-selected" if selected else ""
+    aria_current = ' aria-current="true"' if selected else ""
+    return (
+        f'<button class="ace-folder-import-file{selected_class}" type="button"'
+        f' data-import-preview-file data-filename="{html.escape(filename, quote=True)}"'
+        f' data-size-label="{html.escape(size_label, quote=True)}"'
+        f' data-preview="{html.escape(snippet, quote=True)}"{aria_current}>'
+        f"<b>{html.escape(filename)}</b>"
+        f"<span>{html.escape(size_label)}</span>"
+        f"<small>{html.escape(_folder_preview_teaser(snippet))}</small>"
+        "</button>"
+    )
+
+
+def _folder_preview_panel(preview: dict) -> str:
+    return (
+        '<section class="ace-folder-import-preview" aria-live="polite">'
+        '<div class="ace-folder-import-preview-head">'
+        "<div>"
+        "<span>Previewing</span>"
+        f'<strong data-import-preview-title>{html.escape(str(preview["filename"]))}</strong>'
+        "</div>"
+        f'<span data-import-preview-size>{html.escape(str(preview["size_label"]))}</span>'
+        "</div>"
+        '<div class="ace-folder-import-preview-body" tabindex="0">'
+        f'<pre data-import-preview-text>{html.escape(str(preview["snippet"]))}</pre>'
+        "</div>"
+        "</section>"
+    )
+
+
+def _folder_import_preview_fragment(
+    previews: list[dict], total: int, escaped_folder: str
+) -> str:
+    """Return the #import-preview HTML fragment (outerHTML-swappable)."""
+    if not previews:
+        return (
+            '<div id="import-preview" class="ace-folder-import-empty">'
+            '<p>No text files found.</p>'
+            "</div>"
+        )
+
+    first = previews[0]
+    buttons = "".join(
+        _folder_preview_button(preview, selected=(i == 0))
+        for i, preview in enumerate(previews)
+    )
+    visible = len(previews)
+    remaining = max(total - visible, 0)
+    more_label = (
+        f"{remaining} more file{'s' if remaining != 1 else ''} imported"
+        if remaining
+        else "All files shown"
+    )
+    return (
+        '<div id="import-preview" class="ace-folder-import-browser">'
+        '<aside class="ace-folder-import-list" aria-label="Imported files">'
+        '<div class="ace-folder-import-list-head">'
+        '<div class="ace-folder-import-list-title">'
+        "<strong>Random sample</strong>"
+        f"<span>Showing {visible} of {total}</span>"
+        "</div>"
+        f'<button class="ace-folder-import-refresh" type="button"'
+        f' hx-get="/api/import/preview?folder={escaped_folder}"'
+        f' hx-target="#import-preview" hx-swap="outerHTML"'
+        f' title="Show another random sample"'
+        f' aria-label="Show another random sample">&#x21BB;</button>'
+        "</div>"
+        f'<div class="ace-folder-import-files">{buttons}</div>'
+        f'<div class="ace-folder-import-more">{html.escape(more_label)}</div>'
+        "</aside>"
+        f"{_folder_preview_panel(first)}"
+        "</div>"
     )
 
 
@@ -301,22 +377,15 @@ async def project_create(
 
     try:
         if file_path.exists() and not overwrite:
-            # Return an overwrite confirmation dialog
-            esc_name = html.escape(name, quote=True)
-            esc_coder = html.escape(coder_name, quote=True)
             return HTMLResponse(
-                '<dialog class="ace-dialog">'
-                "<p>This file already exists. Overwrite it?</p>"
-                '<form method="dialog" style="display:flex;gap:0.5rem;margin-top:1rem;justify-content:flex-end">'
-                '<button class="ace-btn" onclick="this.closest(\'dialog\').remove()" type="button">Cancel</button>'
-                f'<button class="ace-btn ace-btn--danger" '
-                f'hx-post="/api/project/create" '
-                f'hx-vals=\'{{"name":"{esc_name}","path":"{file_path}","overwrite":"true","coder_name":"{esc_coder}"}}\' '
-                f'hx-target="#modal-container" '
-                f'hx-swap="innerHTML"'
-                f">Overwrite</button>"
-                "</form>"
-                "</dialog>"
+                '<div id="project-overwrite-panel" class="ace-home-overwrite" role="status">'
+                "<p>A project already exists at this path.</p>"
+                '<div class="ace-home-form-actions">'
+                '<button type="button" class="ace-btn" onclick="window._aceChooseAnotherFolder()">Choose another folder</button>'
+                '<button type="button" class="ace-btn ace-btn--danger" '
+                'name="overwrite" value="true" onclick="window._aceConfirmOverwrite()">Overwrite existing project</button>'
+                "</div>"
+                "</div>"
             )
 
         if file_path.exists() and overwrite:
@@ -446,28 +515,28 @@ async def import_upload(request: Request, file: UploadFile = File(...)):
         sample = _sample_values(col)
         esc_col = html.escape(str(col))
         glimpse_parts.append(
-            f'<div class="ace-glimpse-row" data-col="{esc_col}" data-role="" tabindex="0">'
+            f'<div class="ace-glimpse-row" data-col="{esc_col}" data-role="">'
             f'<span class="ace-glimpse-name">{esc_col}</span>'
             f'<span class="ace-glimpse-type">{col_type}</span>'
             f'<span class="ace-glimpse-vals">{sample}</span>'
             f'<span class="ace-glimpse-roles">'
-            f'<button type="button" class="ace-role-btn" data-role="id">ID</button>'
-            f'<button type="button" class="ace-role-btn" data-role="text">Text</button>'
+            f'<button type="button" class="ace-role-btn" data-role="id" aria-pressed="false">ID</button>'
+            f'<button type="button" class="ace-role-btn" data-role="text" aria-pressed="false">Text</button>'
             f'</span>'
             f'</div>'
         )
     glimpse_rows = "".join(glimpse_parts)
 
     fragment = f"""
-    <p class="ace-wizard-q">Select columns</p>
+    <h1 class="ace-wizard-title" tabindex="-1">Select columns</h1>
     <form id="import-form" hx-post="/api/import/commit" hx-target="#step-done" hx-swap="innerHTML"
-          hx-on::after-request="if(event.detail.successful) showStep('step-done')">
+          hx-on::after-request="window.handleImportCommit(event)">
       <div class="ace-glimpse">
         <div class="ace-glimpse-header">
           <span>{filename}</span>
           <span>{n_rows:,} rows &times; {n_cols}</span>
         </div>
-        <div class="ace-glimpse-hint">Click to assign: one ID, one or more Text</div>
+        <div class="ace-glimpse-hint">Choose one ID column and at least one Text column.</div>
         {glimpse_rows}
       </div>
       <input type="hidden" name="id_column" id="import-id-col" value="">
@@ -511,9 +580,9 @@ async def import_commit(
     request.app.state.import_tmp_path = None
 
     return HTMLResponse(
-        f'<p class="ace-wizard-count">{count} source{"s" if count != 1 else ""}</p>'
+        f'<h1 class="ace-wizard-count" tabindex="-1">{count} source{"s" if count != 1 else ""}</h1>'
         f'<p style="color:var(--ace-text-muted);margin:0 0 1.5rem">imported successfully</p>'
-        f'<a href="/code" class="ace-wizard-action">Start coding &rarr;</a>'
+        f'{_import_done_actions()}'
     )
 
 
@@ -524,7 +593,7 @@ async def import_folder(
 ):
     """Import .txt and .md files from a folder."""
     from ace.app import get_db
-    from ace.services.importer import import_text_files, get_random_preview
+    from ace.services.importer import import_text_files, get_random_previews
 
     folder = Path(path)
     if not folder.is_dir():
@@ -543,26 +612,21 @@ async def import_folder(
     folder_name = html.escape(folder.name)
     escaped_path = html.escape(quote(str(folder), safe=""))
 
-    result = get_random_preview(folder)
-    if result:
-        filename, snippet = result
-        preview_html = (
-            f'<div style="border:1px solid var(--ace-border-light);border-radius:8px;padding:16px;'
-            f'margin:0 auto 24px;max-width:400px;background:var(--ace-bg-muted);">'
-            f'{_preview_fragment(filename, snippet, escaped_path)}'
-            f'</div>'
-        )
-    else:
-        preview_html = ""
+    total, previews = get_random_previews(folder)
+    preview_html = (
+        _folder_import_preview_fragment(previews, total, escaped_path)
+        if previews
+        else ""
+    )
 
     return HTMLResponse(
-        f'<p class="ace-wizard-count">{count} text file{"s" if count != 1 else ""}</p>'
+        f'<h1 class="ace-wizard-count" tabindex="-1">{count} text file{"s" if count != 1 else ""}</h1>'
         f'<p style="color:var(--ace-text-muted);margin:0 0 4px">imported successfully</p>'
         f'<p style="font-size:var(--ace-font-size-md);color:var(--ace-text-muted);margin:0 0 24px">'
         f'from <span style="font-family:var(--ace-font-mono);font-size:var(--ace-font-size-xs);'
         f'background:var(--ace-bg-muted);padding:2px 6px;border-radius:4px;">{folder_name}/</span></p>'
         f'{preview_html}'
-        f'<a href="/code" class="ace-wizard-action">Start coding &rarr;</a>'
+        f'{_import_done_actions()}'
     )
 
 
@@ -590,19 +654,15 @@ async def code_view_data_json(request: Request, code_id: str):
 @router.get("/import/preview")
 async def import_preview(folder: str = Query(...)):
     """Return an HTML fragment previewing a random text file from the folder."""
-    from ace.services.importer import get_random_preview
+    from ace.services.importer import get_random_previews
 
     folder_path = Path(folder)
     if not folder_path.is_dir():
         return HTMLResponse('<p style="color:var(--ace-text-muted)">Invalid folder.</p>')
 
-    result = get_random_preview(folder_path)
-    if result is None:
-        return HTMLResponse('<p style="color:var(--ace-text-muted)">No text files found.</p>')
-
-    filename, snippet = result
+    total, previews = get_random_previews(folder_path)
     escaped_folder = html.escape(quote(folder, safe=""))
-    return HTMLResponse(_preview_fragment(filename, snippet, escaped_folder))
+    return HTMLResponse(_folder_import_preview_fragment(previews, total, escaped_folder))
 
 
 # ---------------------------------------------------------------------------

@@ -509,6 +509,36 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
   text-align: center;
 }
 
+.ace-sidebar-empty p {
+  margin: 0;
+}
+
+.ace-empty-actions {
+  display: grid;
+  gap: var(--ace-space-2);
+  margin-top: var(--ace-space-3);
+}
+
+.ace-empty-action {
+  width: 100%;
+  border: 1px solid var(--ace-border);
+  border-radius: var(--ace-radius);
+  background: var(--ace-bg);
+  color: var(--ace-text);
+  font: inherit;
+  padding: var(--ace-space-2) var(--ace-space-3);
+  cursor: pointer;
+}
+
+.ace-empty-action:hover,
+.ace-empty-action:focus-visible {
+  background: var(--ace-bg-muted);
+}
+
+.ace-empty-hint {
+  margin-top: var(--ace-space-3);
+}
+
 .ace-create-prompt {
   padding: 5px 10px;
   font-size: var(--ace-font-size-sm);
