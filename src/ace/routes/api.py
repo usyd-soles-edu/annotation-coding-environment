@@ -200,7 +200,7 @@ def _folder_preview_button(preview: dict, selected: bool) -> str:
         f'<button class="ace-folder-import-file{selected_class}" type="button"'
         f' data-import-preview-file data-filename="{html.escape(filename, quote=True)}"'
         f' data-size-label="{html.escape(size_label, quote=True)}"'
-        f' data-preview="{html.escape(snippet, quote=True)}"{aria_current}>'
+        f' data-preview-json="{html.escape(json.dumps(snippet), quote=True)}"{aria_current}>'
         f"<b>{html.escape(filename)}</b>"
         f"<span>{html.escape(size_label)}</span>"
         f"<small>{html.escape(_folder_preview_teaser(snippet))}</small>"
@@ -697,8 +697,8 @@ def _build_import_mapping_fragment(
 @router.post("/import/commit")
 async def import_commit(
     request: Request,
-    id_column: str = Form(...),
-    text_columns: str = Form(...),
+    id_column: str = Form(default=""),
+    text_columns: str = Form(default=""),
 ):
     """Commit the uploaded file: import selected columns as sources."""
     from ace.app import get_db
@@ -712,6 +712,10 @@ async def import_commit(
     conn = next(db_gen)
     try:
         text_col_list = [c.strip() for c in text_columns.split(",") if c.strip()]
+        if not id_column.strip():
+            return _oob_status("Choose a source label column.")
+        if not text_col_list:
+            return _oob_status("Choose at least one text column.")
         count = import_csv(conn, tmp_path, id_column, text_col_list)
     except Exception as e:
         db_gen.close()

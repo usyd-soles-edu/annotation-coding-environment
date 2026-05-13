@@ -133,6 +133,33 @@ def test_import_commit(client_with_project):
     assert "Start coding" in resp.text
 
 
+def test_import_commit_requires_text_column(client_with_project):
+    """Submitting without a text column does not create empty sources."""
+    client, tmp_path = client_with_project
+
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("id,text\nA1,hello\n", encoding="utf-8")
+
+    with open(csv_path, "rb") as f:
+        client.post(
+            "/api/import/upload",
+            files={"file": ("data.csv", f, "text/csv")},
+        )
+
+    resp = client.post(
+        "/api/import/commit",
+        data={"id_column": "id", "text_columns": ""},
+    )
+
+    assert resp.status_code == 200
+    assert "Choose at least one text column." in resp.text
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        assert list_sources(conn) == []
+    finally:
+        conn.close()
+
+
 def test_import_commit_multiple_text_columns_creates_one_source_per_row(client_with_project):
     client, tmp_path = client_with_project
 
@@ -192,12 +219,16 @@ def test_import_preview_returns_snippet(client_with_project):
 
     folder = tmp_path / "prev"
     folder.mkdir()
-    (folder / "doc.txt").write_text("Preview content here.")
+    (folder / "doc.txt").write_text(
+        "Preview content here.\nSecond line.", encoding="utf-8"
+    )
 
     resp = client.get("/api/import/preview", params={"folder": str(folder)})
     assert resp.status_code == 200
     assert 'id="import-preview"' in resp.text
     assert "ace-folder-import-browser" in resp.text
+    assert "data-preview-json=" in resp.text
+    assert "Preview content here.\\nSecond line." in resp.text
     assert "Random sample" in resp.text
     assert "Previewing" in resp.text
     assert "doc.txt" in resp.text

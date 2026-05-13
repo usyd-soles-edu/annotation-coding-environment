@@ -86,6 +86,14 @@
     return !!(xhr && xhr.status >= 200 && xhr.status < 300);
   }
 
+  function previewTextForButton(button) {
+    try {
+      return JSON.parse(button.dataset.previewJson || "\"\"");
+    } catch (_) {
+      return "";
+    }
+  }
+
   window.showStep = function(id) {
     document.querySelectorAll(".ace-wizard-step").forEach(function(el) {
       var active = el.id === id;
@@ -162,7 +170,7 @@
     var text = browser.querySelector("[data-import-preview-text]");
     if (title) title.textContent = button.dataset.filename || "";
     if (size) size.textContent = button.dataset.sizeLabel || "";
-    if (text) text.textContent = button.dataset.preview || "";
+    if (text) text.textContent = previewTextForButton(button);
     var body = browser.querySelector(".ace-folder-import-preview-body");
     if (body) body.scrollTop = 0;
   });
