@@ -2410,10 +2410,11 @@
   /** Clear the search filter input and trigger the input handler to restore all rows. */
   function _clearSearchFilter() {
     let el = document.getElementById("code-search-input");
-    if (el && el.value) {
-      el.value = "";
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    }
+    _exitSlashMode();
+    _resetSearchFilterState();
+    if (!el) return;
+    el.value = "";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
   /* ================================================================
@@ -4404,6 +4405,23 @@
       return;
     }
 
+    if (e.target.closest("#create-first-code-btn")) {
+      if (dropdown) dropdown.style.display = "none";
+      const input = document.getElementById("code-search-input");
+      if (input) {
+        _clearSearchFilter();
+        input.focus();
+      }
+      window._setStatus("Type a code name, then press Enter", "ok");
+      return;
+    }
+
+    if (e.target.closest("#empty-import-codebook-btn")) {
+      const importBtn = document.getElementById("codebook-menu-import-btn");
+      if (importBtn) importBtn.click();
+      return;
+    }
+
     // Import button
     if (e.target.closest("#codebook-menu-import-btn")) {
       if (dropdown) dropdown.style.display = "none";
@@ -4544,53 +4562,183 @@
   };
 
   /* ================================================================
-   * 19. Import form column-role assignment (delegated)
+   * 19. Import mapping controls (delegated)
    * ================================================================ */
 
-  document.addEventListener("click", function (e) {
-    const btn = e.target.closest(".ace-role-btn");
-    if (!btn) return;
-    const form = btn.closest("#import-form");
-    if (!form) return;
-    let row = btn.closest(".ace-glimpse-row");
-    let role = btn.dataset.role;
-    const wasActive = btn.classList.contains("active");
+  function _getImportForm(el) {
+    return (el && el.closest && el.closest("#import-form")) || document.getElementById("import-form");
+  }
 
-    if (role === "id") {
-      // Radio: clear all other IDs
-      form.querySelectorAll('.ace-role-btn[data-role="id"].active').forEach(function (b) {
-        b.classList.remove("active");
-        b.closest(".ace-glimpse-row").dataset.role = b.closest(".ace-glimpse-row").querySelector('.ace-role-btn[data-role="text"].active') ? "text" : "";
-      });
-      // Clear text on this row if setting ID
-      const textBtn = row.querySelector('.ace-role-btn[data-role="text"]');
-      if (textBtn) { textBtn.classList.remove("active"); }
-    } else {
-      // Clear ID on this row if setting text
-      const idBtn = row.querySelector('.ace-role-btn[data-role="id"]');
-      if (idBtn) { idBtn.classList.remove("active"); }
+  function _getImportPreviewRows(form) {
+    const data = form && form.querySelector("#import-preview-data");
+    if (!data) return [];
+    try {
+      const parsed = JSON.parse(data.dataset.previewRows || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+      return [];
     }
+  }
 
-    if (wasActive) {
-      btn.classList.remove("active");
-      row.dataset.role = "";
-    } else {
-      btn.classList.add("active");
-      row.dataset.role = role;
-    }
+  function _getSelectedImportTextColumns(form) {
+    return Array.from(form.querySelectorAll("[data-import-text-col]:checked"))
+      .map(function (input) { return input.value; })
+      .filter(Boolean);
+  }
 
-    // Update hidden inputs
-    const idRow = form.querySelector('.ace-role-btn[data-role="id"].active');
-    document.getElementById("import-id-col").value = idRow ? idRow.closest(".ace-glimpse-row").dataset.col : "";
-
-    const textCols = [];
-    form.querySelectorAll('.ace-role-btn[data-role="text"].active').forEach(function (b) {
-      textCols.push(b.closest(".ace-glimpse-row").dataset.col);
+  function _updateImportExamples(form, rows, idCol) {
+    const examples = form.querySelector(".ace-import-examples");
+    if (!examples) return;
+    Array.from(examples.querySelectorAll("code")).forEach(function (code) {
+      code.remove();
     });
-    document.getElementById("import-text-cols").value = textCols.join(",");
+    const seen = new Set();
+    rows.some(function (row, i) {
+      const values = row.values || {};
+      const label = values[idCol] || row.label || ("Row " + (i + 1));
+      if (!label || seen.has(label)) return false;
+      seen.add(label);
+      const code = document.createElement("code");
+      code.textContent = label;
+      examples.appendChild(code);
+      return seen.size >= 3;
+    });
+    if (seen.size === 0) {
+      const code = document.createElement("code");
+      code.textContent = "No labels yet";
+      examples.appendChild(code);
+    }
+  }
 
-    // Enable/disable submit
-    document.getElementById("import-submit").disabled = !(idRow && textCols.length);
+  function _renderImportPreview(form, rows, idCol, textCols) {
+    const previewLabel = form.querySelector("[data-import-preview-label]");
+    const previewMeta = form.querySelector("[data-import-preview-meta]");
+    const previewScroll = form.querySelector(".ace-import-preview-scroll");
+    if (!previewScroll) return;
+
+    let idx = Number.parseInt(form.dataset.previewIndex || "0", 10);
+    if (!Number.isFinite(idx) || idx < 0) idx = 0;
+    if (rows.length > 0 && idx >= rows.length) idx = idx % rows.length;
+    form.dataset.previewIndex = String(idx);
+
+    const row = rows[idx] || { label: "No rows", values: {} };
+    const values = row.values || {};
+    const label = values[idCol] || row.label || ("Row " + (idx + 1));
+    if (previewLabel) previewLabel.textContent = label;
+    if (previewMeta) {
+      previewMeta.textContent = "row " + (idx + 1) + " · " + textCols.length + " column" + (textCols.length === 1 ? "" : "s");
+    }
+
+    previewScroll.replaceChildren();
+    if (textCols.length === 0) {
+      const empty = document.createElement("article");
+      empty.className = "ace-import-sample-field";
+      const p = document.createElement("p");
+      p.textContent = "Select at least one text column to preview source text.";
+      empty.appendChild(p);
+      previewScroll.appendChild(empty);
+      return;
+    }
+
+    textCols.forEach(function (col) {
+      const article = document.createElement("article");
+      article.className = "ace-import-sample-field";
+      const header = document.createElement("header");
+      const title = document.createElement("b");
+      title.textContent = col;
+      const body = document.createElement("p");
+      body.textContent = values[col] || "";
+      header.appendChild(title);
+      article.appendChild(header);
+      article.appendChild(body);
+      previewScroll.appendChild(article);
+    });
+    previewScroll.scrollTop = 0;
+  }
+
+  function _syncImportMapping(form) {
+    if (!form) return;
+    const rows = _getImportPreviewRows(form);
+    const idSelect = form.querySelector("#import-id-choice");
+    const idCol = idSelect ? idSelect.value : "";
+    const textCols = _getSelectedImportTextColumns(form);
+
+    const idHidden = form.querySelector("#import-id-col");
+    const textHidden = form.querySelector("#import-text-cols");
+    if (idHidden) idHidden.value = idCol;
+    if (textHidden) textHidden.value = textCols.join(",");
+
+    form.querySelectorAll(".ace-import-column-row").forEach(function (row) {
+      const input = row.querySelector("[data-import-text-col]");
+      row.classList.toggle("is-selected", !!(input && input.checked));
+    });
+
+    const count = form.querySelector("[data-import-selected-count]");
+    if (count) count.textContent = String(textCols.length);
+
+    const submit = form.querySelector("#import-submit");
+    if (submit) submit.disabled = !(idCol && textCols.length);
+
+    _updateImportExamples(form, rows, idCol);
+    _renderImportPreview(form, rows, idCol, textCols);
+  }
+
+  function _filterImportColumns(input) {
+    const form = _getImportForm(input);
+    if (!form) return;
+    const query = input.value.trim().toLowerCase();
+    let visible = 0;
+    let total = 0;
+    form.querySelectorAll(".ace-import-column-row").forEach(function (row) {
+      total += 1;
+      const matched = !query || row.textContent.toLowerCase().indexOf(query) !== -1;
+      row.hidden = !matched;
+      if (matched) visible += 1;
+    });
+    const summary = form.querySelector(".ace-import-summary");
+    if (summary) summary.textContent = query ? (visible + " of " + total + " shown") : (total + " columns");
+  }
+
+  document.addEventListener("change", function (e) {
+    if (!e.target.matches("#import-id-choice, [data-import-text-col]")) return;
+    const form = _getImportForm(e.target);
+    _syncImportMapping(form);
+  });
+
+  document.addEventListener("input", function (e) {
+    if (!e.target.matches(".ace-import-search")) return;
+    _filterImportColumns(e.target);
+  });
+
+  document.addEventListener("click", function (e) {
+    const btn = e.target.closest("[data-import-preview-refresh]");
+    if (!btn) return;
+    const form = _getImportForm(btn);
+    if (!form) return;
+    const rows = _getImportPreviewRows(form);
+    if (rows.length > 1) {
+      const current = Number.parseInt(form.dataset.previewIndex || "0", 10) || 0;
+      let next = Math.floor(Math.random() * rows.length);
+      if (next === current) next = (current + 1) % rows.length;
+      form.dataset.previewIndex = String(next);
+    }
+    _syncImportMapping(form);
+  });
+
+  document.addEventListener("htmx:afterSettle", function () {
+    const form = document.getElementById("import-form");
+    if (!form) return;
+    _syncImportMapping(form);
+    const search = form.querySelector(".ace-import-search");
+    if (search) _filterImportColumns(search);
+  });
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const form = document.getElementById("import-form");
+    if (!form) return;
+    _syncImportMapping(form);
+    const search = form.querySelector(".ace-import-search");
+    if (search) _filterImportColumns(search);
   });
 
   /* ================================================================

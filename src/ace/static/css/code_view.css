@@ -46,13 +46,6 @@
   background: var(--ace-bg);
 }
 
-.cv-sidebar {
-  background: var(--ace-bg);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 /* Resize handle — same behaviour as coding.css .ace-resize-handle */
 .cv-resize-handle {
   width: 8px;

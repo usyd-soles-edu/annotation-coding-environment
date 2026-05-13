@@ -22,7 +22,8 @@ def import_csv(
 ) -> int:
     """Import rows from a CSV or Excel file as sources.
 
-    Each row x text_column combination becomes one source.
+    Each row becomes one source. When multiple text columns are selected,
+    their values are combined as labelled sections in source order.
     Non-ID/non-text columns are stored as metadata_json.
     Returns the number of sources created.
     """
@@ -30,31 +31,37 @@ def import_csv(
     rows, columns = read_tabular(path)
 
     meta_columns = [c for c in columns if c != id_column and c not in text_columns]
-    multi = len(text_columns) > 1
     count = 0
 
     for row in rows:
-        display_base = str(row[id_column])
+        display_id = str(row[id_column])
         metadata = {c: row[c] for c in meta_columns} if meta_columns else None
 
-        for col in text_columns:
-            if multi:
-                display_id = f"{display_base}_{col}"
-            else:
-                display_id = display_base
-
-            add_source(
-                conn,
-                display_id=display_id,
-                content_text=str(row[col]),
-                source_type="row",
-                filename=path.name,
-                source_column=col if multi else None,
-                metadata=metadata,
-            )
-            count += 1
+        add_source(
+            conn,
+            display_id=display_id,
+            content_text=_combine_text_columns(row, text_columns),
+            source_type="row",
+            filename=path.name,
+            source_column=None,
+            metadata=metadata,
+        )
+        count += 1
 
     return count
+
+
+def _combine_text_columns(row: dict, text_columns: list[str]) -> str:
+    if len(text_columns) == 1:
+        value = row[text_columns[0]]
+        return "" if value is None else str(value)
+
+    sections = []
+    for col in text_columns:
+        value = row[col]
+        text = "" if value is None else str(value)
+        sections.append(f"{col}\n{text}")
+    return "\n\n".join(sections)
 
 
 def _list_text_files(folder: Path) -> list[Path]:
@@ -98,15 +105,49 @@ def get_random_preview(
 
     Returns None if no text files exist.
     """
-    files = _list_text_files(Path(folder))
-    if not files:
+    _, previews = get_random_previews(folder, limit=1, max_chars=max_chars)
+    if not previews:
         return None
+    preview = previews[0]
+    return preview["filename"], preview["snippet"]
 
-    chosen = random.choice(files)
-    content = _read_text_file(chosen)
-    if len(content) > max_chars:
-        content = content[:max_chars] + "..."
-    return chosen.name, content
+
+def get_random_previews(
+    folder: str | Path,
+    limit: int = 5,
+    max_chars: int = 1200,
+) -> tuple[int, list[dict]]:
+    """Return total text-file count plus a bounded random preview sample."""
+    files = _list_text_files(Path(folder))
+    total = len(files)
+    if total == 0:
+        return 0, []
+
+    sample = random.sample(files, min(limit, total))
+    previews = []
+    for path in sample:
+        content = _read_text_file(path)
+        if len(content) > max_chars:
+            content = content[:max_chars] + "..."
+        previews.append(
+            {
+                "filename": path.name,
+                "snippet": content,
+                "size_label": _format_size(path.stat().st_size),
+            }
+        )
+    return total, previews
+
+
+def _format_size(size: int) -> str:
+    """Return a compact binary size label."""
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        value = size / 1024
+        return f"{value:.1f} KB".replace(".0 KB", " KB")
+    value = size / (1024 * 1024)
+    return f"{value:.1f} MB".replace(".0 MB", " MB")
 
 
 def read_tabular(path: Path) -> tuple[list[dict], list[str]]:

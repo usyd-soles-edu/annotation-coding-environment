@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.14.6
+
+### Changes
+
+- **Data import workflow** — simplified import choice screens so spreadsheet and folder imports start from direct native pickers.
+- **Spreadsheet mapping** — replaced the old ID/Text role buttons with a three-column source label, text-to-code, and source preview layout.
+- **Multi-column text imports** — selected text columns now combine into one labelled source per row instead of creating separate suffixed sources.
+- **Folder import preview** — refreshed the imported-file preview browser and clearer random-sample refresh control.
+
+### Fixes
+
+- Native spreadsheet imports no longer delete the original file after import.
+
 ## 0.14.5
 
 ### Changes

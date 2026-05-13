@@ -4,7 +4,12 @@ import openpyxl
 
 from ace.db.connection import create_project
 from ace.models.source import list_sources, get_source_content
-from ace.services.importer import import_csv, import_text_files, get_random_preview
+from ace.services.importer import (
+    import_csv,
+    import_text_files,
+    get_random_preview,
+    get_random_previews,
+)
 
 
 def test_get_random_preview(tmp_path):
@@ -36,6 +41,35 @@ def test_get_random_preview_empty_folder(tmp_path):
     folder = tmp_path / "empty"
     folder.mkdir()
     assert get_random_preview(folder) is None
+
+
+def test_get_random_previews_returns_up_to_five_files(tmp_path):
+    """Random folder previews return a bounded file sample plus total count."""
+    folder = tmp_path / "preview-sample"
+    folder.mkdir()
+    for i in range(7):
+        (folder / f"doc-{i}.txt").write_text(f"Content {i}")
+
+    total, previews = get_random_previews(folder)
+
+    assert total == 7
+    assert len(previews) == 5
+    assert {preview["filename"] for preview in previews} <= {
+        f"doc-{i}.txt" for i in range(7)
+    }
+    assert all(preview["snippet"].startswith("Content ") for preview in previews)
+    assert all(preview["size_label"] == "9 B" for preview in previews)
+
+
+def test_get_random_previews_empty_folder(tmp_path):
+    """Empty folders return a zero total and no previews."""
+    folder = tmp_path / "empty-preview-sample"
+    folder.mkdir()
+
+    total, previews = get_random_previews(folder)
+
+    assert total == 0
+    assert previews == []
 
 
 def test_import_csv_creates_sources(tmp_db, sample_csv):
@@ -78,16 +112,16 @@ def test_import_csv_multi_column(tmp_path, tmp_db):
     )
     conn = create_project(tmp_db, "test")
     count = import_csv(conn, csv_path, id_column="id", text_columns=["question1", "question2"])
-    assert count == 4
+    assert count == 2
     sources = list_sources(conn)
-    assert len(sources) == 4
-    # Check display_id format for multi-column
-    display_ids = [s["display_id"] for s in sources]
-    assert "S1_question1" in display_ids
-    assert "S1_question2" in display_ids
-    # Check source_column is set
-    for s in sources:
-        assert s["source_column"] in ("question1", "question2")
+    assert len(sources) == 2
+    assert [s["display_id"] for s in sources] == ["S1", "S2"]
+    content = get_source_content(conn, sources[0]["id"])["content_text"]
+    assert "question1" in content
+    assert "Answer A" in content
+    assert "question2" in content
+    assert "Answer X" in content
+    assert sources[0]["source_column"] is None
     conn.close()
 
 
@@ -121,19 +155,21 @@ def test_import_csv_two_rows(tmp_path):
 
 
 def test_import_csv_multi_text_columns(tmp_path):
-    """Multi-text-column import adds _col suffix to display_ids."""
+    """Multi-text-column import combines selected columns into each row source."""
     csv_path = tmp_path / "multi_text.csv"
     csv_path.write_text("id,q1,q2\nR1,ans1,ans2\nR2,ans3,ans4\n")
     db_path = tmp_path / "multi_text.ace"
     conn = create_project(db_path, "test")
     count = import_csv(conn, csv_path, id_column="id", text_columns=["q1", "q2"])
-    assert count == 4
+    assert count == 2
     sources = list_sources(conn)
-    display_ids = [s["display_id"] for s in sources]
-    assert "R1_q1" in display_ids
-    assert "R1_q2" in display_ids
-    assert "R2_q1" in display_ids
-    assert "R2_q2" in display_ids
+    assert [s["display_id"] for s in sources] == ["R1", "R2"]
+    content = get_source_content(conn, sources[0]["id"])["content_text"]
+    assert "q1" in content
+    assert "ans1" in content
+    assert "q2" in content
+    assert "ans2" in content
+    assert sources[0]["source_column"] is None
     conn.close()
 
 

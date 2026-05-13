@@ -509,6 +509,36 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
   text-align: center;
 }
 
+.ace-sidebar-empty p {
+  margin: 0;
+}
+
+.ace-empty-actions {
+  display: grid;
+  gap: var(--ace-space-2);
+  margin-top: var(--ace-space-3);
+}
+
+.ace-empty-action {
+  width: 100%;
+  border: 1px solid var(--ace-border);
+  border-radius: var(--ace-radius);
+  background: var(--ace-bg);
+  color: var(--ace-text);
+  font: inherit;
+  padding: var(--ace-space-2) var(--ace-space-3);
+  cursor: pointer;
+}
+
+.ace-empty-action:hover,
+.ace-empty-action:focus-visible {
+  background: var(--ace-bg-muted);
+}
+
+.ace-empty-hint {
+  margin-top: var(--ace-space-3);
+}
+
 .ace-create-prompt {
   padding: 5px 10px;
   font-size: var(--ace-font-size-sm);
@@ -691,7 +721,6 @@ rect.ace-code-preview {
 }
 
 .ace-applied-codes-kicker,
-.ace-applied-codes-subtitle,
 .ace-applied-codes-total,
 .ace-applied-timeline-title,
 .ace-applied-code-count,
@@ -884,67 +913,6 @@ rect.ace-code-preview {
 
 .ace-legend .k {
   color: rgba(43, 48, 56, 0.72);
-}
-
-/* ---- Code menu dropdown (management mode) ---- */
-
-.ace-code-menu {
-  position: fixed;
-  z-index: 100;
-  background: var(--ace-bg);
-  border: 1px solid var(--ace-border);
-  box-shadow: var(--ace-shadow);
-  min-width: 140px;
-}
-
-.ace-code-menu-item {
-  display: block;
-  width: 100%;
-  padding: 6px 12px;
-  font-size: var(--ace-font-size-md);
-  color: var(--ace-text);
-  background: none;
-  border: none;
-  text-align: left;
-  cursor: pointer;
-  transition: background var(--ace-transition);
-}
-
-.ace-code-menu-item:hover { background: var(--ace-bg-muted); }
-.ace-code-menu-item--danger { color: var(--ace-danger); }
-
-.ace-code-menu-hint {
-  font-size: var(--ace-font-size-2xs);
-  font-family: var(--ace-font-mono);
-  color: var(--ace-text-muted);
-  margin-left: auto;
-  padding-left: var(--ace-space-3);
-}
-
-.ace-code-menu-sub {
-  position: relative;
-  cursor: default;
-}
-
-.ace-code-submenu {
-  display: none;
-  position: absolute;
-  left: 100%;
-  top: 0;
-  background: var(--ace-bg);
-  border: 1px solid var(--ace-border);
-  box-shadow: var(--ace-shadow);
-  min-width: 120px;
-}
-
-.ace-code-menu-sub:hover .ace-code-submenu {
-  display: block;
-}
-
-.ace-code-menu-sep {
-  height: 1px;
-  background: var(--ace-border-light);
-  margin: var(--ace-space-1) 0;
 }
 
 /* ---- Right-click context menu (Task 12) ----

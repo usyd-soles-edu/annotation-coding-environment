@@ -42,6 +42,27 @@ def client_with_sources(tmp_path):
 
 
 @pytest.fixture()
+def client_with_sources_no_codes(tmp_path):
+    """Create a project with sources and a coder, but no codes."""
+    app = create_app()
+    db_path = tmp_path / "test.ace"
+    conn = create_project(str(db_path), "Test Project")
+
+    coders = list_coders(conn)
+    coder_id = coders[0]["id"]
+
+    add_source(conn, "S001", "First document content for coding.", "row")
+    add_source(conn, "S002", "Second document with different text.", "row")
+
+    conn.close()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        app.state.project_path = str(db_path)
+        app.state.coder_id = coder_id
+        yield client
+
+
+@pytest.fixture()
 def client_with_codes(tmp_path):
     """Like client_with_sources but also returns code IDs and db_path."""
     app = create_app()
@@ -139,6 +160,16 @@ def test_coding_page_shows_codes(client_with_sources):
     assert resp.status_code == 200
     assert "Theme A" in resp.text
     assert "Theme B" in resp.text
+
+
+def test_coding_page_empty_codebook_shows_first_actions(client_with_sources_no_codes):
+    """A project with sources but no codes exposes first-action buttons."""
+    resp = client_with_sources_no_codes.get("/code")
+    assert resp.status_code == 200
+    assert 'id="create-first-code-btn"' in resp.text
+    assert 'id="empty-import-codebook-btn"' in resp.text
+    assert "Create first code" in resp.text
+    assert "Import codebook CSV" in resp.text
 
 
 def test_coding_page_shows_project_name(client_with_sources):

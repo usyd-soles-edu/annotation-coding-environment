@@ -19,6 +19,15 @@ def client(app):
         yield c
 
 
+def test_base_template_exposes_live_regions(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert 'id="ace-live-region"' in resp.text
+    assert 'aria-live="polite"' in resp.text
+    assert 'id="ace-live-region-assertive"' in resp.text
+    assert 'aria-live="assertive"' in resp.text
+
+
 # ── App startup ──────────────────────────────────────────────────────────
 
 
