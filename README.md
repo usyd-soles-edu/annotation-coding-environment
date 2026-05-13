@@ -23,7 +23,17 @@ Intel Macs are not currently supported. Neither build is code-signed yet.
 
 ## Install from source
 
-You need some experience with using the command line on eithr macOS or Windows. In the Terminal or PowerShell, first install uv. On the macOS and Linux:
+You need some experience with using the command line on either macOS or Windows.
+
+On Windows, install Git first so the `git clone` command below works:
+
+```
+winget install --id Git.Git -e --source winget
+```
+
+If `winget` is unavailable, install Git for Windows from <https://git-scm.com/download/win>, then open a new PowerShell window.
+
+In the Terminal or PowerShell, install uv. On macOS and Linux:
 
 ```
 curl -LsSf https://astral.sh/uv/install.sh | less
