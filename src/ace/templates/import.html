@@ -18,41 +18,21 @@
 
   <!-- Step 1: Choose import type -->
   <div class="ace-wizard-step {% if source_count == 0 %}active{% endif %}" id="step-choose"{% if source_count > 0 %} hidden{% endif %}>
-    <h1 class="ace-wizard-title" tabindex="-1">What would you like to import?</h1>
+    <h1 class="ace-wizard-title" tabindex="-1">Choose your source data</h1>
+    <p class="ace-wizard-hint">ACE can import a table of responses or a folder of individual text files.</p>
     <div class="ace-wizard-options">
-      <button class="ace-wizard-option" type="button" onclick="chooseFile()">
-        <span class="ace-wizard-option-title">CSV or Excel file</span>
-        <span class="ace-wizard-option-desc">Tabular data with columns</span>
+      <button id="import-spreadsheet-button" class="ace-wizard-option" type="button" onclick="pickAndImportFile()">
+        <span class="ace-wizard-option-title">Import a spreadsheet</span>
+        <span class="ace-wizard-option-desc">CSV or Excel file with one row per source.</span>
       </button>
       <button class="ace-wizard-option" type="button" onclick="chooseFolder()">
-        <span class="ace-wizard-option-title">Folder of text files</span>
-        <span class="ace-wizard-option-desc">One .txt or .md file per source</span>
+        <span class="ace-wizard-option-title">Import a folder</span>
+        <span class="ace-wizard-option-desc">Text or Markdown files, one file per source.</span>
       </button>
     </div>
   </div>
 
-  <!-- Step 2a: File upload -->
-  <div class="ace-wizard-step" id="step-upload" hidden>
-    <h1 class="ace-wizard-title" tabindex="-1">Choose your file</h1>
-    <p class="ace-wizard-hint">.csv or .xlsx</p>
-    <form hx-post="/api/import/upload"
-          hx-target="#step-columns"
-          hx-swap="innerHTML"
-          hx-encoding="multipart/form-data"
-          hx-on::after-request="window.handleImportUpload(event)">
-      <div class="ace-wizard-options">
-        <input id="import-file-input" class="ace-sr-only" tabindex="-1" type="file"
-               aria-label="Import file"
-               name="file" accept=".csv,.xlsx">
-        <button id="import-file-button" class="ace-wizard-option" type="button">
-          <span class="ace-wizard-option-title">Browse for file</span>
-        </button>
-      </div>
-    </form>
-    <button class="ace-wizard-back" type="button" onclick="showStep('step-choose')">&larr; Back</button>
-  </div>
-
-  <!-- Step 2b: Folder picker -->
+  <!-- Step 2: Folder picker -->
   <div class="ace-wizard-step" id="step-folder" hidden>
     <h1 class="ace-wizard-title" tabindex="-1">Choose a folder</h1>
     <p class="ace-wizard-hint">All .txt and .md files will be imported as sources</p>
@@ -122,30 +102,49 @@
     }
   };
 
-  window.chooseFile = function() { showStep("step-upload"); };
-
   window.chooseFolder = function() { showStep("step-folder"); };
-
-  window.handleImportUpload = function(evt) {
-    if (responseIsSuccessful(evt)) showStep("step-columns");
-  };
 
   window.handleImportCommit = function(evt) {
     if (responseIsSuccessful(evt)) showStep("step-done");
   };
 
-  var fileInput = document.getElementById("import-file-input");
-  var fileButton = document.getElementById("import-file-button");
-  if (fileInput && fileButton) {
-    fileButton.addEventListener("click", function() {
-      fileInput.click();
-    });
-    fileInput.addEventListener("change", function() {
-      if (fileInput.files && fileInput.files.length > 0) {
-        fileInput.closest("form").requestSubmit();
-      }
-    });
-  }
+  window.pickAndImportFile = function() {
+    var btn = document.getElementById("import-spreadsheet-button");
+    setImportMessage("", "");
+    btn.disabled = true;
+    btn.querySelector(".ace-wizard-option-title").textContent = "Choosing file...";
+    fetch("/api/native/pick-file", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "accept=.csv,.xlsx"
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        btn.disabled = false;
+        btn.querySelector(".ace-wizard-option-title").textContent = "Import a spreadsheet";
+        if (!data.path) return;
+        setImportMessage("Reading spreadsheet...", "");
+        var afterFileRequest = function(evt) {
+          var pathInfo = evt.detail.pathInfo || {};
+          var requestConfig = evt.detail.requestConfig || {};
+          var path = pathInfo.requestPath || pathInfo.finalRequestPath || requestConfig.path;
+          if (path !== "/api/import/file") return;
+          document.removeEventListener("htmx:afterRequest", afterFileRequest);
+          if (responseIsSuccessful(evt)) showStep("step-columns");
+        };
+        document.addEventListener("htmx:afterRequest", afterFileRequest);
+        return htmx.ajax("POST", "/api/import/file", {
+          values: { path: data.path },
+          target: "#step-columns",
+          swap: "innerHTML"
+        });
+      })
+      .catch(function() {
+        btn.disabled = false;
+        btn.querySelector(".ace-wizard-option-title").textContent = "Import a spreadsheet";
+        setImportMessage("Could not open the file picker. Try again.", "err");
+      });
+  };
 
   document.addEventListener("click", function(evt) {
     var button = evt.target.closest("[data-import-preview-file]");

@@ -38,11 +38,11 @@ def test_import_step_change_moves_focus_to_heading(ace_server, browser_name):
             if import_more.is_visible():
                 import_more.click()
 
-            page.get_by_role("button", name="CSV or Excel file").click()
-            assert page.evaluate("document.activeElement.textContent.trim()") == "Choose your file"
+            page.get_by_role("button", name="Import a folder").click()
+            assert page.evaluate("document.activeElement.textContent.trim()") == "Choose a folder"
             visible_steps = page.evaluate(
                 "() => Array.from(document.querySelectorAll('.ace-wizard-step:not([hidden])')).map(el => el.id)"
             )
-            assert visible_steps == ["step-upload"]
+            assert visible_steps == ["step-folder"]
         finally:
             browser.close()

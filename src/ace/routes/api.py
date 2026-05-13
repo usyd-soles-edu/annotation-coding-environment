@@ -7,6 +7,7 @@ import html
 import json
 import logging
 import platform
+import random
 import re
 import sqlite3
 import subprocess
@@ -258,8 +259,8 @@ def _folder_import_preview_fragment(
         f'<button class="ace-folder-import-refresh" type="button"'
         f' hx-get="/api/import/preview?folder={escaped_folder}"'
         f' hx-target="#import-preview" hx-swap="outerHTML"'
-        f' title="Show another random sample"'
-        f' aria-label="Show another random sample">&#x21BB;</button>'
+        f' title="Preview another file"'
+        f' aria-label="Preview another file">&#x21BB;</button>'
         "</div>"
         f'<div class="ace-folder-import-files">{buttons}</div>'
         f'<div class="ace-folder-import-more">{html.escape(more_label)}</div>'
@@ -450,7 +451,6 @@ _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 @router.post("/import/upload")
 async def import_upload(request: Request, file: UploadFile = File(...)):
     """Accept a CSV/Excel upload, parse it, return a preview table fragment."""
-    from ace.services.importer import read_tabular
 
     # Read the uploaded file into a temp file
     data = await file.read()
@@ -462,92 +462,236 @@ async def import_upload(request: Request, file: UploadFile = File(...)):
     try:
         tmp.write(data)
         tmp.close()
-
-        rows, columns = read_tabular(Path(tmp.name))
     except Exception as e:
         Path(tmp.name).unlink(missing_ok=True)
         return _oob_status(f"Could not parse file: {e}")
 
-    # Store temp path for the commit step
-    request.app.state.import_tmp_path = tmp.name
+    return _parse_tabular_for_mapping(
+        request, Path(tmp.name), cleanup=True, filename=file.filename or "upload"
+    )
 
-    # Build glimpse-style preview
-    filename = html.escape(file.filename or "upload")
+
+@router.post("/import/file")
+async def import_file_path(request: Request, path: str = Form(...)):
+    """Parse a CSV/Excel file chosen by the native picker."""
+    file_path = Path(path)
+    if not file_path.exists() or file_path.suffix.lower() not in {".csv", ".xlsx"}:
+        return _oob_status("Choose a CSV or Excel file.")
+    return _parse_tabular_for_mapping(
+        request, file_path, cleanup=False, filename=file_path.name
+    )
+
+
+def _parse_tabular_for_mapping(
+    request: Request, path: Path, *, cleanup: bool, filename: str
+) -> HTMLResponse:
+    from ace.services.importer import read_tabular
+
+    try:
+        rows, columns = read_tabular(path)
+    except Exception as e:
+        if cleanup:
+            path.unlink(missing_ok=True)
+        return _oob_status(f"Could not parse file: {e}")
+
+    request.app.state.import_tmp_path = str(path)
+    request.app.state.import_tmp_cleanup = cleanup
+    return HTMLResponse(_build_import_mapping_fragment(filename, rows, columns))
+
+
+def _infer_import_column_type(rows: list[dict], col_name: str) -> str:
+    for row in rows[:8]:
+        value = row.get(col_name)
+        if value is None or value == "":
+            continue
+        if isinstance(value, (int, float)):
+            return "number"
+        try:
+            float(str(value))
+            return "number"
+        except (TypeError, ValueError):
+            return "text"
+    return "text"
+
+
+def _sample_values(rows: list[dict], col_name: str) -> str:
+    vals = []
+    for row in rows[:3]:
+        value = row.get(col_name)
+        sample = "NA" if value is None else str(value)
+        if len(sample) > 30:
+            sample = sample[:28] + "\u2026"
+        vals.append(sample)
+    return ", ".join(vals)
+
+
+def _default_import_columns(rows: list[dict], columns: list[str]) -> tuple[str, list[str]]:
+    if not columns:
+        return "", []
+    id_col = columns[0]
+    text_cols = [
+        col for col in columns[1:]
+        if _infer_import_column_type(rows, col) == "text"
+    ][:2]
+    if not text_cols and len(columns) > 1:
+        text_cols = [columns[1]]
+    return id_col, text_cols
+
+
+def _row_value(row: dict, col: str) -> str:
+    value = row.get(col)
+    return "" if value is None else str(value)
+
+
+def _sample_import_preview_rows(rows: list[dict], limit: int = 20) -> list[dict]:
+    if len(rows) <= limit:
+        return rows
+    return [rows[0], *random.sample(rows[1:], limit - 1)]
+
+
+def _build_import_mapping_fragment(
+    filename: str, rows: list[dict], columns: list[str]
+) -> str:
+    safe_filename = html.escape(filename)
     n_rows = len(rows)
     n_cols = len(columns)
-    sample_rows = rows[:8]
+    id_col, text_cols = _default_import_columns(rows, columns)
+    first_row = rows[0] if rows else {}
+    source_label = _row_value(first_row, id_col) if id_col else ""
+    if not source_label:
+        source_label = "Row 1" if rows else "No rows"
 
-    def _infer_type(col_name: str) -> str:
-        """Infer column type from first non-None values."""
-        for row in sample_rows:
-            v = row.get(col_name)
-            if v is None or v == "":
-                continue
-            if isinstance(v, (int, float)):
-                return "num"
-            s = str(v)
-            try:
-                float(s)
-                return "num"
-            except (ValueError, TypeError):
-                pass
-            return "chr"
-        return "chr"
+    preview_rows = _sample_import_preview_rows(rows)
+    preview_payload = [
+        {
+            "label": _row_value(row, id_col) if id_col else f"Row {i + 1}",
+            "values": {col: _row_value(row, col) for col in columns},
+        }
+        for i, row in enumerate(preview_rows)
+    ]
+    preview_data = html.escape(json.dumps(preview_payload), quote=True)
+    selected_text_value = ",".join(text_cols)
 
-    def _sample_values(col_name: str) -> str:
-        """Get comma-joined sample values, truncated."""
-        vals = []
-        for row in sample_rows:
-            v = row.get(col_name)
-            if v is None:
-                vals.append("NA")
-            else:
-                s = str(v)
-                if len(s) > 30:
-                    s = s[:28] + "\u2026"
-                vals.append(s)
-        return html.escape(", ".join(vals)) + " \u2026"
-
-    # Glimpse rows with inline role toggles
-    glimpse_parts = []
+    id_options = []
     for col in columns:
-        col_type = _infer_type(col)
-        sample = _sample_values(col)
         esc_col = html.escape(str(col))
-        glimpse_parts.append(
-            f'<div class="ace-glimpse-row" data-col="{esc_col}" data-role="">'
-            f'<span class="ace-glimpse-name">{esc_col}</span>'
-            f'<span class="ace-glimpse-type">{col_type}</span>'
-            f'<span class="ace-glimpse-vals">{sample}</span>'
-            f'<span class="ace-glimpse-roles">'
-            f'<button type="button" class="ace-role-btn" data-role="id" aria-pressed="false">ID</button>'
-            f'<button type="button" class="ace-role-btn" data-role="text" aria-pressed="false">Text</button>'
-            f'</span>'
-            f'</div>'
+        selected = " selected" if col == id_col else ""
+        id_options.append(f'<option value="{esc_col}"{selected}>{esc_col}</option>')
+
+    examples = []
+    seen = set()
+    for row in rows:
+        label = _row_value(row, id_col) if id_col else ""
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        examples.append(f"<code>{html.escape(label)}</code>")
+        if len(examples) == 3:
+            break
+    examples_html = "".join(examples) or "<code>No labels yet</code>"
+
+    column_rows = []
+    selected_text_set = set(text_cols)
+    for col in columns:
+        esc_col = html.escape(str(col))
+        col_type = _infer_import_column_type(rows, col)
+        sample = html.escape(_sample_values(rows, col))
+        checked = " checked" if col in selected_text_set else ""
+        selected_class = " is-selected" if checked else ""
+        column_rows.append(
+            f'<label class="ace-import-column-row{selected_class}">'
+            f'<input type="checkbox" data-import-text-col value="{esc_col}"{checked}>'
+            f"<code>{esc_col}</code>"
+            f'<span class="ace-import-column-type">{html.escape(col_type)}</span>'
+            f'<span class="ace-import-column-sample">{sample}</span>'
+            "</label>"
         )
-    glimpse_rows = "".join(glimpse_parts)
+    column_rows_html = "".join(column_rows)
 
-    fragment = f"""
-    <h1 class="ace-wizard-title" tabindex="-1">Select columns</h1>
-    <form id="import-form" hx-post="/api/import/commit" hx-target="#step-done" hx-swap="innerHTML"
+    preview_fields = []
+    for col in text_cols:
+        preview_fields.append(
+            '<article class="ace-import-sample-field">'
+            f"<header><b>{html.escape(str(col))}</b></header>"
+            f"<p>{html.escape(_row_value(first_row, col))}</p>"
+            "</article>"
+        )
+    preview_fields_html = "".join(preview_fields) or (
+        '<article class="ace-import-sample-field">'
+        "<p>Select at least one text column to preview source text.</p>"
+        "</article>"
+    )
+
+    import_label = f"Import {n_rows:,} source{'s' if n_rows != 1 else ''}"
+
+    return f"""
+    <h1 class="ace-wizard-title" tabindex="-1">Choose source labels and coding text</h1>
+    <form id="import-form" class="ace-import-mapping" hx-post="/api/import/commit" hx-target="#step-done" hx-swap="innerHTML"
           hx-on::after-request="window.handleImportCommit(event)">
-      <div class="ace-glimpse">
-        <div class="ace-glimpse-header">
-          <span>{filename}</span>
-          <span>{n_rows:,} rows &times; {n_cols}</span>
-        </div>
-        <div class="ace-glimpse-hint">Choose one ID column and at least one Text column.</div>
-        {glimpse_rows}
+      <div id="import-preview-data" data-preview-rows="{preview_data}" hidden></div>
+      <div class="ace-import-mapping-grid">
+        <section class="ace-import-card ace-import-card--source">
+          <div class="ace-import-card-head">
+            <strong>1. Source label</strong>
+            <span>Names each source.</span>
+          </div>
+          <div class="ace-import-card-body">
+            <label class="ace-import-field">
+              <span>Column</span>
+              <select id="import-id-choice" name="id_column_choice">
+                {''.join(id_options)}
+              </select>
+            </label>
+            <div class="ace-import-examples">
+              <span>Example labels</span>
+              {examples_html}
+            </div>
+          </div>
+        </section>
+        <section class="ace-import-card ace-import-card--text">
+          <div class="ace-import-card-head">
+            <strong>2. Text to code</strong>
+            <span>Choose text columns.</span>
+          </div>
+          <div class="ace-import-toolbar">
+            <input class="ace-import-search" value="" placeholder="Filter columns" aria-label="Filter columns">
+            <span class="ace-import-summary">{n_cols:,} columns</span>
+          </div>
+          <div class="ace-import-column-list" tabindex="0" aria-label="Candidate text columns">
+            {column_rows_html}
+          </div>
+          <div class="ace-import-card-foot">
+            <span>Selected</span>
+            <strong data-import-selected-count>{len(text_cols)}</strong>
+          </div>
+        </section>
+        <section class="ace-import-preview-card">
+          <div class="ace-import-preview-head">
+            <div>
+              <strong>Preview source</strong>
+              <span data-import-preview-meta>row 1 · {len(text_cols)} column{'s' if len(text_cols) != 1 else ''}</span>
+            </div>
+            <button class="ace-folder-import-refresh" type="button" data-import-preview-refresh
+                    aria-label="Show another random source">&#x21BB;</button>
+          </div>
+          <div class="ace-import-source-meta">
+            <span>Source label</span>
+            <code data-import-preview-label>{html.escape(source_label)}</code>
+          </div>
+          <div class="ace-import-preview-scroll" tabindex="0" aria-label="Preview selected source">
+            {preview_fields_html}
+          </div>
+        </section>
       </div>
-      <input type="hidden" name="id_column" id="import-id-col" value="">
-      <input type="hidden" name="text_columns" id="import-text-cols" value="">
-      <button type="submit" class="ace-btn ace-btn--primary" id="import-submit"
-              disabled style="margin-top:12px">Import</button>
+      <input type="hidden" name="id_column" id="import-id-col" value="{html.escape(str(id_col), quote=True)}">
+      <input type="hidden" name="text_columns" id="import-text-cols" value="{html.escape(selected_text_value, quote=True)}">
+      <div class="ace-import-actions">
+        <button class="ace-btn" type="button" onclick="showStep('step-choose')">Back</button>
+        <button type="submit" class="ace-btn ace-btn--primary" id="import-submit"{' disabled' if not (id_col and text_cols) else ''}>{import_label}</button>
+      </div>
+      <p class="ace-import-file-meta">{safe_filename} · {n_rows:,} rows x {n_cols:,} columns</p>
     </form>
-    <button class="ace-wizard-back" onclick="showStep('step-upload')">&larr; Back</button>
-
     """
-    return HTMLResponse(fragment)
 
 
 @router.post("/import/commit")
@@ -575,9 +719,11 @@ async def import_commit(
     finally:
         db_gen.close()
 
-    # Clean up temp file
-    Path(tmp_path).unlink(missing_ok=True)
+    # Clean up upload temp files. Native picker paths belong to the user.
+    if getattr(request.app.state, "import_tmp_cleanup", True):
+        Path(tmp_path).unlink(missing_ok=True)
     request.app.state.import_tmp_path = None
+    request.app.state.import_tmp_cleanup = True
 
     return HTMLResponse(
         f'<h1 class="ace-wizard-count" tabindex="-1">{count} source{"s" if count != 1 else ""}</h1>'
