@@ -173,11 +173,45 @@ async def pick_files(accept: str | None = Form(default=None)):
 # Import preview fragment helper
 # ---------------------------------------------------------------------------
 
-def _import_done_actions() -> str:
-    return (
-        '<a href="/code" class="ace-wizard-action">Start coding &rarr;</a>'
-        '<button class="ace-wizard-link" type="button" '
+def _import_done_actions(*, include_back: bool = False) -> str:
+    import_more = (
+        '<button class="ace-wizard-link ace-wizard-link--inline" type="button" '
         'onclick="showStep(\'step-choose\')">Import more data</button>'
+    )
+    if include_back:
+        return (
+            '<div class="ace-import-result-actions">'
+            '<button class="ace-btn" type="button" onclick="showStep(\'step-choose\')">Back</button>'
+            '<a href="/code" class="ace-btn ace-btn--primary ace-import-start">Start coding</a>'
+            f"{import_more}"
+            "</div>"
+        )
+    return (
+        '<div class="ace-import-result-actions">'
+        '<a href="/code" class="ace-btn ace-btn--primary ace-import-start">Start coding</a>'
+        "</div>"
+        '<div class="ace-import-result-actions ace-import-result-actions--secondary">'
+        f"{import_more}"
+        "</div>"
+    )
+
+
+def _import_result_fragment(count_label: str, source_label: str | None = None) -> str:
+    source_html = ""
+    if source_label:
+        source_html = (
+            " from "
+            f'<span class="ace-import-result-meta">{html.escape(source_label)}</span>'
+        )
+    return (
+        '<div class="ace-import-result">'
+        '<div class="ace-import-result-top">'
+        '<span class="ace-wizard-crumb">Import complete</span>'
+        "</div>"
+        f'<div class="ace-import-result-count">{html.escape(count_label)}</div>'
+        f"<p>Imported successfully{source_html}</p>"
+        f"{_import_done_actions()}"
+        "</div>"
     )
 
 
@@ -378,15 +412,25 @@ async def project_create(
 
     try:
         if file_path.exists() and not overwrite:
+            file_name = html.escape(file_path.name)
             return HTMLResponse(
-                '<div id="project-overwrite-panel" class="ace-home-overwrite" role="status">'
-                "<p>A project already exists at this path.</p>"
+                '<dialog id="project-overwrite-dialog" '
+                'class="ace-dialog ace-project-overwrite-dialog" '
+                'aria-modal="true" aria-labelledby="project-overwrite-title" '
+                'aria-describedby="project-overwrite-description">'
+                '<h3 id="project-overwrite-title">A project already exists here</h3>'
+                f'<p id="project-overwrite-description"><strong>{file_name}</strong> '
+                "is already in this folder. Choose another location, or replace "
+                "the existing project file.</p>"
+                '<div class="ace-project-overwrite-note">'
+                "Replacing this file will delete the existing ACE project at this path."
+                "</div>"
                 '<div class="ace-home-form-actions">'
                 '<button type="button" class="ace-btn" onclick="window._aceChooseAnotherFolder()">Choose another folder</button>'
                 '<button type="button" class="ace-btn ace-btn--danger" '
-                'name="overwrite" value="true" onclick="window._aceConfirmOverwrite()">Overwrite existing project</button>'
+                'name="overwrite" value="true" onclick="window._aceConfirmOverwrite()">Overwrite project</button>'
                 "</div>"
-                "</div>"
+                "</dialog>"
             )
 
         if file_path.exists() and overwrite:
@@ -496,6 +540,7 @@ def _parse_tabular_for_mapping(
 
     request.app.state.import_tmp_path = str(path)
     request.app.state.import_tmp_cleanup = cleanup
+    request.app.state.import_source_name = filename
     return HTMLResponse(_build_import_mapping_fragment(filename, rows, columns))
 
 
@@ -726,14 +771,13 @@ async def import_commit(
     # Clean up upload temp files. Native picker paths belong to the user.
     if getattr(request.app.state, "import_tmp_cleanup", True):
         Path(tmp_path).unlink(missing_ok=True)
+    source_name = getattr(request.app.state, "import_source_name", None)
     request.app.state.import_tmp_path = None
     request.app.state.import_tmp_cleanup = True
+    request.app.state.import_source_name = None
 
-    return HTMLResponse(
-        f'<h1 class="ace-wizard-count" tabindex="-1">{count} source{"s" if count != 1 else ""}</h1>'
-        f'<p style="color:var(--ace-text-muted);margin:0 0 1.5rem">imported successfully</p>'
-        f'{_import_done_actions()}'
-    )
+    count_label = f'{count} source{"s" if count != 1 else ""}'
+    return HTMLResponse(_import_result_fragment(count_label, source_name))
 
 
 @router.post("/import/folder")
@@ -770,13 +814,19 @@ async def import_folder(
     )
 
     return HTMLResponse(
-        f'<h1 class="ace-wizard-count" tabindex="-1">{count} text file{"s" if count != 1 else ""}</h1>'
-        f'<p style="color:var(--ace-text-muted);margin:0 0 4px">imported successfully</p>'
-        f'<p style="font-size:var(--ace-font-size-md);color:var(--ace-text-muted);margin:0 0 24px">'
-        f'from <span style="font-family:var(--ace-font-mono);font-size:var(--ace-font-size-xs);'
-        f'background:var(--ace-bg-muted);padding:2px 6px;border-radius:4px;">{folder_name}/</span></p>'
-        f'{preview_html}'
-        f'{_import_done_actions()}'
+        '<div class="ace-import-result ace-import-result--folder">'
+        '<div class="ace-import-result-top">'
+        '<span class="ace-wizard-crumb">Folder import</span>'
+        f'<span class="ace-wizard-pill">{folder_name}/ · {count} file{"s" if count != 1 else ""}</span>'
+        "</div>"
+        '<h1 class="ace-wizard-title" tabindex="-1">Check imported text files</h1>'
+        '<p class="ace-wizard-hint">'
+        "ACE imported each text or Markdown file as a separate source. "
+        "Scan a random sample before coding."
+        "</p>"
+        f"{preview_html}"
+        f"{_import_done_actions(include_back=True)}"
+        "</div>"
     )
 
 

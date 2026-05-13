@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.14.7
+
+### Fixes
+
+- **Project setup** — existing-project warnings now open as a centred overwrite dialog instead of appearing below the page.
+- **Import flow** — matched the import choice and completion screens to the approved redesign mockup.
+- **Folder import preview** — kept the random sample browser as the main review surface after importing text files.
+
 ## 0.14.6
 
 ### Changes

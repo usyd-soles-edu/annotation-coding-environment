@@ -18,31 +18,31 @@
 
   <!-- Step 1: Choose import type -->
   <div class="ace-wizard-step {% if source_count == 0 %}active{% endif %}" id="step-choose"{% if source_count > 0 %} hidden{% endif %}>
+    <div class="ace-wizard-screen-top">
+      <span class="ace-wizard-crumb">Import data</span>
+      <span class="ace-wizard-pill">{{ project_name }}</span>
+    </div>
     <h1 class="ace-wizard-title" tabindex="-1">Choose your source data</h1>
     <p class="ace-wizard-hint">ACE can import a table of responses or a folder of individual text files.</p>
-    <div class="ace-wizard-options">
-      <button id="import-spreadsheet-button" class="ace-wizard-option" type="button" onclick="pickAndImportFile()">
-        <span class="ace-wizard-option-title">Import a spreadsheet</span>
-        <span class="ace-wizard-option-desc">CSV or Excel file with one row per source.</span>
+    <div class="ace-route-list">
+      <button id="import-spreadsheet-button" class="ace-route-row" type="button" onclick="pickAndImportFile()">
+        <span>
+          <strong class="ace-route-title">Import a spreadsheet</strong>
+          <span>CSV or Excel file with one row per source.</span>
+        </span>
+        <span aria-hidden="true">&rarr;</span>
       </button>
-      <button class="ace-wizard-option" type="button" onclick="chooseFolder()">
-        <span class="ace-wizard-option-title">Import a folder</span>
-        <span class="ace-wizard-option-desc">Text or Markdown files, one file per source.</span>
-      </button>
-    </div>
-  </div>
-
-  <!-- Step 2: Folder picker -->
-  <div class="ace-wizard-step" id="step-folder" hidden>
-    <h1 class="ace-wizard-title" tabindex="-1">Choose a folder</h1>
-    <p class="ace-wizard-hint">All .txt and .md files will be imported as sources</p>
-    <div class="ace-wizard-options">
-      <button id="import-folder-button" class="ace-wizard-option" type="button" onclick="pickAndImportFolder()">
-        <span class="ace-wizard-option-title">Browse for folder</span>
+      <button id="import-folder-button" class="ace-route-row" type="button" onclick="pickAndImportFolder()">
+        <span>
+          <strong class="ace-route-title">Import a folder</strong>
+          <span>Text or Markdown files, one file per source.</span>
+        </span>
+        <span aria-hidden="true">&rarr;</span>
       </button>
     </div>
-    <div id="folder-result"></div>
-    <button class="ace-wizard-back" type="button" onclick="showStep('step-choose')">&larr; Back</button>
+    <div class="ace-import-actions ace-import-actions--secondary">
+      <a class="ace-wizard-link ace-wizard-link--inline" href="/">Back to home</a>
+    </div>
   </div>
 
   <!-- Step 3: Column selection (populated by HTMX) -->
@@ -110,7 +110,10 @@
     }
   };
 
-  window.chooseFolder = function() { showStep("step-folder"); };
+  function setButtonTitle(btn, text) {
+    var title = btn ? btn.querySelector(".ace-route-title, .ace-wizard-option-title") : null;
+    if (title) title.textContent = text;
+  }
 
   window.handleImportCommit = function(evt) {
     if (responseIsSuccessful(evt)) showStep("step-done");
@@ -120,7 +123,7 @@
     var btn = document.getElementById("import-spreadsheet-button");
     setImportMessage("", "");
     btn.disabled = true;
-    btn.querySelector(".ace-wizard-option-title").textContent = "Choosing file...";
+    setButtonTitle(btn, "Choosing file...");
     fetch("/api/native/pick-file", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -129,7 +132,7 @@
       .then(function(r) { return r.json(); })
       .then(function(data) {
         btn.disabled = false;
-        btn.querySelector(".ace-wizard-option-title").textContent = "Import a spreadsheet";
+        setButtonTitle(btn, "Import a spreadsheet");
         if (!data.path) return;
         setImportMessage("Reading spreadsheet...", "");
         var afterFileRequest = function(evt) {
@@ -149,7 +152,7 @@
       })
       .catch(function() {
         btn.disabled = false;
-        btn.querySelector(".ace-wizard-option-title").textContent = "Import a spreadsheet";
+        setButtonTitle(btn, "Import a spreadsheet");
         setImportMessage("Could not open the file picker. Try again.", "err");
       });
   };
@@ -179,16 +182,16 @@
     var btn = document.getElementById("import-folder-button");
     setImportMessage("", "");
     btn.disabled = true;
-    btn.querySelector(".ace-wizard-option-title").textContent = "Choosing folder...";
+    setButtonTitle(btn, "Choosing folder...");
     fetch("/api/native/pick-folder", { method: "POST" })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         btn.disabled = false;
-        btn.querySelector(".ace-wizard-option-title").textContent = "Browse for folder";
+        setButtonTitle(btn, "Import a folder");
         if (!data.path) return;
         setImportMessage("Importing folder...", "");
         btn.disabled = true;
-        btn.querySelector(".ace-wizard-option-title").textContent = "Importing folder...";
+        setButtonTitle(btn, "Importing folder...");
         var afterFolderRequest = function(evt) {
           var pathInfo = evt.detail.pathInfo || {};
           var requestConfig = evt.detail.requestConfig || {};
@@ -196,7 +199,7 @@
           if (path !== "/api/import/folder") return;
           document.removeEventListener("htmx:afterRequest", afterFolderRequest);
           btn.disabled = false;
-          btn.querySelector(".ace-wizard-option-title").textContent = "Browse for folder";
+          setButtonTitle(btn, "Import a folder");
           if (responseIsSuccessful(evt)) showStep("step-done");
         };
         document.addEventListener("htmx:afterRequest", afterFolderRequest);
@@ -208,7 +211,7 @@
       })
       .catch(function() {
         btn.disabled = false;
-        btn.querySelector(".ace-wizard-option-title").textContent = "Browse for folder";
+        setButtonTitle(btn, "Import a folder");
         setImportMessage("Could not open the folder picker. Try again.", "err");
       });
   };

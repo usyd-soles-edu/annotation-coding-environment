@@ -62,17 +62,21 @@ def test_create_project_overwrite_dialog(client, tmp_project):
     assert "overwrite" in resp.text.lower() or "already exists" in resp.text.lower()
 
 
-def test_create_project_existing_returns_inline_overwrite_panel(client, tmp_project):
+def test_create_project_existing_returns_overwrite_dialog(client, tmp_project):
     resp = client.post(
         "/api/project/create",
         data={"name": "Existing", "path": str(tmp_project)},
     )
     assert resp.status_code == 200
-    assert 'id="project-overwrite-panel"' in resp.text
-    assert "A project already exists at this path" in resp.text
+    assert 'id="project-overwrite-dialog"' in resp.text
+    assert "<dialog" in resp.text
+    assert 'aria-modal="true"' in resp.text
+    assert "A project already exists here" in resp.text
+    assert "Overwrite project" in resp.text
+    assert str(tmp_project.name) in resp.text
     assert 'name="overwrite"' in resp.text
     assert 'value="true"' in resp.text
-    assert "<dialog" not in resp.text
+    assert "project-overwrite-panel" not in resp.text
 
 
 def test_create_project_overwrite_confirmed(client, tmp_project):

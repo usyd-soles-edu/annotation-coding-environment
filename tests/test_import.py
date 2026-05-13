@@ -31,6 +31,8 @@ def test_import_page_renders(client_with_project):
     assert "Choose your source data" in resp.text
     assert "Import a spreadsheet" in resp.text
     assert "Import a folder" in resp.text
+    assert 'class="ace-route-list"' in resp.text
+    assert resp.text.count("ace-route-row") == 2
 
 
 def test_import_page_uses_hidden_steps_and_live_message(client_with_project):
@@ -39,9 +41,9 @@ def test_import_page_uses_hidden_steps_and_live_message(client_with_project):
     assert resp.status_code == 200
     assert 'id="import-message"' in resp.text
     assert 'class="ace-wizard-title"' in resp.text
-    assert 'id="step-folder" hidden' in resp.text
     assert 'id="step-columns" hidden' in resp.text
     assert 'id="step-done" hidden' in resp.text
+    assert 'id="step-folder"' not in resp.text
 
 
 def test_import_page_spreadsheet_choice_uses_native_picker(client_with_project):
@@ -49,6 +51,8 @@ def test_import_page_spreadsheet_choice_uses_native_picker(client_with_project):
     resp = client.get("/import")
     assert 'id="import-spreadsheet-button"' in resp.text
     assert 'onclick="pickAndImportFile()"' in resp.text
+    assert 'onclick="pickAndImportFolder()"' in resp.text
+    assert "Browse for folder" not in resp.text
     assert 'id="step-upload"' not in resp.text
     assert 'id="import-file-input"' not in resp.text
 
@@ -129,7 +133,9 @@ def test_import_commit(client_with_project):
 
     assert resp.status_code == 200
     assert "2 sources" in resp.text
-    assert '<h1 class="ace-wizard-count" tabindex="-1">2 sources</h1>' in resp.text
+    assert "ace-import-result" in resp.text
+    assert "Import complete" in resp.text
+    assert '<div class="ace-import-result-count">2 sources</div>' in resp.text
     assert "Start coding" in resp.text
 
 
@@ -291,9 +297,11 @@ def test_import_folder(client_with_project):
     )
 
     assert resp.status_code == 200
-    assert "2 text files" in resp.text
-    assert '<h1 class="ace-wizard-count" tabindex="-1">2 text files</h1>' in resp.text
+    assert "2 files" in resp.text
+    assert "Folder import" in resp.text
+    assert "Check imported text files" in resp.text
     assert "Start coding" in resp.text
+    assert ">Back</button>" in resp.text
     assert "Import more data" in resp.text
     assert "ace-folder-import-browser" in resp.text
     assert "Random sample" in resp.text

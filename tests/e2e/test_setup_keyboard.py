@@ -27,7 +27,7 @@ def test_landing_tab_order_skips_hidden_project_form(ace_server, browser_name):
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_import_step_change_moves_focus_to_heading(ace_server, browser_name):
+def test_import_choice_screen_uses_direct_route_rows(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
         try:
@@ -38,11 +38,10 @@ def test_import_step_change_moves_focus_to_heading(ace_server, browser_name):
             if import_more.is_visible():
                 import_more.click()
 
-            page.get_by_role("button", name="Import a folder").click()
-            assert page.evaluate("document.activeElement.textContent.trim()") == "Choose a folder"
-            visible_steps = page.evaluate(
-                "() => Array.from(document.querySelectorAll('.ace-wizard-step:not([hidden])')).map(el => el.id)"
-            )
-            assert visible_steps == ["step-folder"]
+            assert page.locator(".ace-route-list").is_visible()
+            assert page.locator(".ace-route-row").count() == 2
+            assert page.locator("#step-folder").count() == 0
+            assert page.get_by_role("button", name="Import a spreadsheet").is_visible()
+            assert page.get_by_role("button", name="Import a folder").is_visible()
         finally:
             browser.close()
