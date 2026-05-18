@@ -314,6 +314,9 @@ body {
   display: inline-block;
   position: relative;
 }
+.ace-home-resume[hidden] {
+  display: none;
+}
 .ace-home-resume a {
   font-size: var(--ace-font-size-md);
   color: var(--ace-text-muted);
