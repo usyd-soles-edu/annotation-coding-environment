@@ -14,6 +14,15 @@ from playwright.sync_api import sync_playwright
 from .conftest import browser_params
 
 
+def _leave_inline_rename(page):
+    page.wait_for_timeout(120)
+    page.keyboard.press("Escape")
+    page.evaluate(
+        "() => document.querySelectorAll('[contenteditable=\"true\"]')"
+        "  .forEach(el => { el.contentEditable = 'false'; })"
+    )
+
+
 def _focus_folder_row(page, folder_label):
     """Click a folder row identified by its label text, then verify focus.
 
@@ -26,6 +35,8 @@ def _focus_folder_row(page, folder_label):
         "  const row = Array.from(document.querySelectorAll('.ace-code-folder-row'))"
         "    .find(r => r.querySelector('.ace-folder-label')?.textContent.trim() === label);"
         "  if (!row) throw new Error('folder row not found: ' + label);"
+        "  document.querySelectorAll('[contenteditable=\"true\"]')"
+        "    .forEach(el => { el.contentEditable = 'false'; });"
         "  document.querySelectorAll('#code-tree [role=\"treeitem\"][tabindex=\"0\"]')"
         "    .forEach(el => el.setAttribute('tabindex', '-1'));"
         "  row.setAttribute('tabindex', '0');"
@@ -66,7 +77,7 @@ def test_folder_reorder_survives_oob_sidebar_swap(ace_server, browser_name):
                 "      .some(el => el.textContent.trim() === 'Alpha-folder')",
                 timeout=3000,
             )
-            page.keyboard.press("Escape")  # exit any inline-rename state
+            _leave_inline_rename(page)
 
             # --- Create Bravo-folder.
             page.fill("#code-search-input", "Bravo-folder")
@@ -76,7 +87,7 @@ def test_folder_reorder_survives_oob_sidebar_swap(ace_server, browser_name):
                 "      .some(el => el.textContent.trim() === 'Bravo-folder')",
                 timeout=3000,
             )
-            page.keyboard.press("Escape")
+            _leave_inline_rename(page)
             # Let any in-flight afterSettle finish before we touch focus.
             page.wait_for_timeout(150)
 

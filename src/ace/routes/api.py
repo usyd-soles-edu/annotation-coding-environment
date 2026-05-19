@@ -1130,10 +1130,13 @@ async def annotate(
         if source_id is None:
             return HTMLResponse("", status_code=400)
 
-        ann_id, replaced_ids = add_annotation_merging(
-            conn, source_id, coder_id, code_id,
-            start_offset, end_offset, selected_text,
-        )
+        try:
+            ann_id, replaced_ids = add_annotation_merging(
+                conn, source_id, coder_id, code_id,
+                start_offset, end_offset, selected_text,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
         # Record for undo — compound if any existing annotations were merged
         undo = _get_undo_manager(request)
@@ -1485,10 +1488,13 @@ async def annotate_sentence(
                 expand_annotation(conn, neighbour["id"], new_start, new_end, new_text)
                 undo.record_add(source_id, neighbour["id"])
             else:
-                ann_id = add_annotation(
-                    conn, source_id, coder_id, code_id,
-                    start, end, unit["text"],
-                )
+                try:
+                    ann_id = add_annotation(
+                        conn, source_id, coder_id, code_id,
+                        start, end, unit["text"],
+                    )
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
                 undo.record_add(source_id, ann_id)
 
         return _annotation_only_response(request, conn, coder_id, current_index)
@@ -1612,10 +1618,11 @@ async def create_code(
 async def create_folder_route(
     request: Request,
     name: str = Form(...),
+    parent_id: str = Form(default=""),
     current_index: int = Form(default=0),
 ):
     """Create a new folder and return updated sidebar + text panel."""
-    from ace.models.codebook import add_folder
+    from ace.models.codebook import InvariantError, add_folder
 
     coder_id = _require_coder(request)
 
@@ -1624,8 +1631,11 @@ async def create_folder_route(
         return _oob_status("Folder name cannot be empty.")
 
     with _project_db(request) as conn:
+        pid = parent_id.strip() if parent_id else None
         try:
-            folder_id = add_folder(conn, name)
+            folder_id = add_folder(conn, name, parent_id=pid or None)
+        except InvariantError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         except sqlite3.IntegrityError:
             return _oob_status(f"A folder named '{name}' already exists.")
         _get_undo_manager(request).record_create_folder(folder_id)
@@ -1702,7 +1712,8 @@ async def indent_promote_route(
 ):
     """Composite: create a folder, move (above_code_id, code_id) into it.
 
-    Used by ⌥⇧→ — wraps two adjacent root codes into a brand-new folder.
+    Used by ⌥⇧→ — wraps two adjacent sibling codes into a brand-new folder
+    in their current folder scope.
     The three writes (folder + 2 moves) run inside a single BEGIN IMMEDIATE
     transaction so a partial failure doesn't leave a half-built folder
     behind. On rollback, the gesture is a true no-op.
@@ -1715,9 +1726,9 @@ async def indent_promote_route(
 
     coder_id = _require_coder(request)
     with _project_db(request) as conn:
-        # Validate both rows exist and are codes (not folders / deleted).
+        # Validate both rows exist, are codes, and share one parent scope.
         rows = conn.execute(
-            "SELECT id, kind, sort_order FROM codebook_code "
+            "SELECT id, kind, parent_id, sort_order FROM codebook_code "
             "WHERE id IN (?, ?) AND deleted_at IS NULL",
             (above_code_id, code_id),
         ).fetchall()
@@ -1726,6 +1737,9 @@ async def indent_promote_route(
             raise HTTPException(status_code=400, detail="code not found")
         if by_id[above_code_id]["kind"] != "code" or by_id[code_id]["kind"] != "code":
             raise HTTPException(status_code=400, detail="indent-promote requires two codes")
+        shared_parent = by_id[code_id]["parent_id"]
+        if by_id[above_code_id]["parent_id"] != shared_parent:
+            raise HTTPException(status_code=400, detail="indent-promote requires sibling codes")
         prev_orders = {
             above_code_id: by_id[above_code_id]["sort_order"],
             code_id: by_id[code_id]["sort_order"],
@@ -1734,7 +1748,7 @@ async def indent_promote_route(
         # Atomic transaction — folder creation + two parent moves all-or-nothing.
         try:
             conn.execute("BEGIN IMMEDIATE")
-            folder_id = _add_folder_no_commit(conn, folder_name)
+            folder_id = _add_folder_no_commit(conn, folder_name, parent_id=shared_parent)
             _move_code_to_parent_no_commit(conn, above_code_id, folder_id)
             _move_code_to_parent_no_commit(conn, code_id, folder_id)
             conn.commit()
@@ -1754,6 +1768,7 @@ async def indent_promote_route(
             folder_id=folder_id,
             code_ids=[above_code_id, code_id],
             prev_sort_orders=[prev_orders[above_code_id], prev_orders[code_id]],
+            prev_parent_id=shared_parent,
         )
         # Look up the names for the announcement.
         name_rows = conn.execute(
@@ -1838,7 +1853,7 @@ async def reorder_in_scope_route(
     parent_id: str = Form(default=""),
     current_index: int = Form(default=0),
 ):
-    """Reorder codes within a single scope. Returns text-panel + sidebar OOB.
+    """Reorder codebook items within a single scope. Returns text-panel + sidebar OOB.
 
     Same response shape as the parent / cut-paste / indent-promote routes
     so the count chips stay consistent. Records an undo entry for the
@@ -1864,24 +1879,21 @@ async def reorder_in_scope_route(
 
     with _project_db(request) as conn:
         # Snapshot the scope's current (id, sort_order) BEFORE the UPDATE so
-        # undo can restore the prior order. Scoped to kind='code' to mirror
-        # the UPDATE's defence-in-depth filter.
+        # undo can restore the prior order.
         prev = [
             (r["id"], r["sort_order"])
             for r in conn.execute(
                 "SELECT id, sort_order FROM codebook_code "
-                "WHERE deleted_at IS NULL AND kind = 'code' "
+                "WHERE deleted_at IS NULL "
                 "AND ((? IS NULL AND parent_id IS NULL) OR parent_id = ?) "
                 "ORDER BY id",
                 (scope_value, scope_value),
             ).fetchall()
         ]
         for i, cid in enumerate(new_order):
-            # `kind = 'code'` is defence in depth — folders are reordered
-            # via the tree-aware /codes/reorder-tree endpoint, never here.
             conn.execute(
                 "UPDATE codebook_code SET sort_order = ? "
-                "WHERE id = ? AND deleted_at IS NULL AND kind = 'code' "
+                "WHERE id = ? AND deleted_at IS NULL "
                 "AND ((? IS NULL AND parent_id IS NULL) OR parent_id = ?)",
                 (i, cid, scope_value, scope_value),
             )
@@ -1890,7 +1902,7 @@ async def reorder_in_scope_route(
             (r["id"], r["sort_order"])
             for r in conn.execute(
                 "SELECT id, sort_order FROM codebook_code "
-                "WHERE deleted_at IS NULL AND kind = 'code' "
+                "WHERE deleted_at IS NULL "
                 "AND ((? IS NULL AND parent_id IS NULL) OR parent_id = ?) "
                 "ORDER BY id",
                 (scope_value, scope_value),
@@ -2176,6 +2188,48 @@ async def import_codebook(
 # ---------------------------------------------------------------------------
 # Codebook {code_id} routes
 # ---------------------------------------------------------------------------
+
+
+@router.post("/codes/{code_id}/convert-to-folder")
+async def convert_code_to_folder_route(
+    request: Request,
+    code_id: str,
+    current_index: int = Form(default=0),
+):
+    """Convert a code to a folder, preserving annotations in a child code."""
+    from ace.models.codebook import InvariantError, convert_code_to_folder
+
+    coder_id = _require_coder(request)
+
+    with _project_db(request) as conn:
+        try:
+            result = convert_code_to_folder(conn, code_id)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="code not found")
+        except InvariantError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except sqlite3.IntegrityError:
+            return _with_headers(
+                _oob_status("A folder with that name already exists."),
+                {"HX-Reswap": "none"},
+            )
+
+        _get_undo_manager(request).record_code_convert_to_folder(
+            code_id=code_id,
+            prev_colour=result["prev_colour"],
+            prev_chord=result["prev_chord"],
+            child_code_id=result["child_code_id"],
+            annotation_ids=result["annotation_ids"],
+        )
+        content = _render_full_coding_oob(request, conn, coder_id, current_index)
+        n = len(result["annotation_ids"])
+        if n:
+            unit = "annotation" if n == 1 else "annotations"
+            message = f'Converted "{result["name"]}" to folder · preserved {n} {unit}'
+        else:
+            message = f'Converted "{result["name"]}" to folder'
+        content += _oob_status_undo(message)
+        return HTMLResponse(content)
 
 
 @router.put("/codes/{code_id}")

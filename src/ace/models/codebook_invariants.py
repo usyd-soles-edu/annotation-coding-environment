@@ -28,12 +28,35 @@ def assert_parent_is_folder_or_root(
         raise InvariantError("parent must be a folder")
 
 
-def assert_folder_stays_at_root(
-    conn: sqlite3.Connection, code_id: str, new_parent_id: str | None
+def assert_no_cycle(
+    conn: sqlite3.Connection, item_id: str, new_parent_id: str | None
 ) -> None:
-    """A folder's parent_id is always NULL (depth-1 cap)."""
+    """Reject moving a folder under itself or one of its descendants."""
+    if new_parent_id is None:
+        return
+    if item_id == new_parent_id:
+        raise InvariantError("folder cannot contain itself")
+
     row = conn.execute(
-        "SELECT kind FROM codebook_code WHERE id = ?", (code_id,)
+        "SELECT kind FROM codebook_code WHERE id = ? AND deleted_at IS NULL",
+        (item_id,),
     ).fetchone()
-    if row and row[0] == "folder" and new_parent_id is not None:
-        raise InvariantError("folders cannot be nested")
+    if row is None or row[0] != "folder":
+        return
+
+    ancestor_id = new_parent_id
+    seen: set[str] = set()
+    while ancestor_id is not None:
+        if ancestor_id == item_id:
+            raise InvariantError("folder cannot move inside its own child")
+        if ancestor_id in seen:
+            raise InvariantError("folder cycle detected")
+        seen.add(ancestor_id)
+        parent = conn.execute(
+            "SELECT parent_id FROM codebook_code "
+            "WHERE id = ? AND deleted_at IS NULL",
+            (ancestor_id,),
+        ).fetchone()
+        if parent is None:
+            return
+        ancestor_id = parent[0]

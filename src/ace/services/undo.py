@@ -39,6 +39,7 @@ OpType = Literal[
     "code_move_parent",
     "code_indent_promote_to_folder",
     "code_delete_folder_cascade",
+    "code_convert_to_folder",
 ]
 
 
@@ -122,6 +123,25 @@ class UndoManager:
             payload={"code_id": code_id, "prev_colour": prev_colour, "new_colour": new_colour},
         ))
 
+    def record_code_convert_to_folder(
+        self,
+        code_id: str,
+        prev_colour: str,
+        prev_chord: str | None,
+        child_code_id: str | None,
+        annotation_ids: list[str],
+    ) -> None:
+        self._push(UndoEntry(
+            op="code_convert_to_folder",
+            payload={
+                "code_id": code_id,
+                "prev_colour": prev_colour,
+                "prev_chord": prev_chord,
+                "child_code_id": child_code_id,
+                "annotation_ids": list(annotation_ids),
+            },
+        ))
+
     def record_code_reorder(
         self, prev: list[tuple[str, int]], new: list[tuple[str, int]]
     ) -> None:
@@ -184,6 +204,7 @@ class UndoManager:
         folder_id: str,
         code_ids: list[str],
         prev_sort_orders: list[int],
+        prev_parent_id: str | None = None,
     ) -> None:
         self._push(UndoEntry(
             op="code_indent_promote_to_folder",
@@ -191,6 +212,7 @@ class UndoManager:
                 "folder_id": folder_id,
                 "code_ids": list(code_ids),
                 "prev_sort_orders": list(prev_sort_orders),
+                "prev_parent_id": prev_parent_id,
             },
         ))
 
@@ -405,6 +427,65 @@ def _redo_code_recolour(conn, entry):
     return f"code '{_code_name(conn, entry.payload['code_id'])}' recoloured", None
 
 
+def _move_annotations_to_code(
+    conn,
+    annotation_ids: list[str],
+    code_id: str,
+) -> None:
+    if not annotation_ids:
+        return
+    placeholders = ",".join("?" * len(annotation_ids))
+    conn.execute(
+        f"UPDATE annotation SET code_id = ? WHERE id IN ({placeholders})",
+        [code_id, *annotation_ids],
+    )
+
+
+def _undo_code_convert_to_folder(conn, entry):
+    p = entry.payload
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        if p["child_code_id"] is not None:
+            conn.execute(
+                "UPDATE codebook_code SET deleted_at = ? WHERE id = ?",
+                (now, p["child_code_id"]),
+            )
+        conn.execute(
+            "UPDATE codebook_code "
+            "SET kind = 'code', colour = ?, chord = ? "
+            "WHERE id = ?",
+            (p["prev_colour"], p.get("prev_chord"), p["code_id"]),
+        )
+        _move_annotations_to_code(conn, p["annotation_ids"], p["code_id"])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return f"converted '{_code_name(conn, p['code_id'])}' to folder", None
+
+
+def _redo_code_convert_to_folder(conn, entry):
+    p = entry.payload
+    try:
+        conn.execute(
+            "UPDATE codebook_code "
+            "SET kind = 'folder', colour = '', chord = NULL "
+            "WHERE id = ?",
+            (p["code_id"],),
+        )
+        if p["child_code_id"] is not None:
+            conn.execute(
+                "UPDATE codebook_code SET deleted_at = NULL WHERE id = ?",
+                (p["child_code_id"],),
+            )
+            _move_annotations_to_code(conn, p["annotation_ids"], p["child_code_id"])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return "converted code to folder", None
+
+
 def _apply_reorder(conn, ordering: list[tuple[str, int]]) -> None:
     try:
         for code_id, sort_order in ordering:
@@ -532,7 +613,8 @@ def _redo_move_parent(conn, entry):
 
 
 def _undo_indent_promote_to_folder(conn, entry):
-    """Soft-delete the auto-created folder and lift both codes back to root
+    """Soft-delete the auto-created folder and lift both codes back to their
+    previous parent scope
     with their original sort_orders. Wrapped in try/rollback."""
     p = entry.payload
     now = datetime.now(timezone.utc).isoformat()
@@ -543,8 +625,8 @@ def _undo_indent_promote_to_folder(conn, entry):
         )
         for cid, prev_sort in zip(p["code_ids"], p["prev_sort_orders"]):
             conn.execute(
-                "UPDATE codebook_code SET parent_id = NULL, sort_order = ? WHERE id = ?",
-                (prev_sort, cid),
+                "UPDATE codebook_code SET parent_id = ?, sort_order = ? WHERE id = ?",
+                (p.get("prev_parent_id"), prev_sort, cid),
             )
         conn.commit()
     except Exception:
@@ -607,6 +689,7 @@ _HANDLERS: dict[OpType, tuple[Handler, Handler]] = {
     "code_delete":                   (_undo_code_delete,                 _redo_code_delete),
     "code_rename":                   (_undo_code_rename,                 _redo_code_rename),
     "code_recolour":                 (_undo_code_recolour,               _redo_code_recolour),
+    "code_convert_to_folder":        (_undo_code_convert_to_folder,      _redo_code_convert_to_folder),
     "code_reorder":                  (_undo_code_reorder,                _redo_code_reorder),
     "flag_toggle":                   (_undo_flag_toggle,                 _redo_flag_toggle),
     "codebook_import":               (_undo_codebook_import,             _redo_codebook_import),

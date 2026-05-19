@@ -6,6 +6,15 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 
 
+def _assert_code_is_active_leaf(conn: sqlite3.Connection, code_id: str) -> None:
+    row = conn.execute(
+        "SELECT kind FROM codebook_code WHERE id = ? AND deleted_at IS NULL",
+        (code_id,),
+    ).fetchone()
+    if row is None or row["kind"] != "code":
+        raise ValueError("annotation code_id must reference an active code")
+
+
 def add_annotation(
     conn: sqlite3.Connection,
     source_id: str,
@@ -17,6 +26,7 @@ def add_annotation(
     memo: str | None = None,
     w3c_selector_json: str | None = None,
 ) -> str:
+    _assert_code_is_active_leaf(conn, code_id)
     now = datetime.now(timezone.utc).isoformat()
     annotation_id = uuid.uuid4().hex
     conn.execute(
@@ -167,6 +177,7 @@ def add_annotation_merging(
 
     Atomic: all soft-deletes + insert run in one transaction; rollback on error.
     """
+    _assert_code_is_active_leaf(conn, code_id)
     overlapping = conn.execute(
         "SELECT id, start_offset, end_offset FROM annotation "
         "WHERE source_id = ? AND coder_id = ? AND code_id = ? "
@@ -292,7 +303,8 @@ def get_code_view_data(
     Returns None if the code doesn't exist in the codebook.
     """
     code_row = conn.execute(
-        "SELECT id, name, colour FROM codebook_code WHERE id = ? AND deleted_at IS NULL",
+        "SELECT id, name, colour FROM codebook_code "
+        "WHERE id = ? AND kind = 'code' AND deleted_at IS NULL",
         (code_id,),
     ).fetchone()
     if code_row is None:

@@ -20,7 +20,7 @@ from playwright.sync_api import sync_playwright
 from .conftest import browser_params
 
 
-_EXPECTED_CODE_ITEMS = ["Cut", "Paste here", "Rename", "Delete"]
+_EXPECTED_CODE_ITEMS = ["Convert to folder", "Cut", "Paste here", "Rename", "Delete"]
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
@@ -50,6 +50,37 @@ def test_right_click_on_code_row_opens_menu_with_expected_items(
                 assert any(expected in label for label in labels), (
                     f"expected '{expected}' in context menu, got {labels!r}"
                 )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_context_menu_convert_code_to_folder(ace_server, browser_name):
+    """Code-row context menu exposes the conversion action and applies it."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-code-row")
+
+            row = page.locator(".ace-code-row").first
+            code_name = row.locator(".ace-code-name").inner_text().strip()
+            row.click(button="right")
+            page.wait_for_selector(".ace-context-menu", timeout=2000)
+            page.locator(".ace-context-menu .ace-context-menu-item", has_text="Convert to folder").click()
+
+            page.wait_for_function(
+                "(label) => Array.from(document.querySelectorAll('.ace-code-folder-row'))"
+                "      .some(r => r.querySelector('.ace-folder-label')?.textContent.trim() === label)",
+                arg=code_name,
+                timeout=3000,
+            )
+            assert page.evaluate(
+                "(label) => Array.from(document.querySelectorAll('.ace-code-row'))"
+                "      .every(r => r.querySelector('.ace-code-name')?.textContent.trim() !== label)",
+                code_name,
+            )
         finally:
             browser.close()
 

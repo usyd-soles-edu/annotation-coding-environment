@@ -46,6 +46,15 @@ def _drag_param_names():
     return out
 
 
+def _leave_inline_rename(page) -> None:
+    page.wait_for_timeout(120)
+    page.keyboard.press("Escape")
+    page.evaluate(
+        "() => document.querySelectorAll('[contenteditable=\"true\"]')"
+        "  .forEach(el => { el.contentEditable = 'false'; })"
+    )
+
+
 @pytest.mark.parametrize("browser_name", _drag_param_names())
 def test_drag_code_into_folder(ace_server, browser_name):
     """Create a folder, then drag Alpha onto its header → Alpha lands inside."""
@@ -66,9 +75,7 @@ def test_drag_code_into_folder(ace_server, browser_name):
             rows[1].click()  # Bravo
             page.keyboard.press("Alt+Shift+ArrowRight")
             page.wait_for_selector(".ace-code-folder-row", timeout=3000)
-            page.keyboard.press("Escape")
-            # The wrap may have triggered inline rename — Esc twice to be safe.
-            page.keyboard.press("Escape")
+            _leave_inline_rename(page)
 
             # Now there's a folder containing Alpha + Bravo, and Charlie at
             # root. Drag Charlie INTO the folder by dropping onto an existing
@@ -116,13 +123,12 @@ def test_codebook_drag_labels_do_not_select_text(ace_server, browser_name):
             rows[1].click()
             page.keyboard.press("Alt+Shift+ArrowRight")
             page.wait_for_selector(".ace-code-folder-row", timeout=3000)
+            _leave_inline_rename(page)
 
             assert page.locator(".ace-folder-label").first.evaluate(
                 "(el) => getComputedStyle(el).userSelect || getComputedStyle(el).webkitUserSelect"
             ) == "none"
 
-            page.keyboard.press("Escape")
-            page.keyboard.press("Escape")
             page.locator(".ace-code-row").first.click()
             page.keyboard.press("F2")
 
@@ -210,8 +216,7 @@ def test_webkit_drag_code_into_folder_with_pointer_gesture(ace_server, browser_n
             rows[1].click()
             page.keyboard.press("Alt+Shift+ArrowRight")
             page.wait_for_selector(".ace-code-folder-row", timeout=3000)
-            page.keyboard.press("Escape")
-            page.keyboard.press("Escape")
+            _leave_inline_rename(page)
 
             source = page.locator('#code-tree > .ace-code-row[data-code-id]').last
             target = page.locator('[role="group"] .ace-code-row[data-code-id]').first

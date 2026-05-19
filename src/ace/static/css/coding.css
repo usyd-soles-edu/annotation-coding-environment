@@ -1786,6 +1786,10 @@ body[data-active-zone="codebook"]:has(#text-panel) .ace-code-row[tabindex="0"] .
   background: transparent;
   color: var(--ace-text);
 }
+.ace-code-folder-row.ace-code-row--ghost {
+  opacity: 0.45;
+  background: transparent;
+}
 .ace-code-row--ghost .ace-code-name { color: var(--ace-text); }
 .ace-code-row--ghost .ace-code-count { color: var(--ace-text-muted); }
 .ace-code-row--ghost .ace-code-chip {
@@ -1807,10 +1811,11 @@ body[data-active-zone="codebook"] .ace-sentence--focused {
 /* ─── Folder rows ──────────────────────────────────────────────────── */
 
 .ace-code-folder-row {
+  --indent: 0px;
   display: flex;
   align-items: center;
   gap: var(--ace-space-1);
-  padding: 6px 12px 6px 8px;
+  padding: 6px 12px 6px calc(8px + var(--indent));
   cursor: default;
   user-select: none;
   border-left: 2px solid transparent;
@@ -1841,10 +1846,11 @@ body[data-active-zone="codebook"] .ace-sentence--focused {
 
 .ace-code-folder-row .ace-folder-label {
   flex: 1;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 1.3px;
+  font-size: var(--ace-font-size-2xs);
+  font-weight: var(--ace-weight-semibold);
+  line-height: 1.25;
+  text-transform: none;
+  letter-spacing: 0;
   color: var(--ace-text);
   user-select: none;
   -webkit-user-select: none;
@@ -1871,11 +1877,8 @@ body[data-active-zone="codebook"]:has(#text-panel) .ace-code-folder-row[tabindex
   outline: none;
 }
 
-/* Folder children: indent so stripes sit under the parent caret centre.
-   Drop the rail line — the colour pills themselves are the rail. */
-#code-tree [role="group"] .ace-code-row {
-  --indent: 10px;
-}
+/* Nested folders use per-row --indent from the renderer so folder labels and
+   code colour stripes step together at each level. */
 
 /* ─── "Ungrouped" divider before the root code section ─────────────── */
 

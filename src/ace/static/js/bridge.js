@@ -214,11 +214,7 @@
     _currentKeyMap = [];
     let labelIdx = 0; // Counter that only increments for non-chord rows
     rows.forEach(function (row) {
-      const groupDiv = row.closest('[role="group"]');
-      if (groupDiv) {
-        const header = groupDiv.previousElementSibling;
-        if (header && header.getAttribute("aria-expanded") === "false") return;
-      }
+      if (_isHiddenByCollapsedAncestor(row)) return;
       // Also skip rows hidden by search filter
       if (row.style.display === "none") return;
 
@@ -701,11 +697,11 @@
       _shortcutRow("Shift + F", "Flag/unflag source") +
       _shortcutRow("N", "Open / close note panel") +
       _shortcutRow("Tab", "Cycle source → search → tree → source") +
-      _shortcutRow("⌥ + →", "Move code into the folder above") +
-      _shortcutRow("⌥ + ⇧ + →", "Wrap two root codes into a new folder") +
-      _shortcutRow("⌥ + ←", "Move code out of folder, back to root") +
-      _shortcutRow("⌘/Ctrl + X", "Cut focused code") +
-      _shortcutRow("⌘/Ctrl + V", "Paste cut code into focused folder/row") +
+      _shortcutRow("⌥ + →", "Move item into the folder above") +
+      _shortcutRow("⌥ + ⇧ + →", "Wrap two sibling codes into a new folder") +
+      _shortcutRow("⌥ + ←", "Move item out one folder level") +
+      _shortcutRow("⌘/Ctrl + X", "Cut focused item") +
+      _shortcutRow("⌘/Ctrl + V", "Paste cut item into focused folder/row") +
       _shortcutRow("Shift + Enter (in filter)", "Create new folder at root") +
       _shortcutRow("F2", "Rename code or folder (in sidebar)") +
       _shortcutRow("Delete / ⌫", "Delete code or folder (in sidebar; Z to undo)") +
@@ -1563,12 +1559,12 @@
         _lastSidebarEl = sidebarEl;
         _syncSidebarAfterSwap({ sortable: true, gridResize: true });
         if (_cutCode) {
-          const r = document.querySelector(`.ace-code-row[data-code-id="${_cutCode}"]`);
+          const r = _findCodebookItemRow(_cutCode);
           if (r) {
             r.classList.add("ace-code-row--ghost");
           } else {
             _setCut(null);
-            window._setStatus("Cut cleared (code removed)", "ok");
+            window._setStatus("Cut cleared (item removed)", "ok");
           }
         }
       } else {
@@ -1595,12 +1591,12 @@
       // Re-apply ghost class if a cut is staged and the row still exists.
       // If the row vanished (deleted by another action), clear the cut state.
       if (_cutCode) {
-        const r = document.querySelector(`.ace-code-row[data-code-id="${_cutCode}"]`);
+        const r = _findCodebookItemRow(_cutCode);
         if (r) {
           r.classList.add("ace-code-row--ghost");
         } else {
           _setCut(null);
-          window._setStatus("Cut cleared (code removed)", "ok");
+          window._setStatus("Cut cleared (item removed)", "ok");
         }
       }
       _rerenderSourceGridIfPresent();
@@ -1694,19 +1690,26 @@
   let _lastSelectedCodeId = null;
 
   // Cut/paste state for the codebook sidebar (⌘X / ⌘V).
-  // `_cutCode` holds the id of the code currently flagged for paste; the
-  // matching row carries `.ace-code-row--ghost` so the user sees what's cut.
+  // `_cutCode` holds the id of the codebook item currently flagged for paste;
+  // the matching row carries `.ace-code-row--ghost` so the user sees what's cut.
   // Cleared on paste, on Esc, or when a sibling write swaps the sidebar.
   let _cutCode = null;
 
+  function _findCodebookItemRow(itemId) {
+    if (!itemId) return null;
+    return document.querySelector(
+      `.ace-code-row[data-code-id="${itemId}"], .ace-code-folder-row[data-folder-id="${itemId}"]`
+    );
+  }
+
   function _setCut(codeId) {
     if (_cutCode) {
-      const old = document.querySelector(`.ace-code-row[data-code-id="${_cutCode}"]`);
+      const old = _findCodebookItemRow(_cutCode);
       if (old) old.classList.remove("ace-code-row--ghost");
     }
     _cutCode = codeId;
     if (codeId) {
-      const row = document.querySelector(`.ace-code-row[data-code-id="${codeId}"]`);
+      const row = _findCodebookItemRow(codeId);
       if (row) row.classList.add("ace-code-row--ghost");
     }
   }
@@ -1888,16 +1891,26 @@
   }
 
   function _moveCode(codeId, direction) {
-    const codes = window.__aceCodes || [];
-    const ids = codes.map(function (c) { return c.id; });
-    const idx = ids.indexOf(codeId);
-    if (idx < 0) return;
-    const newIdx = idx + direction;
-    if (newIdx < 0 || newIdx >= ids.length) return;
-    ids[idx] = ids[newIdx];
-    ids[newIdx] = codeId;
-    _codeAction("POST", "/api/codes/reorder",
-      `code_ids=${encodeURIComponent(JSON.stringify(ids))}&current_index=${window.__aceCurrentIndex}`);
+    const row = document.querySelector(`.ace-code-row[data-code-id="${codeId}"]`);
+    const container = row ? row.parentElement : null;
+    if (!row || !container) return;
+
+    function isSiblingItem(el) {
+      return el && el.classList && el.classList.contains("ace-code-row");
+    }
+
+    if (direction === -1) {
+      let prev = row.previousElementSibling;
+      while (prev && !isSiblingItem(prev)) prev = prev.previousElementSibling;
+      if (!prev) return;
+      container.insertBefore(row, prev);
+    } else {
+      let next = row.nextElementSibling;
+      while (next && !isSiblingItem(next)) next = next.nextElementSibling;
+      if (!next) return;
+      container.insertBefore(row, next.nextElementSibling);
+    }
+    _persistScopeOrder(container);
   }
 
   // _moveToGroup was removed: PUT /api/codes/{id} no longer accepts
@@ -1925,13 +1938,8 @@
     });
     _sortableInstances = [];
 
-    // Two kinds of Sortable containers, with different rules:
-    //   • Root (#code-tree) accepts root code rows AND folder blocks
-    //     (the wrapper `<div class="ace-folder-block">` carries the folder
-    //     header + its children group as a single draggable unit).
-    //   • Each `[role="group"]` inside a folder block accepts only code
-    //     rows — folders are root-only by schema, so dropping a folder
-    //     block into another folder's group is rejected via group.put.
+    // Root and every folder group accept code rows and folder blocks. Codes
+    // stay leaves because only `.ace-folder-block` owns a child group.
     const root = document.getElementById("code-tree");
     if (!root) return;
 
@@ -1965,30 +1973,28 @@
       };
     }
 
-    function handleCodeRowEnd(evt) {
-      const codeId = evt.item.getAttribute("data-code-id");
-      if (!codeId) return;
+    function isInvalidFolderDrop(container, dragEl) {
+      if (!dragEl.classList.contains("ace-folder-block")) return false;
+      return dragEl.contains(container);
+    }
+
+    function handleItemEnd(evt) {
+      const itemId = _itemIdFromTreeElement(evt.item);
+      if (!itemId) return;
       const newContainer = evt.to;
       const newParentId = newContainer.getAttribute("data-folder-children") || "";
       const oldContainer = evt.from;
       const oldParentId = oldContainer.getAttribute("data-folder-children") || "";
+      if (isInvalidFolderDrop(newContainer, evt.item)) {
+        _refreshSidebar();
+        window._setStatus("A folder cannot move inside itself", "err");
+        return;
+      }
 
       if (newParentId === oldParentId) {
-        const ids = Array.from(newContainer.children)
-          .filter(function (el) { return el.classList && el.classList.contains("ace-code-row"); })
-          .map(function (el) { return el.getAttribute("data-code-id"); })
-          .filter(Boolean);
-        htmx.ajax("POST", "/api/codes/reorder-in-scope", {
-          target: "#text-panel",
-          swap: "outerHTML",
-          values: {
-            code_ids: JSON.stringify(ids),
-            parent_id: newParentId,
-            current_index: window.__aceCurrentIndex,
-          },
-        });
+        _persistScopeOrder(newContainer);
       } else {
-        htmx.ajax("PUT", "/api/codes/" + codeId + "/parent", {
+        htmx.ajax("PUT", "/api/codes/" + itemId + "/parent", {
           target: "#text-panel",
           swap: "outerHTML",
           values: {
@@ -2004,31 +2010,24 @@
       draggable: ".ace-code-row, .ace-folder-block",
       onEnd: function (evt) {
         _isDragging = false;
-        if (evt.item.classList.contains("ace-folder-block")) {
-          // Whole-folder reorder — DOM order is now correct, persist it.
-          _persistTreeOrder();
-          return;
-        }
-        handleCodeRowEnd(evt);
+        handleItemEnd(evt);
       },
     }));
     _sortableInstances.push(rootInstance);
 
     document.querySelectorAll('#code-tree [role="group"]').forEach(function (container) {
       const instance = new Sortable(container, Object.assign(commonOpts(), {
-        // Reject folder blocks from being dropped inside a folder group —
-        // folders are root-only.
         group: {
           name: "codes",
-          put: function (_to, _from, dragEl) {
-            return !dragEl.classList.contains("ace-folder-block");
+          put: function (to, _from, dragEl) {
+            return !isInvalidFolderDrop(to.el, dragEl);
           },
         },
-        handle: ".ace-code-row",
-        draggable: ".ace-code-row",
+        handle: ".ace-code-row, .ace-code-folder-row",
+        draggable: ".ace-code-row, .ace-folder-block",
         onEnd: function (evt) {
           _isDragging = false;
-          handleCodeRowEnd(evt);
+          handleItemEnd(evt);
         },
       }));
       _sortableInstances.push(instance);
@@ -2040,9 +2039,9 @@
    * ----------------------------------------------------------------
    * Mouse-discovery surface for the keyboard codebook gestures. Three
    * menu shapes:
-   *   - code row: Move to folder \u25b8, Move to root, Cut, Paste here,
-   *     Rename, Change colour\u2026, View coded text, Delete
-   *   - folder row: Rename, Paste here, Delete folder
+   *   - code row: Move to folder \u25b8, Move to root, Convert to folder,
+   *     Cut, Paste here, Rename, Change colour\u2026, View coded text, Delete
+   *   - folder row: Rename, Cut, Paste here, Delete folder
    *   - empty area of #code-tree: New folder, Paste here
    *
    * Submenus (Move to folder \u25b8) render in-place: clicking the parent
@@ -2095,7 +2094,7 @@
     });
   }
 
-  /** Move a code back to root (empty parent_id). */
+  /** Move an item back to root (empty parent_id). */
   function _moveCodeToRoot(codeId) {
     if (!codeId) return;
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
@@ -2105,7 +2104,7 @@
     });
   }
 
-  /** Paste the cut code onto a code row (target_id is a code id). */
+  /** Paste the cut item onto a code row (target_id is a code id). */
   function _pasteCodeInto(targetId) {
     if (!_cutCode || !targetId || targetId === _cutCode) return;
     const cutId = _cutCode;
@@ -2123,7 +2122,7 @@
     });
   }
 
-  /** Paste the cut code into a folder (target_id is a folder id; "" = root). */
+  /** Paste the cut item into a folder (target_id is a folder id; "" = root). */
   function _pasteCodeIntoFolder(folderId) {
     if (!_cutCode) return;
     const cutId = _cutCode;
@@ -2138,6 +2137,15 @@
     }).then(function () {
       _setCut(null);
       window._setStatus("", "ok");
+    });
+  }
+
+  function _convertCodeToFolder(codeId) {
+    if (!codeId) return;
+    htmx.ajax("POST", `/api/codes/${codeId}/convert-to-folder`, {
+      target: "#text-panel",
+      swap: "outerHTML",
+      values: { current_index: window.__aceCurrentIndex || 0 },
     });
   }
 
@@ -2164,7 +2172,7 @@
 
   function _buildCodeRowMenu(row) {
     const codeId = row.getAttribute("data-code-id");
-    const inFolder = !!row.closest('[role="group"]');
+    const inFolder = !!_parentFolderRow(row);
     const folders = Array.from(document.querySelectorAll(".ace-code-folder-row"))
       .map(function (f) {
         const labelEl = f.querySelector(".ace-folder-label");
@@ -2205,6 +2213,10 @@
       });
     }
     items.push({ sep: true });
+    items.push({
+      label: "Convert to folder",
+      handler: function () { _convertCodeToFolder(codeId); },
+    });
     items.push({
       label: "Cut",
       shortcut: "\u2318X",
@@ -2250,6 +2262,8 @@
 
   function _buildFolderRowMenu(folderRow) {
     const folderId = folderRow.getAttribute("data-folder-id");
+    const labelEl = folderRow.querySelector(".ace-folder-label");
+    const name = labelEl ? labelEl.textContent : "folder";
     return [
       {
         label: "Rename folder",
@@ -2257,9 +2271,18 @@
         handler: function () { _startInlineRename(folderRow, { isFolder: true }); },
       },
       {
+        label: "Cut",
+        shortcut: "\u2318X",
+        handler: function () {
+          _setCut(folderId);
+          _announce(`Cut ${name}.`);
+          window._setStatus(`Cut: ${name} · \u2318V to paste · Esc to cancel`, "ok-sticky");
+        },
+      },
+      {
         label: "Paste here",
         shortcut: "\u2318V",
-        disabled: !_cutCode,
+        disabled: !_cutCode || _cutCode === folderId,
         handler: function () { _pasteCodeIntoFolder(folderId); },
       },
       { sep: true },
@@ -2992,17 +3015,13 @@
       if (sel && sel.toString().length > 0) return;
       if (!(e.target.closest && e.target.closest("#code-sidebar"))) return;
       e.preventDefault();
-      const row = e.target.closest(".ace-code-row");
+      const row = e.target.closest(".ace-code-row, .ace-code-folder-row");
       if (!row) {
-        if (e.target.closest(".ace-code-folder-row")) {
-          _announce("Folders cannot be cut.");
-          window._setStatus("Folders cannot be cut", "err");
-        }
         return;
       }
-      const codeId = row.getAttribute("data-code-id");
-      const nameEl = row.querySelector(".ace-code-name");
-      const name = nameEl ? nameEl.textContent : "code";
+      const codeId = row.getAttribute("data-code-id") || row.getAttribute("data-folder-id");
+      const nameEl = row.querySelector(".ace-code-name, .ace-folder-label");
+      const name = nameEl ? nameEl.textContent : "item";
       _setCut(codeId);
       _announce(`Cut ${name}.`);
       // Sticky status bar mirror so sighted users see the cut state even
@@ -3171,6 +3190,21 @@
       `code_ids=${encodeURIComponent(JSON.stringify(ids))}&current_index=${window.__aceCurrentIndex}`);
   }
 
+  function _persistScopeOrder(container) {
+    if (!container) return;
+    const ids = _directChildItemIds(container);
+    const parentId = container.getAttribute("data-folder-children") || "";
+    htmx.ajax("POST", "/api/codes/reorder-in-scope", {
+      target: "#text-panel",
+      swap: "outerHTML",
+      values: {
+        code_ids: JSON.stringify(ids),
+        parent_id: parentId,
+        current_index: window.__aceCurrentIndex || 0,
+      },
+    });
+  }
+
   /** Walk the tree top-to-bottom and persist a unified flat order of folder + code ids.
    *  Used by the keyboard folder-reorder gesture. The /codes/reorder endpoint only
    *  rewrites kind='code' rows; folder reorders need this tree-aware sibling. */
@@ -3184,13 +3218,10 @@
       if (node.classList.contains("ace-folder-block")) {
         const fid = node.getAttribute("data-folder-id");
         if (fid) ids.push(fid);
-        const group = node.querySelector('[role="group"]');
-        if (group) {
-          Array.from(group.children).forEach(function (child) {
-            const cid = child.getAttribute && child.getAttribute("data-code-id");
-            if (cid) ids.push(cid);
-          });
-        }
+        node.querySelectorAll(".ace-folder-block, .ace-code-row").forEach(function (child) {
+          const id = _itemIdFromTreeElement(child);
+          if (id) ids.push(id);
+        });
         return;
       }
       // Root-level code row.
@@ -3957,13 +3988,8 @@
     items.forEach(function (item) {
       // Skip items hidden by search filter
       if (item.style.display === "none") return;
-      if (item.classList.contains("ace-code-row")) {
-        const groupContainer = item.closest('[role="group"]');
-        if (groupContainer) {
-          const prev = groupContainer.previousElementSibling;
-          if (prev && prev.getAttribute("aria-expanded") === "false") return;
-        }
-      }
+      if (item.getAttribute("aria-hidden") === "true") return;
+      if (_isHiddenByCollapsedAncestor(item)) return;
       result.push(item);
     });
     return result;
@@ -3989,12 +4015,55 @@
     return item && item.classList.contains("ace-code-folder-row");
   }
 
+  function _containingGroupForItem(item) {
+    if (!item) return null;
+    if (item.parentElement && item.parentElement.getAttribute("role") === "group") {
+      return item.parentElement;
+    }
+    const block = item.closest(".ace-folder-block");
+    if (block && block.parentElement && block.parentElement.getAttribute("role") === "group") {
+      return block.parentElement;
+    }
+    return null;
+  }
+
+  function _parentFolderRow(item) {
+    const group = _containingGroupForItem(item);
+    const row = group ? group.previousElementSibling : null;
+    return _isFolderRow(row) ? row : null;
+  }
+
+  function _isHiddenByCollapsedAncestor(item) {
+    let group = _containingGroupForItem(item);
+    while (group) {
+      const folderRow = group.previousElementSibling;
+      if (folderRow && folderRow.getAttribute("aria-expanded") === "false") return true;
+      const block = group.parentElement;
+      group = block && block.parentElement && block.parentElement.getAttribute("role") === "group"
+        ? block.parentElement
+        : null;
+    }
+    return false;
+  }
+
+  function _itemIdFromTreeElement(el) {
+    if (!el || !el.getAttribute) return null;
+    if (el.classList.contains("ace-folder-block")) return el.getAttribute("data-folder-id");
+    return el.getAttribute("data-code-id") || el.getAttribute("data-folder-id");
+  }
+
+  function _directChildItemIds(container) {
+    return Array.from(container.children)
+      .map(function (el) { return _itemIdFromTreeElement(el); })
+      .filter(Boolean);
+  }
+
   /** Move a folder block (the wrapper carrying header + children group) up
    *  or down by one position relative to its sibling folder blocks. */
   function _moveFolderInDirection(folderRow, direction) {
     const block = folderRow.closest(".ace-folder-block");
-    const tree = document.getElementById("code-tree");
-    if (!block || !tree) return;
+    const container = block ? block.parentElement : null;
+    if (!block || !container) return;
 
     function isFolderBlock(el) {
       return el && el.classList && el.classList.contains("ace-folder-block");
@@ -4004,18 +4073,15 @@
       let prev = block.previousElementSibling;
       while (prev && !isFolderBlock(prev)) prev = prev.previousElementSibling;
       if (!prev) return;
-      tree.insertBefore(block, prev);
+      container.insertBefore(block, prev);
     } else {
       let next = block.nextElementSibling;
       while (next && !isFolderBlock(next)) next = next.nextElementSibling;
       if (!next) return;
-      tree.insertBefore(block, next.nextElementSibling); // null ref → append
+      container.insertBefore(block, next.nextElementSibling); // null ref → append
     }
 
-    // Persist via the tree-aware endpoint — /api/codes/reorder filters
-    // [data-code-id] only and would silently drop the folder reorder, so
-    // the next OOB swap would snap the folder back to its prior slot.
-    _persistTreeOrder();
+    _persistScopeOrder(container);
 
     _updateKeycaps();
     _initSortable();
@@ -4023,11 +4089,15 @@
 
   // --- Indent/outdent helpers (Alt-arrow gestures) ---
 
-  /** Move `row` (a code row) into the scope of `folderRow` via PUT /api/codes/{id}/parent. */
+  /** Move a codebook item into the scope of `folderRow` via PUT /api/codes/{id}/parent. */
   function _doMoveToFolderAbove(row, folderRow) {
-    const codeId = row.getAttribute("data-code-id");
+    const codeId = row.getAttribute("data-code-id") || row.getAttribute("data-folder-id");
     const parentId = folderRow.getAttribute("data-folder-id");
     if (!codeId || !parentId) return;
+    if (_parentFolderRow(row) === folderRow) {
+      _announce("Already in that folder.");
+      return;
+    }
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       target: "#text-panel",
       swap: "outerHTML",
@@ -4035,15 +4105,27 @@
     });
   }
 
-  /** Move `row` (a code row inside a folder) back to root scope. */
+  /** Move a codebook item out one level, or to root if it is already one level deep. */
   function _doMoveOutOfFolder(row) {
-    const codeId = row.getAttribute("data-code-id");
+    const codeId = row.getAttribute("data-code-id") || row.getAttribute("data-folder-id");
     if (!codeId) return;
+    const parentRow = _parentFolderRow(row);
+    const grandparentRow = parentRow ? _parentFolderRow(parentRow) : null;
+    const newParentId = grandparentRow ? grandparentRow.getAttribute("data-folder-id") : "";
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       target: "#text-panel",
       swap: "outerHTML",
-      values: { parent_id: "", current_index: window.__aceCurrentIndex || 0 },
+      values: { parent_id: newParentId || "", current_index: window.__aceCurrentIndex || 0 },
     });
+  }
+
+  function _folderRowAbove(item) {
+    const items = _getTreeItems();
+    const idx = items.indexOf(item);
+    if (idx <= 0) return null;
+    const above = items[idx - 1];
+    if (_isFolderRow(above)) return above;
+    return _parentFolderRow(above);
   }
 
   // --- Tree keydown handler ---
@@ -4092,54 +4174,35 @@
       return;
     }
 
-    // ⌥⇧→ — Wrap focused root code + the root code above into a NEW folder.
+    // ⌥⇧→ — Wrap focused code + the sibling code above into a NEW folder.
     // Composite: creates folder + moves both codes in one transaction. After
     // the swap settles, focus moves to the new folder header and inline
     // rename starts immediately.
     if (key === "ArrowRight" && alt && shift) {
       e.preventDefault();
       if (_isFolderRow(active)) {
-        _announce("Folders are always at root.");
-        return;
-      }
-      // Codes already in a folder are a no-op — Shift modifier is about
-      // wrapping two siblings into a NEW folder, not reversing direction.
-      // Mirror the bare ⌥→ announcement so behaviour is consistent regardless
-      // of Shift state. Folders cannot be nested.
-      if (active.closest('[role="group"]')) {
-        const folderHeader = active.closest('[role="group"]').previousElementSibling;
-        const folderName = (folderHeader && folderHeader.querySelector(".ace-folder-label"))
-          ? folderHeader.querySelector(".ace-folder-label").textContent.trim()
-          : "this folder";
-        _announce(`Already in ${folderName}. Folders cannot contain folders.`);
+        const folderAbove = _folderRowAbove(active);
+        if (folderAbove) _doMoveToFolderAbove(active, folderAbove);
+        else _announce("No folder above to move into.");
         return;
       }
       const codeId = active.getAttribute("data-code-id");
-      const allRows = Array.from(document.querySelectorAll(
-        "#code-tree .ace-code-row, #code-tree .ace-code-folder-row"
-      ));
+      const allRows = _getTreeItems();
       const idx = allRows.indexOf(active);
       if (idx <= 0) {
-        _announce("No row above. Need two root codes to make a folder.");
+        _announce("No row above. Need two sibling codes to make a folder.");
         window._setStatus("Need a row above to wrap into a folder", "err");
         return;
       }
       const above = allRows[idx - 1];
-      // If the row above is a folder header or a code already inside a
-      // folder, this isn't a valid wrap (would either nest a folder or pull
-      // a child out of its existing folder). Fall through to the bare ⌥→
-      // behaviour so existing folders still receive the move.
       if (_isFolderRow(above)) {
         _doMoveToFolderAbove(active, above);
         return;
       }
-      const aboveGroup = above.closest('[role="group"]');
-      if (aboveGroup) {
-        const folderHeader = aboveGroup.previousElementSibling;
-        if (folderHeader && _isFolderRow(folderHeader)) {
-          _doMoveToFolderAbove(active, folderHeader);
-          return;
-        }
+      if (_parentFolderRow(above) !== _parentFolderRow(active)) {
+        _announce("Need two sibling codes to make a folder.");
+        window._setStatus("Need two sibling codes to wrap into a folder", "err");
+        return;
       }
       const aboveCodeId = above.getAttribute("data-code-id");
       htmx.ajax("POST", `/api/codes/${codeId}/indent-promote`, {
@@ -4162,9 +4225,7 @@
             `.ace-code-row[data-code-id="${codeId}"]`
           );
           if (!moved) return;
-          const groupDiv = moved.closest('[role="group"]');
-          if (!groupDiv) return;
-          const folderRow = groupDiv.previousElementSibling;
+          const folderRow = _parentFolderRow(moved);
           if (folderRow && _isFolderRow(folderRow)) {
             _focusTreeItem(folderRow);
             _startInlineRename(folderRow, { isFolder: true });
@@ -4174,64 +4235,31 @@
       return;
     }
 
-    // ⌥→ (no shift) — Move focused code into the folder above. Never
-    // creates a folder on its own — the spec mandates the surprise be
-    // explicit (⌥⇧→ for that). On a code already inside a folder, announce
-    // the nesting rule. On a folder row, announce that folders live at root.
+    // ⌥→ (no shift) — Move focused item into the folder above. Never
+    // creates a folder on its own; ⌥⇧→ is the explicit wrap gesture.
     if (key === "ArrowRight" && alt && !shift) {
       e.preventDefault();
-      if (_isFolderRow(active)) {
-        _announce("Folders are always at root.");
+      const above = _folderRowAbove(active);
+      if (!above) {
+        if (_isFolderRow(active)) {
+          _announce("No folder above to move into.");
+        } else {
+          _announce("Press Alt-Shift-Right to create a folder around sibling codes.");
+          window._setStatus("⌥⇧→ to wrap into a new folder", "ok");
+        }
         return;
       }
-      // Code already inside a folder → nothing to do.
-      if (active.closest('[role="group"]')) {
-        const folderHeader = active.closest('[role="group"]').previousElementSibling;
-        const folderName = (folderHeader && folderHeader.querySelector(".ace-folder-label"))
-          ? folderHeader.querySelector(".ace-folder-label").textContent.trim()
-          : "this folder";
-        _announce(`Already in ${folderName}. Folders cannot contain folders.`);
-        return;
-      }
-      const allRows = Array.from(document.querySelectorAll(
-        "#code-tree .ace-code-row, #code-tree .ace-code-folder-row"
-      ));
-      const idx = allRows.indexOf(active);
-      if (idx <= 0) {
-        _announce("No row above to move into.");
-        return;
-      }
-      const above = allRows[idx - 1];
       if (_isFolderRow(above)) {
         _doMoveToFolderAbove(active, above);
         return;
       }
-      // Above is a code already inside a folder → join that same folder.
-      // The folder header is the row immediately preceding the [role="group"]
-      // wrapper. This makes ⌥→ "join the visually-adjacent folder" — the
-      // intuitive behaviour when the user can SEE a folder right above them.
-      const aboveGroup = above.closest('[role="group"]');
-      if (aboveGroup) {
-        const folderHeader = aboveGroup.previousElementSibling;
-        if (folderHeader && _isFolderRow(folderHeader)) {
-          _doMoveToFolderAbove(active, folderHeader);
-          return;
-        }
-      }
-      // Above is another root code → tell the user about the explicit gesture.
-      _announce("Press Alt-Shift-Right to create a folder around both codes.");
-      window._setStatus("⌥⇧→ to wrap into a new folder", "ok");
       return;
     }
 
-    // ⌥← — Move focused code out of its folder, back to root.
+    // ⌥← — Move focused item out one folder level.
     if (key === "ArrowLeft" && alt && !shift) {
       e.preventDefault();
-      if (_isFolderRow(active)) {
-        _announce("Folders are always at root.");
-        return;
-      }
-      if (!active.closest('[role="group"]')) {
+      if (!_parentFolderRow(active)) {
         _announce("Already at root.");
         return;
       }
@@ -4326,13 +4354,13 @@
       if (_isFolderRow(active)) {
         if (active.getAttribute("aria-expanded") === "true") {
           _collapseFolder(active);
+        } else {
+          const parent = _parentFolderRow(active);
+          if (parent) _focusTreeItem(parent);
         }
       } else {
-        const groupEl = active.closest('[role="group"]');
-        if (groupEl) {
-          const folderRow = groupEl.previousElementSibling;
-          if (folderRow && _isFolderRow(folderRow)) _focusTreeItem(folderRow);
-        }
+        const folderRow = _parentFolderRow(active);
+        if (folderRow) _focusTreeItem(folderRow);
       }
       return;
     }

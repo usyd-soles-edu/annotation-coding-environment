@@ -109,13 +109,19 @@ class AgreementLoader:
         has_group = "group_name" in col_names
         has_sort = "sort_order" in col_names
         has_deleted_at = "deleted_at" in col_names
+        has_kind = "kind" in col_names
 
         code_cols = "id, name"
         if has_group:
             code_cols += ", group_name"
         if has_sort:
             code_cols += ", sort_order"
-        where = " WHERE deleted_at IS NULL" if has_deleted_at else ""
+        where_parts = []
+        if has_deleted_at:
+            where_parts.append("deleted_at IS NULL")
+        if has_kind:
+            where_parts.append("kind = 'code'")
+        where = " WHERE " + " AND ".join(where_parts) if where_parts else ""
         order = " ORDER BY sort_order" if has_sort else ""
         codes = conn.execute(
             f"SELECT {code_cols} FROM codebook_code{where}{order}"

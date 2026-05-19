@@ -841,11 +841,21 @@
     if (!treeEl) return [];
     const all = Array.from(treeEl.querySelectorAll(".ace-code-row"));
     return all.filter((row) => {
-      const group = row.closest("[role='group']");
-      if (!group) return true; // ungrouped rows are always visible
-      const header = group.previousElementSibling;
-      if (!header || !header.classList.contains("ace-code-group-header")) return true;
-      return header.getAttribute("aria-expanded") !== "false";
+      let group = row.parentElement && row.parentElement.getAttribute("role") === "group"
+        ? row.parentElement
+        : null;
+      while (group) {
+        const header = group.previousElementSibling;
+        if (header && header.classList.contains("ace-code-folder-row")
+            && header.getAttribute("aria-expanded") === "false") {
+          return false;
+        }
+        const block = group.parentElement;
+        group = block && block.parentElement && block.parentElement.getAttribute("role") === "group"
+          ? block.parentElement
+          : null;
+      }
+      return true;
     });
   }
 

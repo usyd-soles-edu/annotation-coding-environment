@@ -253,7 +253,8 @@ def test_sidebar_has_aria_tree_roles(client_with_sources, tmp_path):
     project_path = client.app.state.project_path
     conn = open_project(project_path)
     folder_id = add_folder(conn, "Folder One")
-    add_code(conn, "Nested code", "#1976d2", parent_id=folder_id)
+    child_folder_id = add_folder(conn, "Folder Two", parent_id=folder_id)
+    add_code(conn, "Nested code", "#1976d2", parent_id=child_folder_id)
     conn.close()
 
     resp = client.get("/code")
@@ -263,6 +264,9 @@ def test_sidebar_has_aria_tree_roles(client_with_sources, tmp_path):
     assert 'aria-label="Code list"' in html
     assert 'role="treeitem"' in html
     assert 'role="group"' in html
+    assert 'aria-level="1"' in html
+    assert 'aria-level="2"' in html
+    assert 'aria-level="3"' in html
 
 
 # ---------------------------------------------------------------------------
@@ -1066,6 +1070,24 @@ def test_annotate_refreshes_grid(client_with_codes):
     assert payload[0]["count"] == 1
 
 
+def test_annotate_rejects_folder_id(client_with_codes):
+    client, coder_id, _code_a, _code_b, db_path = client_with_codes
+    client.cookies.set("coder_id", coder_id)
+    folder_id = _create_folder(client, "Themes", db_path)
+
+    resp = client.post(
+        "/api/code/apply",
+        data={
+            "code_id": folder_id,
+            "current_index": 0,
+            "start_offset": 0,
+            "end_offset": 5,
+            "selected_text": "First",
+        },
+    )
+    assert resp.status_code == 400
+
+
 def test_delete_refreshes_grid(client_with_codes):
     """Deleting an annotation returns OOB sources blob with decremented count."""
     import json
@@ -1475,6 +1497,42 @@ def test_set_parent_to_folder(client_with_codes):
     ).fetchone()
     conn.close()
     assert row["parent_id"] == folder_id
+
+
+def test_set_folder_parent_to_folder(client_with_codes):
+    client, _coder_id, _a, _b, db_path = client_with_codes
+    outer_id = _create_folder(client, "Outer", db_path)
+    inner_id = _create_folder(client, "Inner", db_path)
+
+    r = client.put(
+        f"/api/codes/{inner_id}/parent",
+        data={"parent_id": outer_id, "current_index": 0},
+    )
+    assert r.status_code == 200, r.text
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT parent_id FROM codebook_code WHERE id = ?", (inner_id,),
+    ).fetchone()
+    conn.close()
+    assert row["parent_id"] == outer_id
+
+
+def test_set_folder_parent_to_descendant_rejected(client_with_codes):
+    client, _coder_id, _a, _b, db_path = client_with_codes
+    outer_id = _create_folder(client, "Outer", db_path)
+    inner_id = _create_folder(client, "Inner", db_path)
+    client.put(
+        f"/api/codes/{inner_id}/parent",
+        data={"parent_id": outer_id, "current_index": 0},
+    )
+
+    r = client.put(
+        f"/api/codes/{outer_id}/parent",
+        data={"parent_id": inner_id, "current_index": 0},
+    )
+    assert r.status_code == 400
 
 
 def test_set_parent_to_root(client_with_codes):
@@ -1933,12 +1991,137 @@ def test_cut_paste_404_on_unknown_target(client_with_codes):
     assert r.status_code == 404
 
 
-def test_reorder_in_scope_skips_folder_rows(client_with_codes):
-    """F3 — UPDATE in /api/codes/reorder-in-scope is restricted to kind='code'.
+def test_convert_unannotated_code_to_folder_route_records_undo(client_with_codes):
+    from ace.db.connection import open_project
 
-    Sending a folder id alongside legitimate code ids must NOT rewrite the
-    folder's sort_order (defence in depth against a stale client).
-    """
+    client, _coder, code_a, _b, db_path = client_with_codes
+
+    r = client.post(
+        f"/api/codes/{code_a}/convert-to-folder",
+        data={"current_index": 0},
+    )
+    assert r.status_code == 200, r.text
+
+    conn = open_project(db_path)
+    try:
+        row = conn.execute(
+            "SELECT kind, colour FROM codebook_code WHERE id = ?",
+            (code_a,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row["kind"] == "folder"
+    assert row["colour"] == ""
+
+    r = client.post("/api/undo", data={"current_index": 0})
+    assert r.status_code == 200
+
+    conn = open_project(db_path)
+    try:
+        row = conn.execute(
+            "SELECT kind, colour FROM codebook_code WHERE id = ?",
+            (code_a,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row["kind"] == "code"
+    assert row["colour"] == "#BF6030"
+
+
+def test_convert_annotated_code_to_folder_route_preserves_annotations(client_with_codes):
+    from ace.db.connection import open_project
+    from ace.models.annotation import add_annotation
+
+    client, coder_id, code_a, _b, db_path = client_with_codes
+
+    conn = open_project(db_path)
+    try:
+        source_id = conn.execute("SELECT id FROM source ORDER BY display_id LIMIT 1").fetchone()["id"]
+        ann_id = add_annotation(conn, source_id, coder_id, code_a, 0, 5, "First")
+    finally:
+        conn.close()
+
+    r = client.post(
+        f"/api/codes/{code_a}/convert-to-folder",
+        data={"current_index": 0},
+    )
+    assert r.status_code == 200, r.text
+
+    conn = open_project(db_path)
+    try:
+        parent = conn.execute(
+            "SELECT kind, colour FROM codebook_code WHERE id = ?",
+            (code_a,),
+        ).fetchone()
+        child = conn.execute(
+            "SELECT id, kind, name, colour, parent_id, deleted_at "
+            "FROM codebook_code WHERE parent_id = ? AND kind = 'code'",
+            (code_a,),
+        ).fetchone()
+        ann = conn.execute(
+            "SELECT code_id FROM annotation WHERE id = ?",
+            (ann_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert parent["kind"] == "folder"
+    assert parent["colour"] == ""
+    assert child["name"] == "Theme A"
+    assert child["colour"] == "#BF6030"
+    assert child["deleted_at"] is None
+    assert ann["code_id"] == child["id"]
+
+    r = client.post("/api/undo", data={"current_index": 0})
+    assert r.status_code == 200
+
+    conn = open_project(db_path)
+    try:
+        parent = conn.execute(
+            "SELECT kind, colour FROM codebook_code WHERE id = ?",
+            (code_a,),
+        ).fetchone()
+        child_after_undo = conn.execute(
+            "SELECT deleted_at FROM codebook_code WHERE id = ?",
+            (child["id"],),
+        ).fetchone()
+        ann_after_undo = conn.execute(
+            "SELECT code_id FROM annotation WHERE id = ?",
+            (ann_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert parent["kind"] == "code"
+    assert parent["colour"] == "#BF6030"
+    assert child_after_undo["deleted_at"] is not None
+    assert ann_after_undo["code_id"] == code_a
+
+    r = client.post("/api/redo", data={"current_index": 0})
+    assert r.status_code == 200
+
+    conn = open_project(db_path)
+    try:
+        parent = conn.execute(
+            "SELECT kind FROM codebook_code WHERE id = ?",
+            (code_a,),
+        ).fetchone()
+        child_after_redo = conn.execute(
+            "SELECT deleted_at FROM codebook_code WHERE id = ?",
+            (child["id"],),
+        ).fetchone()
+        ann_after_redo = conn.execute(
+            "SELECT code_id FROM annotation WHERE id = ?",
+            (ann_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert parent["kind"] == "folder"
+    assert child_after_redo["deleted_at"] is None
+    assert ann_after_redo["code_id"] == child["id"]
+
+
+def test_reorder_in_scope_accepts_folder_rows(client_with_codes):
+    """Nested folders require mixed code/folder sibling reorder in any scope."""
     from ace.db.connection import open_project
     from ace.models.codebook import add_folder
 
@@ -1953,8 +2136,7 @@ def test_reorder_in_scope_skips_folder_rows(client_with_codes):
     finally:
         conn.close()
 
-    # Send the folder id at index 0 — if the route honoured it, the folder
-    # would inherit sort_order=0.
+    # Send the folder id at index 0. The mixed-scope route should honour it.
     r = client.post(
         "/api/codes/reorder-in-scope",
         data={
@@ -1972,7 +2154,8 @@ def test_reorder_in_scope_skips_folder_rows(client_with_codes):
         ).fetchone()["sort_order"]
     finally:
         conn.close()
-    assert after == before, "folder sort_order must not be touched by reorder-in-scope"
+    assert before != 0
+    assert after == 0, "folder sort_order should be updated by reorder-in-scope"
 
 
 def test_reorder_tree_persists_folder_order(client_with_codes):

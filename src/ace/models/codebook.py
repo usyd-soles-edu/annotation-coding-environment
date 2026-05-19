@@ -10,7 +10,7 @@ from pathlib import Path
 
 from ace.models.codebook_invariants import (
     InvariantError,
-    assert_folder_stays_at_root,
+    assert_no_cycle,
     assert_parent_is_folder_or_root,
 )
 from ace.services.chord_assignment import assign_chord
@@ -74,13 +74,18 @@ def add_code(
     return code_id
 
 
-def _add_folder_no_commit(conn: sqlite3.Connection, name: str) -> str:
+def _add_folder_no_commit(
+    conn: sqlite3.Connection,
+    name: str,
+    parent_id: str | None = None,
+) -> str:
     """Folder-create primitive used by transactional composites.
 
     Same shape as `add_folder` but the caller owns commit/rollback. Used by
     Task 9's indent-promote route which wraps folder creation + two moves in
     a single BEGIN IMMEDIATE / COMMIT.
     """
+    assert_parent_is_folder_or_root(conn, parent_id)
     now = datetime.now(timezone.utc).isoformat()
     folder_id = uuid.uuid4().hex
     max_order = conn.execute(
@@ -89,15 +94,19 @@ def _add_folder_no_commit(conn: sqlite3.Connection, name: str) -> str:
     conn.execute(
         "INSERT INTO codebook_code "
         "(id, name, colour, sort_order, kind, parent_id, created_at) "
-        "VALUES (?, ?, '', ?, 'folder', NULL, ?)",
-        (folder_id, name, max_order + 1, now),
+        "VALUES (?, ?, '', ?, 'folder', ?, ?)",
+        (folder_id, name, max_order + 1, parent_id, now),
     )
     return folder_id
 
 
-def add_folder(conn: sqlite3.Connection, name: str) -> str:
-    """Create a folder row at root. Returns the new folder id."""
-    folder_id = _add_folder_no_commit(conn, name)
+def add_folder(
+    conn: sqlite3.Connection,
+    name: str,
+    parent_id: str | None = None,
+) -> str:
+    """Create a folder row. Returns the new folder id."""
+    folder_id = _add_folder_no_commit(conn, name, parent_id=parent_id)
     conn.commit()
     return folder_id
 
@@ -111,9 +120,8 @@ def list_codes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
     """Return rows in DFS-tree order.
 
-    Order: each folder row, immediately followed by its child code rows
-    (in sort_order), then root-level code rows (in sort_order). Each folder
-    row carries `child_count` and `child_ids` for the renderer.
+    Each folder row carries `children`, `child_count`, and `child_ids` for the
+    recursive renderer. Codes are leaves. Orphans are surfaced at root.
 
     Chord shortcuts are derived here, not stored: codes at sort_order rank
     >= SINGLE_KEY_LIMIT get a 2-letter chord assigned by `assign_chord`,
@@ -138,47 +146,73 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
             taken.add(chord)
         rank += 1
 
+    active_folder_ids = {r["id"] for r in rows if r["kind"] == "folder"}
     by_parent: dict[str | None, list[sqlite3.Row]] = {}
     for r in rows:
-        if r["kind"] == "code":
-            by_parent.setdefault(r["parent_id"], []).append(r)
+        parent_id = r["parent_id"] if r["parent_id"] in active_folder_ids else None
+        by_parent.setdefault(parent_id, []).append(r)
 
-    folders = [r for r in rows if r["kind"] == "folder"]
-    folder_ids = {f["id"] for f in folders}
-    root_codes = by_parent.get(None, [])
+    for siblings in by_parent.values():
+        siblings.sort(key=lambda r: (0 if r["kind"] == "folder" else 1, r["sort_order"]))
 
-    # Orphan codes: parent_id refers to a folder that no longer exists
-    # (soft-deleted out from under them). Surface as root so they don't
-    # vanish from the sidebar.
-    orphan_codes: list[sqlite3.Row] = []
-    for parent_id, codes in by_parent.items():
-        if parent_id is None or parent_id in folder_ids:
-            continue
-        orphan_codes.extend(codes)
-
-    def _code_dict(c: sqlite3.Row, parent_id: str | None) -> dict:
-        return {
-            "id": c["id"], "name": c["name"], "colour": c["colour"],
-            "sort_order": c["sort_order"], "kind": "code",
-            "parent_id": parent_id, "chord": chord_for.get(c["id"]),
+    nodes: dict[str, dict] = {}
+    for r in rows:
+        parent_id = r["parent_id"] if r["parent_id"] in active_folder_ids else None
+        node = {
+            "id": r["id"], "name": r["name"], "colour": r["colour"],
+            "sort_order": r["sort_order"], "kind": r["kind"],
+            "parent_id": parent_id,
+            "chord": chord_for.get(r["id"]) if r["kind"] == "code" else None,
+            "level": 1,
+            "children": [],
         }
+        if r["kind"] == "folder":
+            child_rows = by_parent.get(r["id"], [])
+            node["colour"] = ""
+            node["child_count"] = len(child_rows)
+            node["child_ids"] = [c["id"] for c in child_rows]
+        nodes[r["id"]] = node
 
     out: list[dict] = []
-    for f in folders:
-        children = by_parent.get(f["id"], [])
-        out.append({
-            "id": f["id"], "name": f["name"], "colour": "",
-            "sort_order": f["sort_order"], "kind": "folder",
-            "parent_id": None, "chord": None,
-            "child_count": len(children),
-            "child_ids": [c["id"] for c in children],
-        })
-        for c in children:
-            out.append(_code_dict(c, f["id"]))
-    for c in root_codes:
-        out.append(_code_dict(c, None))
-    for c in orphan_codes:
-        out.append(_code_dict(c, None))
+    visited: set[str] = set()
+
+    def visit(row: sqlite3.Row, level: int) -> dict | None:
+        row_id = row["id"]
+        if row_id in visited:
+            return None
+        visited.add(row_id)
+        node = nodes[row_id]
+        node["level"] = level
+        out.append(node)
+        if row["kind"] == "folder":
+            children = []
+            for child in by_parent.get(row_id, []):
+                child_node = visit(child, level + 1)
+                if child_node is not None:
+                    children.append(child_node)
+            node["children"] = children
+        return node
+
+    roots: list[dict] = []
+    for row in by_parent.get(None, []):
+        root_node = visit(row, 1)
+        if root_node is not None:
+            roots.append(root_node)
+
+    # Defensive: if existing data somehow contains a cycle or non-rooted chain,
+    # expose any unvisited rows at root rather than hiding them.
+    for row in rows:
+        if row["id"] in visited:
+            continue
+        nodes[row["id"]]["parent_id"] = None
+        root_node = visit(row, 1)
+        if root_node is not None:
+            roots.append(root_node)
+
+    # Keep the top-level list flat for existing callers/tests, but attach the
+    # root list to the first item so templates can recurse without rebuilding.
+    if out:
+        out[0]["root_nodes"] = roots
     return out
 
 
@@ -219,10 +253,9 @@ def reorder_tree(conn: sqlite3.Connection, ids: list[str]) -> None:
     """Reorder a flat list of mixed code+folder ids by sort_order.
 
     Used by the keyboard folder-reorder gesture (⌥⇧↑/↓), which moves
-    folder rows AND any sibling root codes — the existing `reorder_codes`
-    write is restricted to `kind = 'code'` and would silently drop folder
-    ids. This variant updates regardless of `kind` so a unified visual
-    order survives subsequent OOB sidebar swaps.
+    folder rows and code rows together. The existing `reorder_codes`
+    helper rewrites only a flat code list; this variant updates regardless
+    of `kind` so a unified visual order survives subsequent OOB sidebar swaps.
     """
     for i, item_id in enumerate(ids):
         conn.execute(
@@ -245,7 +278,7 @@ def _move_code_to_parent_no_commit(
     folder creation + two moves in a single BEGIN IMMEDIATE / COMMIT.
     """
     assert_parent_is_folder_or_root(conn, new_parent_id)
-    assert_folder_stays_at_root(conn, code_id, new_parent_id)
+    assert_no_cycle(conn, code_id, new_parent_id)
 
     # Place at end of the destination scope.
     max_in_scope = conn.execute(
@@ -266,14 +299,82 @@ def move_code_to_parent(
     code_id: str,
     new_parent_id: str | None,
 ) -> None:
-    """Move a code into a folder, or to root.
+    """Move a codebook item into a folder, or to root.
 
-    Raises InvariantError on illegal moves (code under code, folder under
-    folder). Recomputes `sort_order` to place the row at the end of the
+    Raises InvariantError on illegal moves (under code, self, descendant).
+    Recomputes `sort_order` to place the row at the end of the
     destination scope. Atomic.
     """
     _move_code_to_parent_no_commit(conn, code_id, new_parent_id)
     conn.commit()
+
+
+def convert_code_to_folder(conn: sqlite3.Connection, code_id: str) -> dict:
+    """Convert a code row into a folder.
+
+    If the code has annotation rows, create a same-named child code and move
+    those annotations to the child so folders never become annotation targets.
+    Returns metadata needed for undo.
+    """
+    row = conn.execute(
+        "SELECT id, name, colour, sort_order, kind, parent_id, chord "
+        "FROM codebook_code WHERE id = ? AND deleted_at IS NULL",
+        (code_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("code not found")
+    if row["kind"] != "code":
+        raise InvariantError("only codes can be converted to folders")
+
+    annotation_rows = conn.execute(
+        "SELECT id FROM annotation WHERE code_id = ?",
+        (code_id,),
+    ).fetchall()
+    annotation_ids = [r["id"] for r in annotation_rows]
+    child_code_id = uuid.uuid4().hex if annotation_ids else None
+    now = datetime.now(timezone.utc).isoformat()
+
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "UPDATE codebook_code "
+            "SET kind = 'folder', colour = '', chord = NULL "
+            "WHERE id = ?",
+            (code_id,),
+        )
+        if child_code_id is not None:
+            conn.execute(
+                "INSERT INTO codebook_code "
+                "(id, name, colour, sort_order, kind, parent_id, chord, created_at) "
+                "VALUES (?, ?, ?, ?, 'code', ?, ?, ?)",
+                (
+                    child_code_id,
+                    row["name"],
+                    row["colour"],
+                    row["sort_order"] + 1,
+                    code_id,
+                    row["chord"],
+                    now,
+                ),
+            )
+            placeholders = ",".join("?" * len(annotation_ids))
+            conn.execute(
+                f"UPDATE annotation SET code_id = ? WHERE id IN ({placeholders})",
+                [child_code_id, *annotation_ids],
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+    return {
+        "code_id": code_id,
+        "name": row["name"],
+        "prev_colour": row["colour"],
+        "prev_chord": row["chord"],
+        "child_code_id": child_code_id,
+        "annotation_ids": annotation_ids,
+    }
 
 
 def delete_code(

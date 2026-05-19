@@ -65,80 +65,70 @@
     <span class="ace-search-hint-group"><kbd>/</kbd> for commands</span>
   </div>
 </div>
-<div id="code-tree" role="tree" aria-label="Code list" class="ace-sidebar-codes">
-  {# Folders + their children, then root codes. #}
-  {% set ns = namespace(in_folder=None, root_divider_emitted=False) %}
-  {% for row in tree_codes %}
-    {% if row.kind == 'folder' %}
-      {% if ns.in_folder is not none %}
-        </div></div>
-      {% endif %}
-      <div class="ace-folder-block" data-folder-id="{{ row.id }}">
-      <div role="treeitem" aria-expanded="true" aria-level="1"
-           class="ace-code-folder-row" data-folder-id="{{ row.id }}"
-           aria-keyshortcuts="F2 Delete"
-           tabindex="-1">
-        <span class="ace-folder-toggle" aria-hidden="true">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 5l4 4 4-4"/>
-          </svg>
-        </span>
-        <span class="ace-folder-label">{{ row.name }}</span>
-      </div>
-      <div role="group" data-folder-children="{{ row.id }}">
-      {% set ns.in_folder = row.id %}
-    {% elif row.parent_id is not none %}
-      {# Code row inside the currently-open folder #}
-      {% set n = (code_counts_by_id or {}).get(row.id, 0) %}
-      <div role="treeitem" aria-level="2"
-           class="ace-code-row" data-code-id="{{ row.id }}"
-           {% if row.chord %}data-chord="{{ row.chord }}"{% endif %}
-           style="--row-colour: {{ row.colour }}"
-           tabindex="-1">
-        <span class="ace-code-name">{{ row.name }}</span>
-        {% if n > 0 %}<span class="ace-code-count" title="{{ n }} annotation{{ 's' if n != 1 else '' }} in this source">{{ n }}</span>{% else %}<span class="ace-code-count" aria-hidden="true"></span>{% endif %}
-        {% if row.chord %}
-        <span class="ace-code-chip ace-code-chip--chord"
-              title="Press ; then {{ row.chord }} to apply">{{ row.chord }}</span>
-        {% else %}
-        <span class="ace-code-chip ace-code-chip--key"
-              title="Click or press the row key to apply"></span>
-        {% endif %}
-      </div>
+{% macro code_row(row, level) -%}
+  {% set n = (code_counts_by_id or {}).get(row.id, 0) %}
+  <div role="treeitem" aria-level="{{ level }}"
+       class="ace-code-row" data-code-id="{{ row.id }}"
+       {% if row.chord %}data-chord="{{ row.chord }}"{% endif %}
+       style="--row-colour: {{ row.colour }}; --tree-level: {{ level }}; --indent: {{ (level - 1) * 10 }}px"
+       tabindex="-1">
+    <span class="ace-code-name">{{ row.name }}</span>
+    {% if n > 0 %}<span class="ace-code-count" title="{{ n }} annotation{{ 's' if n != 1 else '' }} in this source">{{ n }}</span>{% else %}<span class="ace-code-count" aria-hidden="true"></span>{% endif %}
+    {% if row.chord %}
+    <span class="ace-code-chip ace-code-chip--chord"
+          title="Press ; then {{ row.chord }} to apply">{{ row.chord }}</span>
     {% else %}
-      {# Root-level code — close any open folder first, then emit the
-         "Ungrouped" divider once before the first root code. #}
-      {% if ns.in_folder is not none %}
-        </div></div>
-        {% set ns.in_folder = none %}
-      {% endif %}
+    <span class="ace-code-chip ace-code-chip--key"
+          title="Click or press the row key to apply"></span>
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro folder_node(row, level) -%}
+  <div class="ace-folder-block" data-folder-id="{{ row.id }}">
+    <div role="treeitem" aria-expanded="true" aria-level="{{ level }}"
+         class="ace-code-folder-row" data-folder-id="{{ row.id }}"
+         aria-keyshortcuts="F2 Delete"
+         style="--tree-level: {{ level }}; --indent: {{ (level - 1) * 10 }}px"
+         tabindex="-1">
+      <span class="ace-folder-toggle" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 5l4 4 4-4"/>
+        </svg>
+      </span>
+      <span class="ace-folder-label">{{ row.name }}</span>
+    </div>
+    <div role="group" data-folder-children="{{ row.id }}">
+      {% for child in row.children|default([]) %}
+        {% if child.kind == 'folder' %}
+          {{ folder_node(child, level + 1) }}
+        {% else %}
+          {{ code_row(child, level + 1) }}
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+{%- endmacro %}
+
+<div id="code-tree" role="tree" aria-label="Code list" class="ace-sidebar-codes">
+  {% set root = namespace(nodes=[]) %}
+  {% if tree_codes %}
+    {% set root.nodes = tree_codes[0].root_nodes|default([]) %}
+  {% endif %}
+  {% set ns = namespace(root_divider_emitted=false) %}
+  {% for row in root.nodes %}
+    {% if row.kind == 'folder' %}
+      {{ folder_node(row, 1) }}
+    {% else %}
       {% if not ns.root_divider_emitted %}
       <div class="ace-root-divider" aria-hidden="true">
         <span class="ace-root-divider-label">Ungrouped</span>
       </div>
       {% set ns.root_divider_emitted = true %}
       {% endif %}
-      {% set n = (code_counts_by_id or {}).get(row.id, 0) %}
-      <div role="treeitem" aria-level="1"
-           class="ace-code-row" data-code-id="{{ row.id }}"
-           {% if row.chord %}data-chord="{{ row.chord }}"{% endif %}
-           style="--row-colour: {{ row.colour }}"
-           tabindex="-1">
-        <span class="ace-code-name">{{ row.name }}</span>
-        {% if n > 0 %}<span class="ace-code-count" title="{{ n }} annotation{{ 's' if n != 1 else '' }} in this source">{{ n }}</span>{% else %}<span class="ace-code-count" aria-hidden="true"></span>{% endif %}
-        {% if row.chord %}
-        <span class="ace-code-chip ace-code-chip--chord"
-              title="Press ; then {{ row.chord }} to apply">{{ row.chord }}</span>
-        {% else %}
-        <span class="ace-code-chip ace-code-chip--key"
-              title="Click or press the row key to apply"></span>
-        {% endif %}
-      </div>
+      {{ code_row(row, 1) }}
     {% endif %}
   {% endfor %}
-  {% if ns.in_folder is not none %}
-    </div></div>
-  {% endif %}
 
   {% if not tree_codes %}
   <div class="ace-sidebar-empty">

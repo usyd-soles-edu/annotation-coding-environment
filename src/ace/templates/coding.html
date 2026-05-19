@@ -46,6 +46,7 @@
 <link rel="stylesheet" href="/static/css/coding.css">
 <style id="code-colours">
 {% for code in codes %}
+{% if code["kind"] == "code" %}
 .ace-code-{{ code["id"] }} {
   background-color: rgba({{ code["colour"][1:3] | int(base=16) }}, {{ code["colour"][3:5] | int(base=16) }}, {{ code["colour"][5:7] | int(base=16) }}, var(--ace-annotation-alpha));
 }
@@ -55,6 +56,7 @@ rect.ace-hl-{{ code["id"] }} {
 rect.ace-flash-{{ code["id"] }} {
   fill: rgba({{ code["colour"][1:3] | int(base=16) }}, {{ code["colour"][3:5] | int(base=16) }}, {{ code["colour"][5:7] | int(base=16) }}, 0.70);
 }
+{% endif %}
 {% endfor %}
 </style>
 {% endblock %}

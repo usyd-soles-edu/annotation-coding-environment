@@ -3,7 +3,7 @@
 import sqlite3
 
 ACE_APPLICATION_ID = 0x41434500  # "ACE\0"
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS project (
@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS codebook_code (
     chord       TEXT,
     created_at  TEXT NOT NULL,
     deleted_at  TEXT,
-    CHECK ((kind = 'code') OR (parent_id IS NULL AND colour = '' AND chord IS NULL))
+    CHECK ((kind = 'code') OR (colour = '' AND chord IS NULL))
 );
 
 CREATE TABLE IF NOT EXISTS coder (
@@ -115,6 +115,31 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_codebook_code_name_active
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_codebook_chord
     ON codebook_code(chord) WHERE chord IS NOT NULL AND deleted_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_codebook_parent
+    ON codebook_code(parent_id) WHERE deleted_at IS NULL;
+
+CREATE TRIGGER IF NOT EXISTS annotation_code_id_must_be_code_insert
+BEFORE INSERT ON annotation
+FOR EACH ROW
+WHEN NOT EXISTS (
+    SELECT 1 FROM codebook_code
+    WHERE id = NEW.code_id AND kind = 'code' AND deleted_at IS NULL
+)
+BEGIN
+    SELECT RAISE(ABORT, 'annotation code_id must reference an active code');
+END;
+
+CREATE TRIGGER IF NOT EXISTS annotation_code_id_must_be_code_update
+BEFORE UPDATE OF code_id ON annotation
+FOR EACH ROW
+WHEN NOT EXISTS (
+    SELECT 1 FROM codebook_code
+    WHERE id = NEW.code_id AND kind = 'code' AND deleted_at IS NULL
+)
+BEGIN
+    SELECT RAISE(ABORT, 'annotation code_id must reference an active code');
+END;
 """
 
 

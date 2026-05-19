@@ -18,6 +18,87 @@ from playwright.sync_api import sync_playwright
 from .conftest import browser_params
 
 
+def _leave_inline_rename(page):
+    page.wait_for_timeout(120)
+    page.keyboard.press("Escape")
+    page.evaluate(
+        "() => document.querySelectorAll('[contenteditable=\"true\"]')"
+        "  .forEach(el => { el.contentEditable = 'false'; })"
+    )
+
+
+def _create_folder(page, name: str):
+    page.evaluate(
+        """
+        async (label) => {
+          const body = new URLSearchParams({
+            name: label,
+            current_index: String(window.__aceCurrentIndex || 0),
+          });
+          const response = await fetch("/api/codes/folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body,
+          });
+          if (!response.ok) throw new Error(`folder create failed: ${response.status}`);
+        }
+        """,
+        name,
+    )
+    page.reload()
+    page.wait_for_selector("#code-tree")
+    page.wait_for_function(
+        "(label) => Array.from(document.querySelectorAll('.ace-folder-label'))"
+        "      .some(el => el.textContent.trim() === label)",
+        arg=name,
+        timeout=3000,
+    )
+
+
+def _focus_folder(page, name: str):
+    page.evaluate(
+        "(label) => {"
+        "  const row = Array.from(document.querySelectorAll('.ace-code-folder-row'))"
+        "    .find(r => r.querySelector('.ace-folder-label')?.textContent.trim() === label);"
+        "  if (!row) throw new Error('folder row not found: ' + label);"
+        "  const active = document.querySelector('#code-tree [role=\"treeitem\"][tabindex=\"0\"]');"
+        "  if (active) active.setAttribute('tabindex', '-1');"
+        "  row.setAttribute('tabindex', '0');"
+        "  row.focus();"
+        "}",
+        name,
+    )
+
+
+def _focus_code(page, name: str):
+    page.evaluate(
+        "(label) => {"
+        "  const row = Array.from(document.querySelectorAll('.ace-code-row'))"
+        "    .find(r => r.querySelector('.ace-code-name')?.textContent.trim() === label);"
+        "  if (!row) throw new Error('code row not found: ' + label);"
+        "  const active = document.querySelector('#code-tree [role=\"treeitem\"][tabindex=\"0\"]');"
+        "  if (active) active.setAttribute('tabindex', '-1');"
+        "  row.setAttribute('tabindex', '0');"
+        "  row.focus();"
+        "}",
+        name,
+    )
+
+
+def _parent_folder_label(page, item_label: str) -> str | None:
+    return page.evaluate(
+        "(label) => {"
+        "  const item = Array.from(document.querySelectorAll('.ace-code-row, .ace-code-folder-row'))"
+        "    .find(r => (r.querySelector('.ace-code-name, .ace-folder-label')?.textContent.trim()) === label);"
+        "  if (!item) throw new Error('item row not found: ' + label);"
+        "  const block = item.classList.contains('ace-code-folder-row') ? item.closest('.ace-folder-block') : item;"
+        "  const group = block?.parentElement?.getAttribute('role') === 'group' ? block.parentElement : null;"
+        "  return group?.previousElementSibling?.querySelector('.ace-folder-label')?.textContent.trim() || null;"
+        "}",
+        item_label,
+    )
+
+
 # ---------------------------------------------------------------------------
 # ⌥⇧→ — explicit wrap-into-new-folder
 # ---------------------------------------------------------------------------
@@ -128,11 +209,177 @@ def test_shift_enter_in_filter_creates_folder(ace_server, browser_name):
             page.keyboard.press("Shift+Enter")
 
             page.wait_for_selector(".ace-code-folder-row", timeout=3000)
+            _leave_inline_rename(page)
             labels = page.evaluate(
                 "() => Array.from(document.querySelectorAll('.ace-folder-label'))"
                 "      .map(el => el.textContent.trim())"
             )
             assert "TestFolder" in labels, f"expected TestFolder among {labels!r}"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_folder_labels_use_readable_text_style(ace_server, browser_name):
+    """Folder labels should stay at the shared 13px minimum and preserve case."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#code-search-input")
+
+            _create_folder(page, "Readable Folder")
+
+            styles = page.locator(".ace-folder-label").first.evaluate(
+                """
+                (el) => {
+                  const style = getComputedStyle(el);
+                  return {
+                    fontSize: style.fontSize,
+                    textTransform: style.textTransform,
+                    letterSpacing: style.letterSpacing,
+                    text: el.textContent.trim(),
+                  };
+                }
+                """
+            )
+            assert styles["text"] == "Readable Folder"
+            assert float(styles["fontSize"].replace("px", "")) >= 13
+            assert styles["textTransform"] == "none"
+            assert styles["letterSpacing"] in ("normal", "0px")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_alt_right_nests_folder_under_folder(ace_server, browser_name):
+    """Folders can be moved under other folders; codes remain leaves."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#code-search-input")
+
+            page.fill("#code-search-input", "Outer")
+            page.keyboard.press("Shift+Enter")
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.ace-folder-label'))"
+                "      .some(el => el.textContent.trim() === 'Outer')",
+                timeout=3000,
+            )
+            _leave_inline_rename(page)
+
+            page.fill("#code-search-input", "Inner")
+            page.keyboard.press("Shift+Enter")
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.ace-folder-label'))"
+                "      .some(el => el.textContent.trim() === 'Inner')",
+                timeout=3000,
+            )
+            _leave_inline_rename(page)
+
+            page.evaluate(
+                """
+                () => {
+                  const row = Array.from(document.querySelectorAll('.ace-code-folder-row'))
+                    .find(r => r.querySelector('.ace-folder-label')?.textContent.trim() === 'Inner');
+                  if (!row) throw new Error('Inner folder not found');
+                  document.querySelectorAll('[contenteditable="true"]')
+                    .forEach(el => { el.contentEditable = 'false'; });
+                  const active = document.querySelector('#code-tree [role="treeitem"][tabindex="0"]');
+                  if (active) active.setAttribute('tabindex', '-1');
+                  row.setAttribute('tabindex', '0');
+                  row.focus();
+                }
+                """
+            )
+            page.wait_for_function(
+                "() => document.activeElement?.querySelector('.ace-folder-label')"
+                "      ?.textContent.trim() === 'Inner'",
+                timeout=2000,
+            )
+            page.keyboard.press("Alt+ArrowRight")
+
+            page.wait_for_function(
+                """
+                () => {
+                  const inner = Array.from(document.querySelectorAll('.ace-code-folder-row'))
+                    .find(r => r.querySelector('.ace-folder-label')?.textContent.trim() === 'Inner');
+                  if (!inner) return false;
+                  const group = inner.closest('.ace-folder-block')?.parentElement;
+                  const parent = group?.previousElementSibling;
+                  return parent?.querySelector('.ace-folder-label')?.textContent.trim() === 'Outer';
+                }
+                """,
+                timeout=3000,
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_alt_right_uses_previous_row_folder_context(ace_server, browser_name):
+    """When the previous visible row is a code, ⌥→ joins that code's folder.
+
+    This protects nested trees where a different descendant folder appears
+    visually above the previous code; the target should be the previous row's
+    parent folder, not the nearest earlier folder anywhere in the tree.
+    """
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#code-search-input")
+
+            _create_folder(page, "A")
+            _create_folder(page, "B")
+            _focus_folder(page, "B")
+            page.keyboard.press("Alt+ArrowRight")
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.ace-code-folder-row'))"
+                "      .some(r => r.querySelector('.ace-folder-label')?.textContent.trim() === 'B'"
+                "        && r.closest('.ace-folder-block')?.parentElement?.previousElementSibling"
+                "          ?.querySelector('.ace-folder-label')?.textContent.trim() === 'A')",
+                timeout=3000,
+            )
+
+            _create_folder(page, "C")
+            _focus_folder(page, "C")
+            page.keyboard.press("Alt+ArrowRight")
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.ace-code-folder-row'))"
+                "      .some(r => r.querySelector('.ace-folder-label')?.textContent.trim() === 'C'"
+                "        && r.closest('.ace-folder-block')?.parentElement?.previousElementSibling"
+                "          ?.querySelector('.ace-folder-label')?.textContent.trim() === 'B')",
+                timeout=3000,
+            )
+
+            _focus_code(page, "Alpha")
+            page.keyboard.press("Meta+x")
+            _focus_folder(page, "B")
+            page.keyboard.press("Meta+v")
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.ace-code-row'))"
+                "      .some(r => r.querySelector('.ace-code-name')?.textContent.trim() === 'Alpha'"
+                "        && r.parentElement?.previousElementSibling"
+                "          ?.querySelector('.ace-folder-label')?.textContent.trim() === 'B')",
+                timeout=3000,
+            )
+
+            _create_folder(page, "D")
+            _focus_folder(page, "D")
+            page.keyboard.press("Alt+ArrowRight")
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.ace-code-folder-row'))"
+                "      .some(r => r.querySelector('.ace-folder-label')?.textContent.trim() === 'D'"
+                "        && r.closest('.ace-folder-block')?.parentElement?.previousElementSibling"
+                "          ?.querySelector('.ace-folder-label')?.textContent.trim() === 'B')",
+                timeout=3000,
+            )
+            assert _parent_folder_label(page, "D") == "B"
         finally:
             browser.close()
 
@@ -156,8 +403,7 @@ def test_cmd_x_then_cmd_v_moves_code_into_folder(ace_server, browser_name):
             page.fill("#code-search-input", "Themes")
             page.keyboard.press("Shift+Enter")
             page.wait_for_selector(".ace-code-folder-row", timeout=3000)
-            # The wrap may put the folder into rename mode — Esc steps out.
-            page.keyboard.press("Escape")
+            _leave_inline_rename(page)
 
             # Cut Alpha. Click the row first so focus is on the sidebar.
             alpha = page.query_selector('.ace-code-row[data-code-id]')
@@ -218,6 +464,7 @@ def test_alt_left_lifts_code_out_of_folder_to_root(ace_server, browser_name):
             rows[1].click()  # Bravo is row[1] under the default fixture
             page.keyboard.press("Alt+Shift+ArrowRight")
             page.wait_for_selector(".ace-code-folder-row", timeout=3000)
+            _leave_inline_rename(page)
             # Both Alpha and Bravo are now inside [role="group"].
             page.wait_for_function(
                 "() => Array.from(document.querySelectorAll('[role=\"group\"] .ace-code-row'))"

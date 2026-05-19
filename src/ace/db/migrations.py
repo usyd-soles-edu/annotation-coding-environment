@@ -271,6 +271,91 @@ def _migrate_v7_to_v8(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _create_annotation_code_leaf_triggers(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+        CREATE TRIGGER IF NOT EXISTS annotation_code_id_must_be_code_insert
+        BEFORE INSERT ON annotation
+        FOR EACH ROW
+        WHEN NOT EXISTS (
+            SELECT 1 FROM codebook_code
+            WHERE id = NEW.code_id AND kind = 'code' AND deleted_at IS NULL
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'annotation code_id must reference an active code');
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS annotation_code_id_must_be_code_update
+        BEFORE UPDATE OF code_id ON annotation
+        FOR EACH ROW
+        WHEN NOT EXISTS (
+            SELECT 1 FROM codebook_code
+            WHERE id = NEW.code_id AND kind = 'code' AND deleted_at IS NULL
+        )
+        BEGIN
+            SELECT RAISE(ABORT, 'annotation code_id must reference an active code');
+        END;
+    """)
+
+
+def _migrate_v8_to_v9(conn: sqlite3.Connection) -> None:
+    """Allow folders to be nested and prevent annotations on folders."""
+    has_codebook = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='codebook_code'"
+    ).fetchone()
+    if has_codebook is None:
+        return
+
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.executescript("""
+            DROP TRIGGER IF EXISTS annotation_code_id_must_be_code_insert;
+            DROP TRIGGER IF EXISTS annotation_code_id_must_be_code_update;
+            DROP INDEX IF EXISTS idx_codebook_code_name_active;
+            DROP INDEX IF EXISTS idx_codebook_chord;
+            DROP INDEX IF EXISTS idx_codebook_parent;
+
+            CREATE TABLE codebook_code_new (
+                id          TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                colour      TEXT NOT NULL,
+                sort_order  INTEGER NOT NULL,
+                kind        TEXT NOT NULL DEFAULT 'code' CHECK (kind IN ('code', 'folder')),
+                parent_id   TEXT REFERENCES codebook_code_new(id) ON DELETE SET NULL,
+                chord       TEXT,
+                created_at  TEXT NOT NULL,
+                deleted_at  TEXT,
+                CHECK ((kind = 'code') OR (colour = '' AND chord IS NULL))
+            );
+
+            INSERT INTO codebook_code_new
+                (id, name, colour, sort_order, kind, parent_id, chord, created_at, deleted_at)
+            SELECT id, name, colour, sort_order, kind, parent_id, chord, created_at, deleted_at
+            FROM codebook_code;
+
+            DROP TABLE codebook_code;
+            ALTER TABLE codebook_code_new RENAME TO codebook_code;
+
+            CREATE UNIQUE INDEX idx_codebook_code_name_active
+                ON codebook_code(name COLLATE NOCASE, kind) WHERE deleted_at IS NULL;
+
+            CREATE UNIQUE INDEX idx_codebook_chord
+                ON codebook_code(chord) WHERE chord IS NOT NULL AND deleted_at IS NULL;
+
+            CREATE INDEX idx_codebook_parent
+                ON codebook_code(parent_id) WHERE deleted_at IS NULL;
+        """)
+        has_annotation = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='annotation'"
+        ).fetchone()
+        if has_annotation is not None:
+            _create_annotation_code_leaf_triggers(conn)
+        violations = conn.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise RuntimeError(f"Foreign key violations after v8→v9 migration: {violations}")
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
+
+
 # Registry of migration functions keyed by target version.
 # Each function takes a connection and migrates from version (key - 1) to key.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
@@ -281,6 +366,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     6: _migrate_v5_to_v6,
     7: _migrate_v6_to_v7,
     8: _migrate_v7_to_v8,
+    9: _migrate_v8_to_v9,
 }
 
 
