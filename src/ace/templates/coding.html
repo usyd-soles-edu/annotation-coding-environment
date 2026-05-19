@@ -21,6 +21,8 @@
   if (_sw) document.documentElement.style.setProperty("--ace-sidebar-width", _sw + "px");
   var _gh = localStorage.getItem("ace-grid-height");
   if (_gh) document.documentElement.style.setProperty("--ace-grid-height", _gh);
+  var _ts = localStorage.getItem("ace-coding-text-size");
+  if (_ts) document.documentElement.style.setProperty("--ace-coding-text-size", _ts + "px");
 </script>
 <script>
   // Restore note drawer state before CSS loads to prevent flash on reload.
@@ -126,9 +128,10 @@ rect.ace-flash-{{ code["id"] }} {
     {# Shared scroll container for text + margin #}
     <div id="content-scroll" class="ace-content-scroll">
 
-      {# Centre: text panel #}
-      {% block text_panel %}
-      <main id="text-panel" class="ace-text-panel" tabindex="0">
+      <div id="text-scroll" class="ace-text-scroll">
+        {# Centre: text panel #}
+        {% block text_panel %}
+        <main id="text-panel" class="ace-text-panel" tabindex="0">
         <div class="ace-text-header">
           <h1 class="ace-page-title ace-text-page-title">Coding</h1>
           <div class="ace-text-nav">
@@ -185,8 +188,9 @@ rect.ace-flash-{{ code["id"] }} {
         <p class="ace-text-empty">No source content.</p>
         {% endif %}
         <div class="ace-legend" aria-hidden="true"><span class="k">&uarr;&darr;</span> sentences &middot; <span class="k">&#8679;&larr;&#8679;&rarr;</span> sources &middot; <span class="k">Q</span> repeat &middot; <span class="k">Z</span> undo &middot; <span class="k">&#8679;Z</span> redo &middot; <span class="k">X</span> delete &middot; <span class="k">N</span> note &middot; <span class="k">/</span> filter &middot; <span class="k">Tab</span> codebook</div>
-      </main>
-      {% endblock %}
+        </main>
+        {% endblock %}
+      </div>
 
       {% block right_inspector %}
       <aside id="ace-right-inspector"

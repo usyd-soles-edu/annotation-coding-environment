@@ -6,19 +6,50 @@
                      code_counts_by_id (for the per-row count cell). #}
 <div class="ace-sidebar-strip" role="banner">
   <a href="/" class="ace-sidebar-strip-mark" title="ACE v{{ version }}">ACE</a>
-  <div class="ace-codebook-menu" id="codebook-menu-wrapper">
-    <button type="button" class="ace-codebook-menu-btn" id="codebook-menu-btn"
-            aria-label="Settings and shortcuts"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
-    <div class="ace-codebook-dropdown" id="codebook-dropdown" style="display:none">
-      <button type="button" class="ace-codebook-dropdown-item" id="codebook-menu-shortcuts-btn">Keyboard shortcuts</button>
-      <hr class="ace-codebook-dropdown-sep">
-      <button type="button" class="ace-codebook-dropdown-item" id="codebook-menu-import-btn">Import codebook (CSV)</button>
-      <button type="button" class="ace-codebook-dropdown-item" id="codebook-export-btn">Export codebook (CSV)</button>
-      <hr class="ace-codebook-dropdown-sep">
-      <button type="button" class="ace-codebook-dropdown-item" id="export-annotations-btn">Export all annotations (CSV)</button>
-      <button type="button" class="ace-codebook-dropdown-item" id="export-notes-btn">Export source notes (CSV)</button>
-      <hr class="ace-codebook-dropdown-sep">
-      <button type="button" class="ace-codebook-dropdown-item" id="fullscreen-btn">Fullscreen</button>
+  <div class="ace-sidebar-strip-actions">
+    {% if show_coding_text_controls|default(false) %}
+    <div class="ace-coding-text-menu" id="coding-text-menu-wrapper">
+      <button type="button"
+              class="ace-coding-text-menu-btn"
+              id="coding-text-menu-btn"
+              aria-label="Coding text size"
+              aria-expanded="false"
+              aria-controls="coding-text-dropdown">Aa</button>
+      <div class="ace-coding-text-dropdown"
+           id="coding-text-dropdown"
+           role="dialog"
+           aria-label="Coding text size"
+           hidden>
+        <span class="ace-coding-text-title">Coding text</span>
+        <div class="ace-coding-text-options" role="group" aria-label="Coding text size">
+          <button type="button" class="ace-coding-text-option ace-coding-text-option--small"
+                  data-coding-text-size="15"
+                  aria-label="Smaller coding text">A−</button>
+          <button type="button" class="ace-coding-text-option ace-coding-text-option--default"
+                  data-coding-text-size="17"
+                  aria-label="Default coding text size">A</button>
+          <button type="button" class="ace-coding-text-option ace-coding-text-option--large"
+                  data-coding-text-size="20"
+                  aria-label="Larger coding text">A+</button>
+        </div>
+        <span class="ace-coding-text-note">Only changes the coding text panel.</span>
+      </div>
+    </div>
+    {% endif %}
+    <div class="ace-codebook-menu" id="codebook-menu-wrapper">
+      <button type="button" class="ace-codebook-menu-btn" id="codebook-menu-btn"
+              aria-label="Settings and shortcuts"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+      <div class="ace-codebook-dropdown" id="codebook-dropdown" style="display:none">
+        <button type="button" class="ace-codebook-dropdown-item" id="codebook-menu-shortcuts-btn">Keyboard shortcuts</button>
+        <hr class="ace-codebook-dropdown-sep">
+        <button type="button" class="ace-codebook-dropdown-item" id="codebook-menu-import-btn">Import codebook (CSV)</button>
+        <button type="button" class="ace-codebook-dropdown-item" id="codebook-export-btn">Export codebook (CSV)</button>
+        <hr class="ace-codebook-dropdown-sep">
+        <button type="button" class="ace-codebook-dropdown-item" id="export-annotations-btn">Export all annotations (CSV)</button>
+        <button type="button" class="ace-codebook-dropdown-item" id="export-notes-btn">Export source notes (CSV)</button>
+        <hr class="ace-codebook-dropdown-sep">
+        <button type="button" class="ace-codebook-dropdown-item" id="fullscreen-btn">Fullscreen</button>
+      </div>
     </div>
   </div>
 </div>

@@ -6,8 +6,6 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-import openpyxl
-
 from ace.models.source import add_source
 
 _CSV_ENCODINGS = ("utf-8", "latin-1", "cp1252")
@@ -180,6 +178,8 @@ def _read_csv(path: Path) -> tuple[list[dict], list[str]]:
 
 def _read_xlsx(path: Path) -> tuple[list[dict], list[str]]:
     """Read first sheet of .xlsx with openpyxl (read-only, data-only)."""
+    import openpyxl
+
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         ws = wb.active

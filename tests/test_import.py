@@ -306,3 +306,21 @@ def test_import_folder(client_with_project):
     assert "ace-folder-import-browser" in resp.text
     assert "Random sample" in resp.text
     assert "Previewing" in resp.text
+
+
+def test_import_folder_accepts_file_uri(client_with_project):
+    """Desktop dialogs may return a file:// URI instead of a POSIX path."""
+    client, tmp_path = client_with_project
+
+    folder = tmp_path / "texts with spaces"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+
+    resp = client.post(
+        "/api/import/folder",
+        data={"path": folder.as_uri()},
+    )
+
+    assert resp.status_code == 200
+    assert "1 file" in resp.text
+    assert "Check imported text files" in resp.text

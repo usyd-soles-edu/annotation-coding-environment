@@ -54,6 +54,20 @@ def test_create_project(client, tmp_path):
     assert "hx-redirect" in resp.headers or "HX-Redirect" in resp.headers
 
 
+def test_create_project_accepts_file_uri(client, tmp_path):
+    """Desktop file pickers may return file:// URIs."""
+    path = tmp_path / "native folder" / "new.ace"
+    path.parent.mkdir()
+
+    resp = client.post(
+        "/api/project/create",
+        data={"name": "Test", "path": path.as_uri()},
+    )
+
+    assert path.exists()
+    assert "hx-redirect" in resp.headers or "HX-Redirect" in resp.headers
+
+
 def test_create_project_overwrite_dialog(client, tmp_project):
     """Existing file shows overwrite dialog."""
     resp = client.post(
@@ -95,6 +109,12 @@ def test_create_project_overwrite_confirmed(client, tmp_project):
 def test_open_project(client, tmp_project):
     """POST /api/project/open sets state and redirects."""
     resp = client.post("/api/project/open", data={"path": str(tmp_project)})
+    assert "hx-redirect" in resp.headers or "HX-Redirect" in resp.headers
+
+
+def test_open_project_accepts_file_uri(client, tmp_project):
+    """Desktop file pickers may return file:// URIs for existing projects."""
+    resp = client.post("/api/project/open", data={"path": tmp_project.as_uri()})
     assert "hx-redirect" in resp.headers or "HX-Redirect" in resp.headers
 
 

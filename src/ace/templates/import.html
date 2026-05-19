@@ -115,6 +115,73 @@
     if (title) title.textContent = text;
   }
 
+  function selectedPath(value) {
+    if (!value) return "";
+    if (Array.isArray(value)) return value[0] || "";
+    if (typeof value === "string") return value;
+    return value.path || String(value);
+  }
+
+  function pathFromNativeSelection(value) {
+    var path = selectedPath(value);
+    if (!path || path.indexOf("file://") !== 0) return path;
+    try {
+      var url = new URL(path);
+      var decoded = decodeURIComponent(url.pathname);
+      if (/^\/[A-Za-z]:\//.test(decoded)) return decoded.slice(1);
+      return decoded;
+    } catch (_) {
+      return path;
+    }
+  }
+
+  function pickerErrorMessage(error, fallback) {
+    var detail = error && error.message ? String(error.message).trim() : "";
+    return detail ? fallback + " " + detail : fallback + " Try again.";
+  }
+
+  function tauriDialogOpen() {
+    var tauri = window.__TAURI__;
+    return tauri && tauri.dialog && typeof tauri.dialog.open === "function"
+      ? tauri.dialog.open
+      : null;
+  }
+
+  function pickFolderPath() {
+    var open = tauriDialogOpen();
+    if (open) {
+      return open({ directory: true, multiple: false }).then(pathFromNativeSelection);
+    }
+    return fetch("/api/native/pick-folder", { method: "POST" })
+      .then(function(r) { return r.json(); })
+      .then(function(data) { return pathFromNativeSelection(data.path || ""); });
+  }
+
+  function postFragment(url, values, targetSelector) {
+    var body = new URLSearchParams();
+    Object.keys(values).forEach(function(key) {
+      body.set(key, values[key]);
+    });
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "HX-Request": "true"
+      },
+      body: body.toString()
+    }).then(function(response) {
+      return response.text().then(function(html) {
+        var error = extractOobError(html);
+        if (error !== null) throw new Error(error);
+        if (!response.ok) throw new Error("Import failed. Try again.");
+        var target = document.querySelector(targetSelector);
+        if (!target) throw new Error("Import failed. Try again.");
+        target.innerHTML = html;
+        if (window.htmx && typeof htmx.process === "function") htmx.process(target);
+      });
+    });
+  }
+
   window.handleImportCommit = function(evt) {
     if (responseIsSuccessful(evt)) showStep("step-done");
   };
@@ -183,36 +250,30 @@
     setImportMessage("", "");
     btn.disabled = true;
     setButtonTitle(btn, "Choosing folder...");
-    fetch("/api/native/pick-folder", { method: "POST" })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
+    pickFolderPath()
+      .then(function(path) {
         btn.disabled = false;
         setButtonTitle(btn, "Import a folder");
-        if (!data.path) return;
+        if (!path) return;
         setImportMessage("Importing folder...", "");
         btn.disabled = true;
         setButtonTitle(btn, "Importing folder...");
-        var afterFolderRequest = function(evt) {
-          var pathInfo = evt.detail.pathInfo || {};
-          var requestConfig = evt.detail.requestConfig || {};
-          var path = pathInfo.requestPath || pathInfo.finalRequestPath || requestConfig.path;
-          if (path !== "/api/import/folder") return;
-          document.removeEventListener("htmx:afterRequest", afterFolderRequest);
-          btn.disabled = false;
-          setButtonTitle(btn, "Import a folder");
-          if (responseIsSuccessful(evt)) showStep("step-done");
-        };
-        document.addEventListener("htmx:afterRequest", afterFolderRequest);
-        return htmx.ajax("POST", "/api/import/folder", {
-          values: { path: data.path },
-          target: "#step-done",
-          swap: "innerHTML"
-        });
+        return postFragment("/api/import/folder", { path: path }, "#step-done")
+          .then(function() {
+            btn.disabled = false;
+            setButtonTitle(btn, "Import a folder");
+            showStep("step-done");
+          })
+          .catch(function(error) {
+            btn.disabled = false;
+            setButtonTitle(btn, "Import a folder");
+            setImportMessage(error.message || "Import failed. Try again.", "err");
+          });
       })
-      .catch(function() {
+      .catch(function(error) {
         btn.disabled = false;
         setButtonTitle(btn, "Import a folder");
-        setImportMessage("Could not open the folder picker. Try again.", "err");
+        setImportMessage(pickerErrorMessage(error, "Could not open the folder picker."), "err");
       });
   };
 })();

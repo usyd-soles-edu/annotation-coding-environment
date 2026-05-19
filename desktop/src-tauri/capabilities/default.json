@@ -2,11 +2,18 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for ACE",
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:18080/*",
+      "http://localhost:18080/*"
+    ]
+  },
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:window:default",
     "core:window:allow-set-title",
+    "dialog:allow-open",
     {
       "identifier": "shell:allow-spawn",
       "allow": [
