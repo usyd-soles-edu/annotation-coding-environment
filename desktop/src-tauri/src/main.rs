@@ -150,10 +150,17 @@ fn main() {
             }
 
             // Production: spawn sidecar
+            let port_arg = PORT.to_string();
+            let parent_pid_arg = std::process::id().to_string();
             let sidecar = app.shell()
                 .sidecar("ace-server")
                 .expect("sidecar binary 'ace-server' not found in binaries/")
-                .args(["--port", &PORT.to_string()]);
+                .args([
+                    "--port",
+                    port_arg.as_str(),
+                    "--parent-pid",
+                    parent_pid_arg.as_str(),
+                ]);
             let (_rx, sidecar_child) = sidecar
                 .spawn()
                 .expect("failed to start ACE server");

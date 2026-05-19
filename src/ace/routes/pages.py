@@ -233,6 +233,7 @@ def _coding_context(
         "margin_codes": margin_codes,
         "applied_code_rows": applied_code_rows,
         "annotation_highlights_json": annotation_highlights_json,
+        "show_coding_text_controls": True,
         "version": __version__,
     }
 

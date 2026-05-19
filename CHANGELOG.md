@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.15.0
+
+### Changes
+
+- **Coding text size** — added a subtle `Aa` control for changing only the main coding text size.
+- **Coding scrollbar** — moved long-text scrolling to the coding text panel so the scrollbar sits before the applied-codes column.
+
+### Fixes
+
+- **Mac folder imports** — the desktop app now uses Tauri's native folder picker for folder imports instead of routing the picker through the Python sidecar.
+- **Mac project pickers** — New project and Open existing now use Tauri's native pickers instead of the Python sidecar picker path.
+- **Mac folder import completion** — folder imports now accept Tauri file URIs and reliably advance to the imported-files review screen.
+- **Mac app quit** — the desktop sidecar now shuts down if the Tauri wrapper exits, preventing orphaned ACE servers on port 18080.
+- **Recent project link** — dismissing the last-opened project on the front page now hides the resume link immediately.
+
 ## 0.14.7
 
 ### Fixes

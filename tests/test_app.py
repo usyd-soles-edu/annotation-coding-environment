@@ -292,6 +292,34 @@ def test_run_uses_callable_not_string():
         assert callable(first_arg), f"Expected callable, got {type(first_arg)}: {first_arg}"
 
 
+def test_run_starts_parent_watchdog_when_parent_pid_given():
+    """Packaged sidecar should exit if the Tauri parent process disappears."""
+    with patch("ace.app.uvicorn.run"), \
+         patch("ace.app._kill_stale_server"), \
+         patch("ace.app._kill_stale_ace_instances"), \
+         patch("ace.app._start_parent_watchdog") as mock_watchdog:
+        from ace.app import run
+        run(port=9999, parent_pid=12345)
+        mock_watchdog.assert_called_once_with(12345)
+
+
+def test_parent_pid_exists_uses_signal_zero():
+    """Nuitka onefile can change the direct PPID; check the wrapper PID itself."""
+    from ace.app import _parent_pid_exists
+
+    with patch("ace.app.os.kill") as mock_kill:
+        assert _parent_pid_exists(12345) is True
+
+    mock_kill.assert_called_once_with(12345, 0)
+
+
+def test_parent_pid_exists_returns_false_for_missing_process():
+    from ace.app import _parent_pid_exists
+
+    with patch("ace.app.os.kill", side_effect=ProcessLookupError):
+        assert _parent_pid_exists(12345) is False
+
+
 def test_kill_stale_ace_instances_signals_other_pids_not_self():
     """_kill_stale_ace_instances should SIGTERM every pgrep hit except the current PID."""
     import os as _os

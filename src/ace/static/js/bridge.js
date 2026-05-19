@@ -70,7 +70,7 @@
         );
         localStorage.setItem("ace-tab-hint-seen", "1");
       }
-    } else if (t.closest("#text-panel, #content-scroll")) {
+    } else if (t.closest("#text-panel, #text-scroll, #content-scroll")) {
       _setActiveZone("source");
     }
     // Other targets (body, dialogs, statusbar) — leave the current zone.
@@ -1549,6 +1549,7 @@
     if (!target) return;
 
     if (target.id === "text-panel" || target.id === "coding-workspace") {
+      _syncCodingTextControls();
       _restoreFocus();
       _paintSvg();
 
@@ -1590,6 +1591,7 @@
     if (target.id === "code-sidebar" || target.id === "coding-workspace") {
       _lastSidebarEl = document.getElementById("code-sidebar");
       _syncSidebarAfterSwap({ sortable: true, gridResize: true });
+      _initCodingTextControls();
       // Re-apply ghost class if a cut is staged and the row still exists.
       // If the row vanished (deleted by another action), clear the cut state.
       if (_cutCode) {
@@ -1674,7 +1676,7 @@
     const input = document.getElementById("current-index");
     if (input) input.value = window.__aceCurrentIndex;
     // Reset scroll position for new source
-    const cs = document.getElementById("content-scroll");
+    const cs = document.getElementById("text-scroll") || document.getElementById("content-scroll");
     if (cs) cs.scrollTop = 0;
     // Sync URL so a refresh lands on the same source as the visible panel.
     // Used by cross-source undo/redo, where the server swaps the body but
@@ -1933,12 +1935,31 @@
     const root = document.getElementById("code-tree");
     if (!root) return;
 
+    function tauriRuntime() {
+      return !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+    }
+
+    if (tauriRuntime() && root.dataset.aceDragSelectionBound !== "1") {
+      root.dataset.aceDragSelectionBound = "1";
+      root.addEventListener("mousedown", function (evt) {
+        if (evt.target.closest("input, textarea, button, a, [contenteditable='true']")) return;
+        if (!evt.target.closest(".ace-code-row, .ace-code-folder-row")) return;
+        if (evt.cancelable) evt.preventDefault();
+        const selection = window.getSelection && window.getSelection();
+        if (selection && selection.removeAllRanges) selection.removeAllRanges();
+      }, true);
+    }
+
     function commonOpts() {
+      const useFallbackDrag = tauriRuntime();
       return {
         group: "codes",
         animation: 150,
         delay: 200,
         delayOnTouchOnly: true,
+        forceFallback: useFallbackDrag,
+        fallbackOnBody: useFallbackDrag,
+        fallbackTolerance: useFallbackDrag ? 4 : 0,
         ghostClass: "ace-code-row--ghost",
         onStart: function () { _isDragging = true; },
       };
@@ -4391,6 +4412,103 @@
   }
 
   /* ================================================================
+   * 17b. Coding text size
+   * ================================================================ */
+
+  const CODING_TEXT_SIZE_KEY = "ace-coding-text-size";
+  const CODING_TEXT_DEFAULT_SIZE = 17;
+  const CODING_TEXT_SIZES = [15, 17, 20];
+  let _codingTextGlobalBound = false;
+
+  function _normaliseCodingTextSize(value) {
+    const n = parseInt(value, 10);
+    return CODING_TEXT_SIZES.indexOf(n) >= 0 ? n : CODING_TEXT_DEFAULT_SIZE;
+  }
+
+  function _currentCodingTextSize() {
+    try {
+      return _normaliseCodingTextSize(localStorage.getItem(CODING_TEXT_SIZE_KEY));
+    } catch (_) {
+      return CODING_TEXT_DEFAULT_SIZE;
+    }
+  }
+
+  function _setCodingTextMenuOpen(open) {
+    const btn = document.getElementById("coding-text-menu-btn");
+    const dropdown = document.getElementById("coding-text-dropdown");
+    if (!btn || !dropdown) return;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    dropdown.hidden = !open;
+  }
+
+  function _syncCodingTextControls() {
+    const size = _currentCodingTextSize();
+    document.documentElement.style.setProperty("--ace-coding-text-size", size + "px");
+    document.querySelectorAll(".ace-coding-text-option").forEach(function (btn) {
+      const active = _normaliseCodingTextSize(btn.dataset.codingTextSize) === size;
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+  }
+
+  function _setCodingTextSize(size) {
+    const normalised = _normaliseCodingTextSize(size);
+    try {
+      localStorage.setItem(CODING_TEXT_SIZE_KEY, String(normalised));
+    } catch (_) {}
+    _syncCodingTextControls();
+    requestAnimationFrame(function () {
+      _paintSvg();
+    });
+  }
+
+  function _initCodingTextControls() {
+    const wrapper = document.getElementById("coding-text-menu-wrapper");
+    const btn = document.getElementById("coding-text-menu-btn");
+    if (!wrapper || !btn) return;
+
+    _syncCodingTextControls();
+
+    if (btn.dataset.aceCodingTextBound !== "1") {
+      btn.dataset.aceCodingTextBound = "1";
+      btn.addEventListener("click", function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const codebookDropdown = document.getElementById("codebook-dropdown");
+        if (codebookDropdown) codebookDropdown.style.display = "none";
+        const open = btn.getAttribute("aria-expanded") !== "true";
+        _setCodingTextMenuOpen(open);
+      });
+    }
+
+    document.querySelectorAll(".ace-coding-text-option").forEach(function (option) {
+      if (option.dataset.aceCodingTextBound === "1") return;
+      option.dataset.aceCodingTextBound = "1";
+      option.addEventListener("click", function (e) {
+        e.preventDefault();
+        _setCodingTextSize(option.dataset.codingTextSize);
+      });
+    });
+
+    if (!_codingTextGlobalBound) {
+      _codingTextGlobalBound = true;
+      document.addEventListener("click", function (e) {
+        const currentWrapper = document.getElementById("coding-text-menu-wrapper");
+        if (!currentWrapper) return;
+        if (e.target && e.target.closest && e.target.closest("#coding-text-menu-wrapper")) return;
+        _setCodingTextMenuOpen(false);
+      });
+      document.addEventListener("keydown", function (e) {
+        if (e.key !== "Escape") return;
+        const btn = document.getElementById("coding-text-menu-btn");
+        if (btn && btn.getAttribute("aria-expanded") === "true") {
+          _setCodingTextMenuOpen(false);
+          e.stopPropagation();
+        }
+      }, true);
+    }
+  }
+
+  /* ================================================================
    * 18. Codebook menu
    * ================================================================ */
 
@@ -4475,6 +4593,7 @@
 
     // Toggle button
     if (e.target.closest("#codebook-menu-btn")) {
+      _setCodingTextMenuOpen(false);
       if (dropdown) dropdown.style.display = dropdown.style.display === "none" ? "" : "none";
       e.stopPropagation();
       return;
@@ -4917,6 +5036,7 @@
     _paintSvg();
     _setAmbient();
     _initCodePeek();
+    _initCodingTextControls();
 
     // Set initial roving tabindex — first treeitem gets tabindex="0"
     const items = _getTreeItems();

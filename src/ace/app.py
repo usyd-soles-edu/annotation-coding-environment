@@ -6,6 +6,7 @@ import secrets
 import signal
 import sqlite3
 import subprocess
+import threading
 import time
 from collections.abc import AsyncGenerator, Generator
 from contextlib import asynccontextmanager
@@ -244,7 +245,32 @@ def _kill_stale_ace_instances() -> None:
         pass
 
 
-def run(port: int | None = None) -> None:
+def _start_parent_watchdog(parent_pid: int) -> None:
+    """Terminate the sidecar if its Tauri parent process disappears."""
+    if parent_pid <= 1:
+        return
+
+    def _watch_parent() -> None:
+        while True:
+            time.sleep(1)
+            if not _parent_pid_exists(parent_pid):
+                os.kill(os.getpid(), signal.SIGTERM)
+                return
+
+    threading.Thread(target=_watch_parent, daemon=True).start()
+
+
+def _parent_pid_exists(parent_pid: int) -> bool:
+    try:
+        os.kill(parent_pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def run(port: int | None = None, parent_pid: int | None = None) -> None:
     if port is None:
         port = int(os.environ.get("ACE_PORT", "8080"))
     global _ALLOWED_ORIGINS
@@ -258,6 +284,8 @@ def run(port: int | None = None) -> None:
     def _sigterm_handler(signum, frame):
         raise KeyboardInterrupt
     signal.signal(signal.SIGTERM, _sigterm_handler)
+    if parent_pid is not None:
+        _start_parent_watchdog(parent_pid)
     uvicorn.run(
         create_app,
         factory=True,

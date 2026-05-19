@@ -15,7 +15,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, unquote, urlparse
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -404,7 +404,7 @@ async def project_create(
     from ace.db.connection import create_project
     from ace.models.project import list_coders
 
-    file_path = Path(path)
+    file_path = _native_selection_path(path)
 
     # Ensure the path ends with .ace
     if file_path.suffix != ".ace":
@@ -461,8 +461,9 @@ async def project_open(request: Request, path: str = Form(...)):
     from ace.models.project import list_coders
     from ace.models.source import list_sources
 
+    file_path = _native_selection_path(path)
     try:
-        conn = open_project(path)
+        conn = open_project(str(file_path))
     except (ValueError, FileNotFoundError, sqlite3.DatabaseError) as e:
         return _oob_status(str(e))
 
@@ -473,10 +474,10 @@ async def project_open(request: Request, path: str = Form(...)):
     finally:
         conn.close()
 
-    request.app.state.project_path = str(path)
+    request.app.state.project_path = str(file_path)
     if coder_id:
         request.app.state.coder_id = coder_id
-    request.app.state.active_projects.add(str(path))
+    request.app.state.active_projects.add(str(file_path))
 
     redirect = "/code" if sources else "/import"
     return Response(
@@ -490,6 +491,17 @@ async def project_open(request: Request, path: str = Form(...)):
 # ---------------------------------------------------------------------------
 
 _MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+def _native_selection_path(value: str) -> Path:
+    """Accept native picker paths returned as POSIX paths or file:// URIs."""
+    parsed = urlparse(value)
+    if parsed.scheme == "file":
+        path = unquote(parsed.path)
+        if re.match(r"^/[A-Za-z]:/", path):
+            path = path[1:]
+        return Path(path)
+    return Path(value)
 
 
 @router.post("/import/upload")
@@ -518,7 +530,7 @@ async def import_upload(request: Request, file: UploadFile = File(...)):
 @router.post("/import/file")
 async def import_file_path(request: Request, path: str = Form(...)):
     """Parse a CSV/Excel file chosen by the native picker."""
-    file_path = Path(path)
+    file_path = _native_selection_path(path)
     if not file_path.exists() or file_path.suffix.lower() not in {".csv", ".xlsx"}:
         return _oob_status("Choose a CSV or Excel file.")
     return _parse_tabular_for_mapping(
@@ -789,7 +801,7 @@ async def import_folder(
     from ace.app import get_db
     from ace.services.importer import import_text_files, get_random_previews
 
-    folder = Path(path)
+    folder = _native_selection_path(path)
     if not folder.is_dir():
         return _oob_status("Invalid folder path.")
 

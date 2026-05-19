@@ -141,6 +141,59 @@
     setMessage("Could not open the folder picker. Try again.", "err");
   }
 
+  function selectedPath(value) {
+    if (!value) return "";
+    if (Array.isArray(value)) return value[0] || "";
+    if (typeof value === "string") return value;
+    return value.path || String(value);
+  }
+
+  function pathFromNativeSelection(value) {
+    var path = selectedPath(value);
+    if (!path || path.indexOf("file://") !== 0) return path;
+    try {
+      var parsed = new URL(path);
+      var decoded = decodeURIComponent(parsed.pathname);
+      return decoded.match(/^\/[A-Za-z]:\//) ? decoded.slice(1) : decoded;
+    } catch (_) {
+      return path;
+    }
+  }
+
+  function tauriDialogOpen() {
+    var tauri = window.__TAURI__;
+    return tauri && tauri.dialog && typeof tauri.dialog.open === "function"
+      ? tauri.dialog.open
+      : null;
+  }
+
+  function pickFolderPath() {
+    var open = tauriDialogOpen();
+    if (open) {
+      return open({ directory: true, multiple: false }).then(pathFromNativeSelection);
+    }
+    return fetch("/api/native/pick-folder", { method: "POST" })
+      .then(function(r) { return r.json(); })
+      .then(function(data) { return data.path || ""; });
+  }
+
+  function pickAceFilePath() {
+    var open = tauriDialogOpen();
+    if (open) {
+      return open({
+        multiple: false,
+        filters: [{ name: "ACE Project", extensions: ["ace"] }]
+      }).then(pathFromNativeSelection);
+    }
+    return fetch("/api/native/pick-file", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "accept=.ace"
+    })
+      .then(function(r) { return r.json(); })
+      .then(function(data) { return data.path || ""; });
+  }
+
   newProjectBtn.addEventListener("click", showNewProjectForm);
   cancelBtn.addEventListener("click", hideNewProjectForm);
   nameInput.addEventListener("input", updateFormState);
@@ -155,13 +208,12 @@
     setMessage("", "");
     chooseFolderBtn.disabled = true;
     chooseFolderBtn.textContent = "Choosing folder...";
-    fetch("/api/native/pick-folder", { method: "POST" })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
+    pickFolderPath()
+      .then(function(path) {
         chooseFolderBtn.disabled = false;
         chooseFolderBtn.textContent = "Choose folder";
-        if (!data.path) return;
-        selectedFolder = data.path;
+        if (!path) return;
+        selectedFolder = path;
         updateFormState();
       })
       .catch(handlePickerFailure);
@@ -199,14 +251,9 @@
   // --- Open existing ---
   function openExisting() {
     setMessage("", "");
-    fetch("/api/native/pick-file", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "accept=.ace"
-    })
-      .then(function(r) { return r.json(); })
-      .then(function(data) {
-        if (data.path) openProject(data.path);
+    pickAceFilePath()
+      .then(function(path) {
+        if (path) openProject(path);
       })
       .catch(function() {
         setMessage("Could not open the file picker. Try again.", "err");
