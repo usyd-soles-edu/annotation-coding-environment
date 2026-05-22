@@ -153,7 +153,7 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
         by_parent.setdefault(parent_id, []).append(r)
 
     for siblings in by_parent.values():
-        siblings.sort(key=lambda r: (0 if r["kind"] == "folder" else 1, r["sort_order"]))
+        siblings.sort(key=lambda r: r["sort_order"])
 
     nodes: dict[str, dict] = {}
     for r in rows:

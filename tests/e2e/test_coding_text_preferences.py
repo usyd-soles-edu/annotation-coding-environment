@@ -5,6 +5,8 @@ from playwright.sync_api import sync_playwright
 
 from .conftest import browser_params
 
+CODE_ROW = ".ace-code-row, .ace-ht-row--code"
+
 
 @pytest.mark.parametrize("browser_name", browser_params())
 def test_coding_text_size_control_changes_only_coding_text(ace_server, browser_name):
@@ -17,7 +19,7 @@ def test_coding_text_size_control_changes_only_coding_text(ace_server, browser_n
             sentence_size_before = page.locator(".ace-sentence").first.evaluate(
                 "el => getComputedStyle(el).fontSize"
             )
-            code_row_size_before = page.locator(".ace-code-row").first.evaluate(
+            code_row_size_before = page.locator(CODE_ROW).first.evaluate(
                 "el => getComputedStyle(el).fontSize"
             )
 
@@ -27,7 +29,7 @@ def test_coding_text_size_control_changes_only_coding_text(ace_server, browser_n
             sentence_size_after = page.locator(".ace-sentence").first.evaluate(
                 "el => getComputedStyle(el).fontSize"
             )
-            code_row_size_after = page.locator(".ace-code-row").first.evaluate(
+            code_row_size_after = page.locator(CODE_ROW).first.evaluate(
                 "el => getComputedStyle(el).fontSize"
             )
 

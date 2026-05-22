@@ -21,6 +21,10 @@ from .conftest import browser_params
 
 
 _EXPECTED_CODE_ITEMS = ["Convert to folder", "Cut", "Paste here", "Rename", "Delete"]
+CODE_ROW = ".ace-code-row, .ace-ht-row--code"
+CODE_NAME = ".ace-code-name, .ace-ht-label"
+FOLDER_ROW = ".ace-code-folder-row, .ace-ht-row--folder"
+FOLDER_NAME = ".ace-folder-label, .ace-ht-label"
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
@@ -34,9 +38,9 @@ def test_right_click_on_code_row_opens_menu_with_expected_items(
         try:
             page = browser.new_page()
             page.goto(f"{ace_server}/code")
-            page.wait_for_selector(".ace-code-row")
+            page.wait_for_selector(CODE_ROW)
 
-            row = page.query_selector(".ace-code-row")
+            row = page.query_selector(CODE_ROW)
             assert row is not None
             row.click(button="right")
 
@@ -62,24 +66,24 @@ def test_context_menu_convert_code_to_folder(ace_server, browser_name):
         try:
             page = browser.new_page()
             page.goto(f"{ace_server}/code")
-            page.wait_for_selector(".ace-code-row")
+            page.wait_for_selector(CODE_ROW)
 
-            row = page.locator(".ace-code-row").first
-            code_name = row.locator(".ace-code-name").inner_text().strip()
+            row = page.locator(CODE_ROW).first
+            code_name = row.locator(CODE_NAME).inner_text().strip()
             row.click(button="right")
             page.wait_for_selector(".ace-context-menu", timeout=2000)
             page.locator(".ace-context-menu .ace-context-menu-item", has_text="Convert to folder").click()
 
             page.wait_for_function(
-                "(label) => Array.from(document.querySelectorAll('.ace-code-folder-row'))"
-                "      .some(r => r.querySelector('.ace-folder-label')?.textContent.trim() === label)",
-                arg=code_name,
+                "([label, folderRow, folderName]) => Array.from(document.querySelectorAll(folderRow))"
+                "      .some(r => r.querySelector(folderName)?.textContent.trim() === label)",
+                arg=[code_name, FOLDER_ROW, FOLDER_NAME],
                 timeout=3000,
             )
             assert page.evaluate(
-                "(label) => Array.from(document.querySelectorAll('.ace-code-row'))"
-                "      .every(r => r.querySelector('.ace-code-name')?.textContent.trim() !== label)",
-                code_name,
+                "([label, codeRow, codeName]) => Array.from(document.querySelectorAll(codeRow))"
+                "      .every(r => r.querySelector(codeName)?.textContent.trim() !== label)",
+                [code_name, CODE_ROW, CODE_NAME],
             )
         finally:
             browser.close()
@@ -93,9 +97,9 @@ def test_outside_click_dismisses_context_menu(ace_server, browser_name):
         try:
             page = browser.new_page()
             page.goto(f"{ace_server}/code")
-            page.wait_for_selector(".ace-code-row")
+            page.wait_for_selector(CODE_ROW)
 
-            row = page.query_selector(".ace-code-row")
+            row = page.query_selector(CODE_ROW)
             assert row is not None
             row.click(button="right")
             page.wait_for_selector(".ace-context-menu", timeout=2000)
@@ -121,9 +125,9 @@ def test_escape_dismisses_context_menu(ace_server, browser_name):
         try:
             page = browser.new_page()
             page.goto(f"{ace_server}/code")
-            page.wait_for_selector(".ace-code-row")
+            page.wait_for_selector(CODE_ROW)
 
-            row = page.query_selector(".ace-code-row")
+            row = page.query_selector(CODE_ROW)
             assert row is not None
             row.click(button="right")
             page.wait_for_selector(".ace-context-menu", timeout=2000)

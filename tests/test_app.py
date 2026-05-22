@@ -1,5 +1,7 @@
 """Tests for the FastAPI app scaffold."""
 
+import os
+
 import sqlite3
 
 import pytest
@@ -293,7 +295,7 @@ def test_run_uses_callable_not_string():
 
 
 def test_run_starts_parent_watchdog_when_parent_pid_given():
-    """Packaged sidecar should exit if the Tauri parent process disappears."""
+    """Packaged sidecar should exit if the launcher parent process disappears."""
     with patch("ace.app.uvicorn.run"), \
          patch("ace.app._kill_stale_server"), \
          patch("ace.app._kill_stale_ace_instances"), \
@@ -301,6 +303,37 @@ def test_run_starts_parent_watchdog_when_parent_pid_given():
         from ace.app import run
         run(port=9999, parent_pid=12345)
         mock_watchdog.assert_called_once_with(12345)
+
+def test_run_skips_stale_process_cleanup_when_disabled():
+    with patch("ace.app.uvicorn.run"), \
+         patch("ace.app._kill_stale_server") as mock_kill_server, \
+         patch("ace.app._kill_stale_ace_instances") as mock_kill_instances:
+        from ace.app import run
+
+        run(port=9999, kill_stale=False)
+
+    mock_kill_server.assert_not_called()
+    mock_kill_instances.assert_not_called()
+
+
+def test_run_sets_launcher_runtime_environment():
+    with patch("ace.app.uvicorn.run"), \
+         patch("ace.app._kill_stale_server"), \
+         patch("ace.app._kill_stale_ace_instances"), \
+         patch.dict("os.environ", {}, clear=False):
+        from ace.app import run
+
+        run(
+            port=9999,
+            launcher_token="secret",
+            runtime_file="/tmp/ace-runtime.json",
+            idle_timeout_seconds=12.5,
+        )
+
+        assert os.environ["ACE_LAUNCHER_TOKEN"] == "secret"
+        assert os.environ["ACE_RUNTIME_FILE"] == "/tmp/ace-runtime.json"
+        assert os.environ["ACE_IDLE_TIMEOUT_SECONDS"] == "12.5"
+
 
 
 def test_parent_pid_exists_uses_signal_zero():

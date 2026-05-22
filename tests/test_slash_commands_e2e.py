@@ -84,7 +84,7 @@ def test_cmd_enter_creates_code_with_matches_visible(server):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(f"{server}/code")
+        page.goto(f"{server}/code?tree=legacy")
         page.wait_for_selector("#code-search-input")
         page.fill("#code-search-input", "alph")  # matches 'alpha' but not equal
         # Verify a match exists
@@ -110,7 +110,7 @@ def test_zero_match_enter_creates_code(server):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(f"{server}/code")
+        page.goto(f"{server}/code?tree=legacy")
         page.wait_for_selector("#code-search-input")
         page.fill("#code-search-input", "themes")
         # Wait for the zero-match create row to appear
@@ -131,7 +131,7 @@ def test_slash_shows_command_palette(server):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(f"{server}/code")
+        page.goto(f"{server}/code?tree=legacy")
         page.wait_for_selector("#code-search-input")
         page.fill("#code-search-input", "/")
         page.wait_for_selector(".ace-slash-mode")
@@ -148,7 +148,7 @@ def test_slash_folder_creates_folder(server):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(f"{server}/code")
+        page.goto(f"{server}/code?tree=legacy")
         page.wait_for_selector("#code-search-input")
         page.fill("#code-search-input", "/folder Themes")
         page.wait_for_selector(".ace-slash-item[data-selected='true']")
@@ -167,7 +167,7 @@ def test_slash_case_insensitive(server):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(f"{server}/code")
+        page.goto(f"{server}/code?tree=legacy")
         page.wait_for_selector("#code-search-input")
         page.fill("#code-search-input", "/Code mixedcase")
         page.wait_for_selector(".ace-slash-item[data-selected='true']")
@@ -186,7 +186,7 @@ def test_slash_empty_arg_does_not_commit(server):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(f"{server}/code")
+        page.goto(f"{server}/code?tree=legacy")
         page.wait_for_selector("#code-search-input")
         page.fill("#code-search-input", "/code   ")  # whitespace only
         page.wait_for_selector(".ace-slash-mode")
@@ -208,7 +208,7 @@ def test_esc_exits_slash_mode(server):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(f"{server}/code")
+        page.goto(f"{server}/code?tree=legacy")
         page.wait_for_selector("#code-search-input")
         page.fill("#code-search-input", "/code Foo")
         page.wait_for_selector(".ace-slash-mode")
@@ -226,7 +226,7 @@ def test_zero_match_shows_single_create_row(server):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(f"{server}/code")
+        page.goto(f"{server}/code?tree=legacy")
         page.wait_for_selector("#code-search-input")
         # Unique-enough string that no prior test has created.
         page.fill("#code-search-input", "zzz_no_match_xyz")
@@ -244,7 +244,7 @@ def test_filter_then_slash_then_empty_restores_tree(server):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(f"{server}/code")
+        page.goto(f"{server}/code?tree=legacy")
         page.wait_for_selector("#code-search-input")
         # Type a filter that matches one code
         page.fill("#code-search-input", "alpha")
@@ -274,7 +274,7 @@ def test_slash_folder_duplicate_does_not_wipe_text_panel(server):
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.goto(f"{server}/code")
+        page.goto(f"{server}/code?tree=legacy")
         page.wait_for_selector("#code-search-input")
         # First /folder Themes — should succeed
         page.fill("#code-search-input", "/folder Themes")

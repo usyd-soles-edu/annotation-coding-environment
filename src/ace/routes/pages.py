@@ -250,8 +250,9 @@ async def coding_page(
     index: int = Query(default=0),
     open_path: str | None = Query(default=None, alias="open"),
     note: int = Query(default=0),
+    tree: str = Query(default=""),
 ):
-    # Tauri file association: open a project before rendering the coding page
+    # Launcher/browser file association: open a project before rendering the coding page
     if open_path:
         from ace.db.connection import open_project
         from ace.models.project import list_coders
@@ -286,6 +287,7 @@ async def coding_page(
 
         context = _coding_context(conn, coder_id, index, project_path=project_path)
         context["open_note_drawer"] = bool(note)
+        context["use_headless_codebook"] = tree != "legacy"
     finally:
         db_gen.close()
 

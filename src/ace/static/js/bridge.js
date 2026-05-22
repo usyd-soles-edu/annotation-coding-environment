@@ -142,8 +142,48 @@
    * ================================================================ */
 
   const _collapsedFolders = {};
+  let _sidebarTreeController = null;
+
+  function _getSidebarTreeController() {
+    const headlessMount = document.getElementById("ace-headless-tree-mount");
+    if (headlessMount) {
+      const headless = window.AceHeadlessTreePreview &&
+        typeof window.AceHeadlessTreePreview.getController === "function"
+          ? window.AceHeadlessTreePreview.getController()
+          : window.__aceHeadlessTreeController;
+      if (headless && typeof headless.refresh === "function") {
+        return headless.refresh();
+      }
+    }
+    if (typeof window.AceCodebookTree === "undefined") return null;
+    if (!_sidebarTreeController) {
+      _sidebarTreeController = window.AceCodebookTree.createController({
+        collapsedFolders: _collapsedFolders,
+      });
+      window.__aceSidebarTree = _sidebarTreeController;
+    } else if (typeof _sidebarTreeController.refresh === "function") {
+      _sidebarTreeController.refresh();
+    }
+    return _sidebarTreeController;
+  }
+
+  function _refreshSidebarTreeController() {
+    const controller = _getSidebarTreeController();
+    if (controller && typeof controller.restoreCollapseState === "function") {
+      controller.restoreCollapseState();
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    _refreshSidebarTreeController();
+  });
 
   function _toggleFolderCollapse(folderRow) {
+    const controller = _getSidebarTreeController();
+    if (controller) {
+      controller.toggleFolderCollapse(folderRow);
+      return;
+    }
     if (!folderRow) return;
     const expanded = folderRow.getAttribute("aria-expanded") === "true";
     if (expanded) {
@@ -154,6 +194,11 @@
   }
 
   function _restoreCollapseState() {
+    const controller = _getSidebarTreeController();
+    if (controller) {
+      controller.restoreCollapseState();
+      return;
+    }
     const rows = document.querySelectorAll(".ace-code-folder-row");
     rows.forEach(function (row) {
       const folderId = row.getAttribute("data-folder-id");
@@ -207,16 +252,24 @@
 
   let _currentKeyMap = []; // array of code IDs in keycap order
 
+  function _keymapRoot() {
+    return document.getElementById("ace-headless-tree-mount") ||
+      document.getElementById("code-tree");
+  }
+
   function _updateKeycaps() {
-    const tree = document.getElementById("code-tree");
+    const tree = _keymapRoot();
     if (!tree) return;
-    const rows = tree.querySelectorAll('.ace-code-row');
+    const isHeadless = tree.id === "ace-headless-tree-mount";
+    const rows = tree.querySelectorAll(
+      isHeadless ? ".ace-ht-row--code[data-code-id]" : ".ace-code-row"
+    );
     _currentKeyMap = [];
     let labelIdx = 0; // Counter that only increments for non-chord rows
     rows.forEach(function (row) {
-      if (_isHiddenByCollapsedAncestor(row)) return;
+      if (!isHeadless && _isHiddenByCollapsedAncestor(row)) return;
       // Also skip rows hidden by search filter
-      if (row.style.display === "none") return;
+      if (row.hidden || row.style.display === "none") return;
 
       if (row.dataset.chord) {
         // Chord row — has a chord cap rendered server-side. Don't include in
@@ -231,7 +284,9 @@
       _currentKeyMap.push(row.getAttribute("data-code-id"));
 
       const label = _keylabel(labelIdx);
-      const keycap = row.querySelector(".ace-code-chip--key");
+      const keycap = row.querySelector(
+        isHeadless ? ".ace-ht-chip:not(.ace-ht-chip--chord)" : ".ace-code-chip--key"
+      );
       if (keycap) keycap.textContent = label;
       row.setAttribute("aria-keyshortcuts", label);
       labelIdx++;
@@ -286,10 +341,10 @@
   function _onChordBufferChange() {
     if (_chordBuffer.length === 1) {
       document.body.dataset.chordBuffer = _chordBuffer;
-      const tree = document.getElementById("code-tree");
+      const tree = _keymapRoot();
       if (tree) {
-        tree.querySelectorAll(".ace-code-chip--chord").forEach(function (cap) {
-          const row = cap.closest(".ace-code-row");
+        tree.querySelectorAll(".ace-code-chip--chord, .ace-ht-chip--chord").forEach(function (cap) {
+          const row = cap.closest(".ace-code-row, .ace-ht-row--code");
           const chord = row && row.dataset.chord;
           cap.classList.toggle(
             "ace-chord-match",
@@ -301,9 +356,11 @@
   }
 
   function _resolveChord(chord) {
-    const tree = document.getElementById("code-tree");
+    const tree = _keymapRoot();
     if (tree) {
-      const row = tree.querySelector(`.ace-code-row[data-chord="${chord}"]`);
+      const row = tree.querySelector(
+        `.ace-code-row[data-chord="${chord}"], .ace-ht-row--code[data-chord="${chord}"]`
+      );
       if (row) {
         const codeId = row.getAttribute("data-code-id");
         if (codeId) _applyCode(codeId);
@@ -423,7 +480,9 @@
   }
 
   function _flashCodeRow(codeId) {
-    document.querySelectorAll(`.ace-code-row[data-code-id="${codeId}"]`).forEach(function (r) {
+    document.querySelectorAll(
+      `.ace-code-row[data-code-id="${codeId}"], .ace-ht-row[data-item-id="${codeId}"]`
+    ).forEach(function (r) {
       r.classList.add("ace-code-row--flash");
       setTimeout(function () { r.classList.remove("ace-code-row--flash"); }, 300);
     });
@@ -622,6 +681,7 @@
     // Guard: only single-character keys (skip ArrowLeft, ArrowRight, etc.)
     if (!shift && key.length === 1) {
       const pos = _keyToPosition(key);
+      if (pos >= 0) _updateKeycaps();
       if (pos >= 0 && pos < _currentKeyMap.length) {
         e.preventDefault();
         let codeId = _currentKeyMap[pos];
@@ -1492,6 +1552,14 @@
           cnt.removeAttribute("title");
         }
       });
+    document
+      .querySelectorAll("#ace-headless-tree-mount .ace-ht-row--code[data-code-id]")
+      .forEach(function (row) {
+        const cnt = row.querySelector(".ace-ht-count");
+        if (!cnt) return;
+        const n = counts.get(row.dataset.codeId) || 0;
+        cnt.textContent = n > 0 ? String(n) : "";
+      });
   }
 
   // Re-bind sidebar event wiring after an HTMX swap replaces sidebar DOM.
@@ -1608,15 +1676,14 @@
         search.dispatchEvent(new Event("input", { bubbles: true }));
       }
 
-      const tree = document.getElementById("code-tree");
       // Scroll already restored in _syncSidebarAfterSwap.
 
       if (_sidebarFocusState.zone === "tree") {
         let item = null;
-        if (_sidebarFocusState.codeId && tree) {
-          item = tree.querySelector(`[data-code-id="${_sidebarFocusState.codeId}"]`);
-        } else if (_sidebarFocusState.folderId && tree) {
-          item = tree.querySelector(`.ace-code-folder-row[data-folder-id="${_sidebarFocusState.folderId}"]`);
+        if (_sidebarFocusState.codeId) {
+          item = _findCodebookItemRow(_sidebarFocusState.codeId);
+        } else if (_sidebarFocusState.folderId) {
+          item = _findCodebookItemRow(_sidebarFocusState.folderId);
         }
         if (item) {
           _focusTreeItem(item);
@@ -1697,9 +1764,46 @@
 
   function _findCodebookItemRow(itemId) {
     if (!itemId) return null;
+    const controller = _getSidebarTreeController();
+    const root = controller && typeof controller.rootElement === "function"
+      ? controller.rootElement()
+      : null;
+    if (root) {
+      const row = root.querySelector(
+        `.ace-code-row[data-code-id="${itemId}"], .ace-code-folder-row[data-folder-id="${itemId}"], .ace-ht-row[data-item-id="${itemId}"]`
+      );
+      if (row) return row;
+    }
     return document.querySelector(
-      `.ace-code-row[data-code-id="${itemId}"], .ace-code-folder-row[data-folder-id="${itemId}"]`
+      `.ace-code-row[data-code-id="${itemId}"], .ace-code-folder-row[data-folder-id="${itemId}"], .ace-ht-row[data-item-id="${itemId}"]`
     );
+  }
+
+  function _codebookRowLabel(row) {
+    const label = row?.querySelector?.(".ace-code-name, .ace-folder-label, .ace-ht-label");
+    return label ? label.textContent.trim() : "";
+  }
+
+  function _codebookFolderRows() {
+    return Array.from(
+      document.querySelectorAll(".ace-code-folder-row, .ace-ht-row[data-kind='folder']")
+    );
+  }
+
+  function _startCodebookRename(row) {
+    if (!row) return;
+    const itemId = _itemIdFromTreeElement(row);
+    const controller = _getSidebarTreeController();
+    if (
+      itemId &&
+      row.classList.contains("ace-ht-row") &&
+      controller &&
+      typeof controller.startRenaming === "function"
+    ) {
+      controller.startRenaming(itemId);
+      return;
+    }
+    _startInlineRename(row, { isFolder: _isFolderRow(row) });
   }
 
   function _setCut(codeId) {
@@ -1891,6 +1995,14 @@
   }
 
   function _moveCode(codeId, direction) {
+    const controller = _getSidebarTreeController();
+    if (controller && typeof controller.moveItemInDirection === "function") {
+      const row = _findCodebookItemRow(codeId);
+      if (row && controller.rootElement && controller.rootElement()?.contains(row)) {
+        controller.moveItemInDirection(codeId, direction);
+        return;
+      }
+    }
     const row = document.querySelector(`.ace-code-row[data-code-id="${codeId}"]`);
     const container = row ? row.parentElement : null;
     if (!row || !container) return;
@@ -1925,6 +2037,33 @@
   let _origRowPositions = null;
 
   function _initSortable() {
+    const controller = _getSidebarTreeController();
+    if (controller && typeof controller.initSortable === "function") {
+      controller.initSortable({
+        Sortable: typeof Sortable === "undefined" ? undefined : Sortable,
+        onDragStateChange: function (dragging) {
+          _isDragging = dragging;
+        },
+        onInvalidDrop: function () {
+          _refreshSidebar();
+          window._setStatus("A folder cannot move inside itself", "err");
+        },
+        onMoveParent: function (itemId, newParentId, targetOrderIds) {
+          htmx.ajax("PUT", "/api/codes/" + itemId + "/parent", {
+            target: "#text-panel",
+            swap: "outerHTML",
+            values: {
+              parent_id: newParentId,
+              target_order_ids: JSON.stringify(targetOrderIds || []),
+              current_index: window.__aceCurrentIndex,
+            },
+          });
+        },
+        onPersistScopeOrder: _persistScopeOrder,
+      });
+      return;
+    }
+
     // Sortable.min.js only loads on /code (coding.html). On /code/{id}/view the
     // sidebar partial is shared but drag-to-reorder isn't wired — bail quietly.
     if (typeof Sortable === "undefined") return;
@@ -1943,32 +2082,16 @@
     const root = document.getElementById("code-tree");
     if (!root) return;
 
-    function tauriRuntime() {
-      return !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
-    }
-
-    if (tauriRuntime() && root.dataset.aceDragSelectionBound !== "1") {
-      root.dataset.aceDragSelectionBound = "1";
-      root.addEventListener("mousedown", function (evt) {
-        if (evt.target.closest("input, textarea, button, a, [contenteditable='true']")) return;
-        if (!evt.target.closest(".ace-code-row, .ace-code-folder-row")) return;
-        if (evt.cancelable) evt.preventDefault();
-        const selection = window.getSelection && window.getSelection();
-        if (selection && selection.removeAllRanges) selection.removeAllRanges();
-      }, true);
-    }
-
     function commonOpts() {
-      const useFallbackDrag = tauriRuntime();
       return {
         group: "codes",
-        animation: 150,
+        animation: 0,
         delay: 200,
         delayOnTouchOnly: true,
-        forceFallback: useFallbackDrag,
-        fallbackOnBody: useFallbackDrag,
-        fallbackTolerance: useFallbackDrag ? 4 : 0,
-        ghostClass: "ace-code-row--ghost",
+        forceFallback: false,
+        fallbackOnBody: false,
+        fallbackTolerance: 0,
+        ghostClass: "ace-codebook-sort-placeholder",
         onStart: function () { _isDragging = true; },
       };
     }
@@ -2171,14 +2294,13 @@
   // --- Menu builders ---
 
   function _buildCodeRowMenu(row) {
-    const codeId = row.getAttribute("data-code-id");
+    const codeId = _itemIdFromTreeElement(row);
     const inFolder = !!_parentFolderRow(row);
-    const folders = Array.from(document.querySelectorAll(".ace-code-folder-row"))
+    const folders = _codebookFolderRows()
       .map(function (f) {
-        const labelEl = f.querySelector(".ace-folder-label");
         return {
-          id: f.getAttribute("data-folder-id"),
-          name: labelEl ? labelEl.textContent : "(folder)",
+          id: _itemIdFromTreeElement(f),
+          name: _codebookRowLabel(f) || "(folder)",
         };
       })
       .filter(function (f) { return f.id; });
@@ -2222,8 +2344,7 @@
       shortcut: "\u2318X",
       handler: function () {
         _setCut(codeId);
-        const nameEl = row.querySelector(".ace-code-name");
-        const name = nameEl ? nameEl.textContent : "code";
+        const name = _codebookRowLabel(row) || "code";
         _announce(`Cut ${name}.`);
         window._setStatus(`Cut: ${name} \u00b7 \u2318V to paste \u00b7 Esc to cancel`, "ok-sticky");
       },
@@ -2238,7 +2359,7 @@
     items.push({
       label: "Rename",
       shortcut: "F2",
-      handler: function () { _startInlineRename(row); },
+      handler: function () { _startCodebookRename(row); },
     });
     items.push({
       label: "Change colour\u2026",
@@ -2261,14 +2382,13 @@
   }
 
   function _buildFolderRowMenu(folderRow) {
-    const folderId = folderRow.getAttribute("data-folder-id");
-    const labelEl = folderRow.querySelector(".ace-folder-label");
-    const name = labelEl ? labelEl.textContent : "folder";
+    const folderId = _itemIdFromTreeElement(folderRow);
+    const name = _codebookRowLabel(folderRow) || "folder";
     return [
       {
         label: "Rename folder",
         shortcut: "F2",
-        handler: function () { _startInlineRename(folderRow, { isFolder: true }); },
+        handler: function () { _startCodebookRename(folderRow); },
       },
       {
         label: "Cut",
@@ -2389,13 +2509,13 @@
   document.addEventListener("contextmenu", function (e) {
     if (!e.target.closest || !e.target.closest("#code-sidebar")) return;
     let items;
-    const codeRow = e.target.closest(".ace-code-row");
-    const folderRow = e.target.closest(".ace-code-folder-row");
+    const codeRow = e.target.closest(".ace-code-row, .ace-ht-row[data-kind='code']");
+    const folderRow = e.target.closest(".ace-code-folder-row, .ace-ht-row[data-kind='folder']");
     if (codeRow) {
       items = _buildCodeRowMenu(codeRow);
     } else if (folderRow) {
       items = _buildFolderRowMenu(folderRow);
-    } else if (e.target.closest("#code-tree")) {
+    } else if (e.target.closest("#code-tree, #ace-headless-tree-mount")) {
       items = _buildEmptyAreaMenu();
     } else {
       return;
@@ -2406,12 +2526,12 @@
   });
 
   /** Unified apply helper used by keycap click, search Enter, and tree Enter. */
-  function _applyCode(codeId) {
-    let codeName = "";
-    let row = document.querySelector(`.ace-code-row[data-code-id="${codeId}"]`);
+  function _applyCode(codeId, opts) {
+    opts = opts || {};
+    let codeName = opts.codeName || "";
+    let row = _findCodebookItemRow(codeId);
     if (row) {
-      const nameEl = row.querySelector(".ace-code-name");
-      if (nameEl) codeName = nameEl.textContent;
+      codeName = _codebookRowLabel(row) || codeName;
     }
     const isSelection = !!window.__aceLastSelection;
     if (isSelection) {
@@ -2426,6 +2546,34 @@
       _announce(`'${codeName}' applied to ${target}`);
     }
   }
+
+  document.addEventListener("ace:apply-code", function (event) {
+    const detail = event.detail || {};
+    if (!detail.codeId) return;
+    _clearSearchFilter();
+    _applyCode(detail.codeId, { codeName: detail.codeName || "" });
+  });
+
+  document.addEventListener("ace:rename-codebook-item", function (event) {
+    const detail = event.detail || {};
+    const itemId = detail.itemId;
+    const name = (detail.name || "").trim();
+    if (!itemId || !name) return;
+    htmx.ajax("PUT", `/api/codes/${itemId}`, {
+      target: "#text-panel",
+      swap: "outerHTML",
+      values: {
+        name: name,
+        current_index: window.__aceCurrentIndex || 0,
+      },
+    });
+  });
+
+  document.addEventListener("ace:delete-codebook-item", function (event) {
+    const detail = event.detail || {};
+    if (!detail.itemId) return;
+    _executeDelete(detail.itemId);
+  });
 
   // Code-chip click: apply code to focused sentence/selection
   document.addEventListener("click", function (e) {
@@ -3015,12 +3163,12 @@
       if (sel && sel.toString().length > 0) return;
       if (!(e.target.closest && e.target.closest("#code-sidebar"))) return;
       e.preventDefault();
-      const row = e.target.closest(".ace-code-row, .ace-code-folder-row");
+      const row = e.target.closest(".ace-code-row, .ace-code-folder-row, .ace-ht-row");
       if (!row) {
         return;
       }
-      const codeId = row.getAttribute("data-code-id") || row.getAttribute("data-folder-id");
-      const nameEl = row.querySelector(".ace-code-name, .ace-folder-label");
+      const codeId = _itemIdFromTreeElement(row);
+      const nameEl = row.querySelector(".ace-code-name, .ace-folder-label, .ace-ht-label");
       const name = nameEl ? nameEl.textContent : "item";
       _setCut(codeId);
       _announce(`Cut ${name}.`);
@@ -3043,11 +3191,10 @@
       window._setStatus("Focus a code or folder row first", "err");
       return;
     }
-    const targetRow = e.target.closest(".ace-code-row, .ace-code-folder-row");
+    const targetRow = e.target.closest(".ace-code-row, .ace-code-folder-row, .ace-ht-row");
     let targetId = null;
     if (targetRow) {
-      targetId = targetRow.getAttribute("data-code-id")
-              || targetRow.getAttribute("data-folder-id");
+      targetId = _itemIdFromTreeElement(targetRow);
     }
     if (!targetId) {
       _announce("Focus a code or folder row first.");
@@ -3190,9 +3337,9 @@
       `code_ids=${encodeURIComponent(JSON.stringify(ids))}&current_index=${window.__aceCurrentIndex}`);
   }
 
-  function _persistScopeOrder(container) {
+  function _persistScopeOrder(container, orderedIds) {
     if (!container) return;
-    const ids = _directChildItemIds(container);
+    const ids = Array.isArray(orderedIds) ? orderedIds : _directChildItemIds(container);
     const parentId = container.getAttribute("data-folder-children") || "";
     htmx.ajax("POST", "/api/codes/reorder-in-scope", {
       target: "#text-panel",
@@ -3939,6 +4086,14 @@
 
   /** Move focus into the code tree (last-focused item or first visible item). */
   function _focusCodeTree() {
+    const headlessTree = document.getElementById("ace-headless-tree-mount");
+    if (headlessTree) {
+      const activeHeadless = headlessTree.querySelector('[role="treeitem"][tabindex="0"]');
+      const firstHeadless = headlessTree.querySelector('[role="treeitem"]');
+      if (activeHeadless) activeHeadless.focus();
+      else if (firstHeadless) firstHeadless.focus();
+      return;
+    }
     const active = _getActiveTreeItem();
     if (active && active.style.display !== "none") {
       active.focus();
@@ -3956,6 +4111,8 @@
     if (el.id === "code-search-input") return "search";
     const tree = document.getElementById("code-tree");
     if (tree && tree.contains(el)) return "tree";
+    const headlessTree = document.getElementById("ace-headless-tree-mount");
+    if (headlessTree && headlessTree.contains(el)) return "tree";
     return null;
   }
 
@@ -3981,6 +4138,8 @@
 
   /** Return all visible treeitems (group headers + code rows) in DOM order. */
   function _getTreeItems() {
+    const controller = _getSidebarTreeController();
+    if (controller) return controller.getTreeItems();
     const tree = document.getElementById("code-tree");
     if (!tree) return [];
     const items = tree.querySelectorAll('[role="treeitem"]');
@@ -3997,6 +4156,11 @@
 
   /** Move roving tabindex to the given treeitem. */
   function _focusTreeItem(item) {
+    const controller = _getSidebarTreeController();
+    if (controller) {
+      controller.focusTreeItem(item);
+      return;
+    }
     if (!item) return;
     const prev = _getActiveTreeItem();
     if (prev) prev.setAttribute("tabindex", "-1");
@@ -4006,16 +4170,22 @@
 
   /** Get the currently focused treeitem (tabindex="0"). */
   function _getActiveTreeItem() {
+    const controller = _getSidebarTreeController();
+    if (controller) return controller.getActiveTreeItem();
     const tree = document.getElementById("code-tree");
     return tree ? tree.querySelector('[role="treeitem"][tabindex="0"]') : null;
   }
 
   /** Check if a treeitem is a folder row. */
   function _isFolderRow(item) {
+    const controller = _getSidebarTreeController();
+    if (controller) return controller.isFolderRow(item);
     return item && item.classList.contains("ace-code-folder-row");
   }
 
   function _containingGroupForItem(item) {
+    const controller = _getSidebarTreeController();
+    if (controller) return controller.containingGroupForItem(item);
     if (!item) return null;
     if (item.parentElement && item.parentElement.getAttribute("role") === "group") {
       return item.parentElement;
@@ -4028,12 +4198,16 @@
   }
 
   function _parentFolderRow(item) {
+    const controller = _getSidebarTreeController();
+    if (controller) return controller.parentFolderRow(item);
     const group = _containingGroupForItem(item);
     const row = group ? group.previousElementSibling : null;
     return _isFolderRow(row) ? row : null;
   }
 
   function _isHiddenByCollapsedAncestor(item) {
+    const controller = _getSidebarTreeController();
+    if (controller) return controller.isHiddenByCollapsedAncestor(item);
     let group = _containingGroupForItem(item);
     while (group) {
       const folderRow = group.previousElementSibling;
@@ -4047,12 +4221,16 @@
   }
 
   function _itemIdFromTreeElement(el) {
+    const controller = _getSidebarTreeController();
+    if (controller) return controller.itemIdFromTreeElement(el);
     if (!el || !el.getAttribute) return null;
     if (el.classList.contains("ace-folder-block")) return el.getAttribute("data-folder-id");
     return el.getAttribute("data-code-id") || el.getAttribute("data-folder-id");
   }
 
   function _directChildItemIds(container) {
+    const controller = _getSidebarTreeController();
+    if (controller) return controller.directChildItemIds(container);
     return Array.from(container.children)
       .map(function (el) { return _itemIdFromTreeElement(el); })
       .filter(Boolean);
@@ -4061,6 +4239,14 @@
   /** Move a folder block (the wrapper carrying header + children group) up
    *  or down by one position relative to its sibling folder blocks. */
   function _moveFolderInDirection(folderRow, direction) {
+    const controller = _getSidebarTreeController();
+    const controlledId = controller && typeof controller.itemIdFromTreeElement === "function"
+      ? controller.itemIdFromTreeElement(folderRow)
+      : null;
+    if (controlledId && typeof controller.moveItemInDirection === "function") {
+      controller.moveItemInDirection(controlledId, direction);
+      return;
+    }
     const block = folderRow.closest(".ace-folder-block");
     const container = block ? block.parentElement : null;
     if (!block || !container) return;
@@ -4091,8 +4277,8 @@
 
   /** Move a codebook item into the scope of `folderRow` via PUT /api/codes/{id}/parent. */
   function _doMoveToFolderAbove(row, folderRow) {
-    const codeId = row.getAttribute("data-code-id") || row.getAttribute("data-folder-id");
-    const parentId = folderRow.getAttribute("data-folder-id");
+    const codeId = _itemIdFromTreeElement(row);
+    const parentId = _itemIdFromTreeElement(folderRow);
     if (!codeId || !parentId) return;
     if (_parentFolderRow(row) === folderRow) {
       _announce("Already in that folder.");
@@ -4107,11 +4293,11 @@
 
   /** Move a codebook item out one level, or to root if it is already one level deep. */
   function _doMoveOutOfFolder(row) {
-    const codeId = row.getAttribute("data-code-id") || row.getAttribute("data-folder-id");
+    const codeId = _itemIdFromTreeElement(row);
     if (!codeId) return;
     const parentRow = _parentFolderRow(row);
     const grandparentRow = parentRow ? _parentFolderRow(parentRow) : null;
-    const newParentId = grandparentRow ? grandparentRow.getAttribute("data-folder-id") : "";
+    const newParentId = grandparentRow ? _itemIdFromTreeElement(grandparentRow) : "";
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       target: "#text-panel",
       swap: "outerHTML",
@@ -4132,8 +4318,11 @@
 
   document.addEventListener("keydown", function (e) {
     if (_chordMode === "awaiting") return;
-    const tree = document.getElementById("code-tree");
-    if (!tree || !tree.contains(document.activeElement)) return;
+    const controller = _getSidebarTreeController();
+    const activeRoot = controller && typeof controller.rootElement === "function"
+      ? controller.rootElement()
+      : document.getElementById("code-tree");
+    if (!activeRoot || !activeRoot.contains(document.activeElement)) return;
     const active = document.activeElement;
     if (!active || active.getAttribute("role") !== "treeitem") return;
     if (active.querySelector('[contenteditable="true"]')) return;
@@ -4147,7 +4336,7 @@
       e.preventDefault();
       if (!_isFolderRow(active)) {
         active.classList.add("ace-code-row--reordering");
-        _moveCode(active.getAttribute("data-code-id"), -1);
+        _moveCode(_itemIdFromTreeElement(active), -1);
         setTimeout(function () { active.classList.remove("ace-code-row--reordering"); }, 300);
       } else {
         const labelEl = active.querySelector(".ace-folder-label");
@@ -4163,7 +4352,7 @@
       e.preventDefault();
       if (!_isFolderRow(active)) {
         active.classList.add("ace-code-row--reordering");
-        _moveCode(active.getAttribute("data-code-id"), 1);
+        _moveCode(_itemIdFromTreeElement(active), 1);
         setTimeout(function () { active.classList.remove("ace-code-row--reordering"); }, 300);
       } else {
         const labelEl = active.querySelector(".ace-folder-label");
@@ -4186,7 +4375,7 @@
         else _announce("No folder above to move into.");
         return;
       }
-      const codeId = active.getAttribute("data-code-id");
+      const codeId = _itemIdFromTreeElement(active);
       const allRows = _getTreeItems();
       const idx = allRows.indexOf(active);
       if (idx <= 0) {
@@ -4204,7 +4393,7 @@
         window._setStatus("Need two sibling codes to wrap into a folder", "err");
         return;
       }
-      const aboveCodeId = above.getAttribute("data-code-id");
+      const aboveCodeId = _itemIdFromTreeElement(above);
       htmx.ajax("POST", `/api/codes/${codeId}/indent-promote`, {
         target: "#text-panel",
         swap: "outerHTML",
@@ -4222,7 +4411,7 @@
         // `_startInlineRename` would otherwise race with sidebar re-init.
         setTimeout(function () {
           const moved = document.querySelector(
-            `.ace-code-row[data-code-id="${codeId}"]`
+            `.ace-code-row[data-code-id="${codeId}"], .ace-ht-row[data-item-id="${codeId}"]`
           );
           if (!moved) return;
           const folderRow = _parentFolderRow(moved);
@@ -4271,7 +4460,7 @@
     if (key === "Enter" && !alt && !shift) {
       e.preventDefault();
       if (!_isFolderRow(active)) {
-        const codeId3 = active.getAttribute("data-code-id");
+        const codeId3 = _itemIdFromTreeElement(active);
         if (codeId3) {
           _clearSearchFilter();
           _applyCode(codeId3);
@@ -4288,10 +4477,15 @@
     // `kind='folder'` is preserved by the model layer).
     if (key === "F2" && !alt && !shift) {
       e.preventDefault();
+      const itemId = _itemIdFromTreeElement(active);
+      if (controller && typeof controller.startRenaming === "function" && itemId) {
+        controller.startRenaming(itemId);
+        return;
+      }
       if (_isFolderRow(active)) {
         _startInlineRename(active, { isFolder: true });
       } else {
-        const codeId4 = active.getAttribute("data-code-id");
+        const codeId4 = itemId;
         if (codeId4) _startInlineRename(codeId4);
       }
       return;
@@ -4304,13 +4498,8 @@
     // the safety net.
     if ((key === "Delete" || key === "Backspace") && !alt && !shift) {
       e.preventDefault();
-      if (_isFolderRow(active)) {
-        const folderId = active.getAttribute("data-folder-id");
-        if (folderId) _executeDelete(folderId);
-      } else {
-        const codeId5 = active.getAttribute("data-code-id");
-        if (codeId5) _executeDelete(codeId5);
-      }
+      const itemId = _itemIdFromTreeElement(active);
+      if (itemId) _executeDelete(itemId);
       return;
     }
 
@@ -4338,11 +4527,10 @@
         if (active.getAttribute("aria-expanded") === "false") {
           _expandFolder(active);
         } else {
-          const childrenDiv = active.nextElementSibling;
-          if (childrenDiv && childrenDiv.getAttribute("role") === "group") {
-            const firstChild = childrenDiv.querySelector('[role="treeitem"]');
-            if (firstChild) _focusTreeItem(firstChild);
-          }
+          const firstChild = controller && typeof controller.firstChildOfFolderRow === "function"
+            ? controller.firstChildOfFolderRow(active)
+            : active.nextElementSibling?.querySelector?.('[role="treeitem"]');
+          if (firstChild) _focusTreeItem(firstChild);
         }
       }
       return;
@@ -4404,15 +4592,24 @@
     if (evt.metaKey || evt.ctrlKey || evt.altKey || evt.shiftKey) return;
     const tag = (evt.target.tagName || "").toLowerCase();
     if (tag === "input" || tag === "textarea" || evt.target.isContentEditable) return;
-    const active = document.activeElement;
-    let treeItem = active && active.closest
-      ? active.closest("#code-tree [role='treeitem'][data-code-id]")
+    const controller = _getSidebarTreeController();
+    let treeItem = controller && typeof controller.activeCodeItem === "function"
+      ? controller.activeCodeItem()
       : null;
-    if (!treeItem) {
-      treeItem = document.querySelector("#code-tree [role='treeitem'][data-code-id]");
+    if (!treeItem && controller && typeof controller.firstCodeItem === "function") {
+      treeItem = controller.firstCodeItem();
     }
-    if (!treeItem) return;  // empty codebook
-    const codeId = treeItem.getAttribute("data-code-id");
+    let codeId = treeItem ? _itemIdFromTreeElement(treeItem) : "";
+    if (!codeId) {
+      const active = document.activeElement;
+      treeItem = active && active.closest
+        ? active.closest("#code-tree [role='treeitem'][data-code-id]")
+        : null;
+      if (!treeItem) {
+        treeItem = document.querySelector("#code-tree [role='treeitem'][data-code-id]");
+      }
+      codeId = treeItem ? treeItem.getAttribute("data-code-id") : "";
+    }
     if (!codeId) return;
     evt.preventDefault();
     try { sessionStorage.setItem("cv-restore-codebook-focus", "1"); } catch (_) {}
@@ -4428,12 +4625,22 @@
   // memory so it survives sidebar OOB swaps within a session.
 
   function _expandFolder(folderRow) {
+    const controller = _getSidebarTreeController();
+    if (controller) {
+      controller.expandFolder(folderRow);
+      return;
+    }
     folderRow.setAttribute("aria-expanded", "true");
     const id = folderRow.getAttribute("data-folder-id");
     if (id) _collapsedFolders[id] = false;
   }
 
   function _collapseFolder(folderRow) {
+    const controller = _getSidebarTreeController();
+    if (controller) {
+      controller.collapseFolder(folderRow);
+      return;
+    }
     folderRow.setAttribute("aria-expanded", "false");
     const id = folderRow.getAttribute("data-folder-id");
     if (id) _collapsedFolders[id] = true;
@@ -4919,13 +5126,13 @@
   function _peekSuppressed() {
     if (document.querySelector(".ace-context-menu")) return true;
     if (document.querySelector(".ace-code-row--reordering")) return true;
-    if (document.querySelector("#code-tree [contenteditable=\"true\"]")) return true;
+    if (document.querySelector("#code-tree [contenteditable=\"true\"], #ace-headless-tree-mount .ace-ht-rename")) return true;
     return false;
   }
 
   function _peekContent(row) {
-    const isFolder = row.classList.contains("ace-code-folder-row");
-    const labelEl = row.querySelector(isFolder ? ".ace-folder-label" : ".ace-code-name");
+    const isFolder = _isFolderRow(row);
+    const labelEl = row.querySelector(".ace-folder-label, .ace-code-name, .ace-ht-label");
     if (!labelEl) return null;
     if (labelEl.scrollWidth <= labelEl.clientWidth) return null;
 
@@ -4935,15 +5142,16 @@
 
     if (!isFolder) {
       stripe = row.style.getPropertyValue("--row-colour").trim() || "";
-      const cnt = row.querySelector(".ace-code-count");
+      const cnt = row.querySelector(".ace-code-count, .ace-ht-count");
       if (cnt && cnt.textContent.trim()) {
         parts.push(`<span><strong>${_escapeHtml(cnt.textContent.trim())}</strong>&times;</span>`);
       }
-      const chip = row.querySelector(".ace-code-chip");
+      const chip = row.querySelector(".ace-code-chip, .ace-ht-chip");
       if (chip) {
         const txt = chip.textContent.trim();
         if (txt) {
-          const isChord = chip.classList.contains("ace-code-chip--chord");
+          const isChord = chip.classList.contains("ace-code-chip--chord") ||
+            chip.classList.contains("ace-ht-chip--chord");
           parts.push(`<span>${isChord ? "chord" : "key"} <strong>${_escapeHtml(txt)}</strong></span>`);
         }
       }
@@ -5000,7 +5208,7 @@
   }
 
   function _initCodePeek() {
-    const ROW_SEL = "#code-tree .ace-code-row, #code-tree .ace-code-folder-row";
+    const ROW_SEL = "#code-tree .ace-code-row, #code-tree .ace-code-folder-row, #ace-headless-tree-mount .ace-ht-row";
 
     document.addEventListener("mouseover", function (e) {
       if (!e.target.closest) return;
@@ -5028,9 +5236,9 @@
 
     document.addEventListener("focusout", function (e) {
       if (!e.target.closest) return;
-      if (!e.target.closest("#code-tree")) return;
+      if (!e.target.closest("#code-tree, #ace-headless-tree-mount")) return;
       const to = e.relatedTarget;
-      if (!to || !to.closest || !to.closest("#code-tree")) _peekHide();
+      if (!to || !to.closest || !to.closest("#code-tree, #ace-headless-tree-mount")) _peekHide();
     });
 
     document.addEventListener("keydown", function (e) {
@@ -5042,7 +5250,7 @@
     window.addEventListener("resize", _peekHide);
 
     document.addEventListener("scroll", function (e) {
-      if (e.target && e.target.id === "code-tree") _peekHide();
+      if (e.target && (e.target.id === "code-tree" || e.target.id === "ace-headless-tree-mount")) _peekHide();
     }, true);
 
     document.body.addEventListener("htmx:beforeSwap", function (e) {

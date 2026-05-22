@@ -21,6 +21,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from ace.db.connection import checkpoint_and_close
 from ace.db.schema import ACE_APPLICATION_ID
+from ace.services.browser_runtime import (
+    BrowserRuntimeConfig,
+    BrowserRuntimeMonitor,
+    BrowserSessionTracker,
+)
 
 _DATA_DIR = Path.home() / ".ace"
 _PKG_DIR = Path(__file__).parent
@@ -137,6 +142,50 @@ DbDep = Annotated[sqlite3.Connection, Depends(get_db)]
 # ---------------------------------------------------------------------------
 
 
+
+def _runtime_config_from_env() -> BrowserRuntimeConfig:
+    token = os.environ.get("ACE_LAUNCHER_TOKEN", "")
+    runtime_file = os.environ.get("ACE_RUNTIME_FILE")
+    idle_timeout = os.environ.get("ACE_IDLE_TIMEOUT_SECONDS")
+    return BrowserRuntimeConfig(
+        enabled=bool(token),
+        token=token,
+        runtime_file=Path(runtime_file) if runtime_file else None,
+        idle_timeout_seconds=float(idle_timeout) if idle_timeout else 300.0,
+    )
+
+
+def _sigterm_handler(signum, frame):
+    raise KeyboardInterrupt
+
+
+def _install_sigterm_handler() -> None:
+    try:
+        signal.signal(signal.SIGTERM, _sigterm_handler)
+    except ValueError:
+        # Signal handlers can only be installed from the main thread. Tests may
+        # exercise lifespan from a worker thread; packaged ACE runs on main.
+        pass
+
+
+def _request_process_shutdown() -> None:
+    os.kill(os.getpid(), signal.SIGTERM)
+
+
+def _remove_runtime_file_for_current_process(config: BrowserRuntimeConfig) -> None:
+    if config.runtime_file is None:
+        return
+    try:
+        data = json.loads(config.runtime_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return
+    if data.get("pid") != os.getpid():
+        return
+    try:
+        config.runtime_file.unlink()
+    except FileNotFoundError:
+        pass
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     _DATA_DIR.mkdir(exist_ok=True)
@@ -145,11 +194,36 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.undo_managers = {}
     app.state.migrated_paths = set()
     app.state.active_projects = set()
-    yield
-    conn: sqlite3.Connection | None = getattr(app.state, "db", None)
-    if conn is not None:
-        checkpoint_and_close(conn)
-        app.state.db = None
+    app.state.browser_runtime_config = _runtime_config_from_env()
+    app.state.browser_runtime = None
+    app.state.browser_runtime_monitor = None
+    app.state.browser_runtime_shutdown = _request_process_shutdown
+    if app.state.browser_runtime_config.enabled:
+        _install_sigterm_handler()
+        tracker = BrowserSessionTracker(app.state.browser_runtime_config)
+        app.state.browser_runtime = tracker
+        monitor = BrowserRuntimeMonitor(
+            tracker,
+            lambda: app.state.browser_runtime_shutdown(),
+        )
+        app.state.browser_runtime_monitor = monitor
+        monitor.start()
+    try:
+        yield
+    finally:
+        monitor: BrowserRuntimeMonitor | None = getattr(
+            app.state,
+            "browser_runtime_monitor",
+            None,
+        )
+        if monitor is not None:
+            monitor.stop()
+            app.state.browser_runtime_monitor = None
+        conn: sqlite3.Connection | None = getattr(app.state, "db", None)
+        if conn is not None:
+            checkpoint_and_close(conn)
+            app.state.db = None
+        _remove_runtime_file_for_current_process(app.state.browser_runtime_config)
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +252,9 @@ def create_app() -> FastAPI:
     # Routes
     from ace.routes.api import router as api_router
     from ace.routes.pages import router as pages_router
+    from ace.routes.runtime import router as runtime_router
 
+    app.include_router(runtime_router)
     app.include_router(pages_router)
     app.include_router(api_router)
 
@@ -246,7 +322,7 @@ def _kill_stale_ace_instances() -> None:
 
 
 def _start_parent_watchdog(parent_pid: int) -> None:
-    """Terminate the sidecar if its Tauri parent process disappears."""
+    """Terminate the sidecar if its parent launcher process disappears."""
     if parent_pid <= 1:
         return
 
@@ -270,20 +346,33 @@ def _parent_pid_exists(parent_pid: int) -> bool:
     return True
 
 
-def run(port: int | None = None, parent_pid: int | None = None) -> None:
+def run(
+    port: int | None = None,
+    parent_pid: int | None = None,
+    *,
+    launcher_token: str | None = None,
+    runtime_file: str | None = None,
+    idle_timeout_seconds: float | None = None,
+    kill_stale: bool = True,
+) -> None:
     if port is None:
         port = int(os.environ.get("ACE_PORT", "8080"))
+    if launcher_token:
+        os.environ["ACE_LAUNCHER_TOKEN"] = launcher_token
+    if runtime_file:
+        os.environ["ACE_RUNTIME_FILE"] = runtime_file
+    if idle_timeout_seconds is not None:
+        os.environ["ACE_IDLE_TIMEOUT_SECONDS"] = str(idle_timeout_seconds)
     global _ALLOWED_ORIGINS
     _ALLOWED_ORIGINS = _build_allowed_origins(port)
-    _kill_stale_ace_instances()
-    _kill_stale_server(port)
+    if kill_stale:
+        _kill_stale_ace_instances()
+        _kill_stale_server(port)
     # Nuitka's onefile bootloader may not forward SIGTERM to the Python
     # process cleanly. Explicitly convert SIGTERM to KeyboardInterrupt so
     # uvicorn runs its graceful shutdown path (close connections, run
     # lifespan shutdown, release the SQLite database).
-    def _sigterm_handler(signum, frame):
-        raise KeyboardInterrupt
-    signal.signal(signal.SIGTERM, _sigterm_handler)
+    _install_sigterm_handler()
     if parent_pid is not None:
         _start_parent_watchdog(parent_pid)
     uvicorn.run(

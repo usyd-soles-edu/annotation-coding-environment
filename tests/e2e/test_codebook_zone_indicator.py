@@ -9,6 +9,9 @@ from playwright.sync_api import sync_playwright
 
 from .conftest import browser_params
 
+CODE_ROW = ".ace-code-row, .ace-ht-row--code"
+FOCUSED_ROW = ".ace-code-row[tabindex=\"0\"], .ace-ht-row[tabindex=\"0\"]"
+
 
 @pytest.mark.parametrize("browser_name", browser_params())
 def test_active_zone_toggles_on_focus(ace_server, browser_name):
@@ -19,7 +22,7 @@ def test_active_zone_toggles_on_focus(ace_server, browser_name):
         try:
             page = browser.new_page()
             page.goto(f"{ace_server}/code")
-            page.wait_for_selector("#code-tree")
+            page.wait_for_selector("#ace-headless-tree-mount, #code-tree")
 
             # Default zone is set to "source" by the inline init script in
             # bridge.js (line ~64).
@@ -38,27 +41,26 @@ def test_active_zone_toggles_on_focus(ace_server, browser_name):
 
 @pytest.mark.parametrize("browser_name", browser_params())
 def test_focused_row_styles_change_with_zone(ace_server, browser_name):
-    """The focused code row wears the inverted slate-on-white treatment
-    only while the codebook zone is active. Switching focus to the source
-    clears the background (transparent)."""
+    """The focused code row gets a quiet highlight only while the codebook
+    zone is active. Switching focus to the source clears the background."""
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
             page.goto(f"{ace_server}/code")
-            page.wait_for_selector(".ace-code-row")
+            page.wait_for_selector(CODE_ROW)
 
             # Click a row → roving tabindex=0 lands on it AND sidebar gains focus.
-            page.click(".ace-code-row")
+            page.click(CODE_ROW)
             # Confirm the active zone flipped to codebook.
             assert page.evaluate("document.body.dataset.activeZone") == "codebook"
 
             # Background fades in via a CSS transition — poll until it
-            # resolves to the inverted slate value #1a1d27 (rgb(26, 29, 39)).
+            # resolves to the quiet selected-row value #f1f1ee.
             page.wait_for_function(
-                "() => getComputedStyle(document.querySelector("
-                "  '.ace-code-row[tabindex=\"0\"]'"
-                ")).backgroundColor === 'rgb(26, 29, 39)'",
+                "(selector) => getComputedStyle(document.querySelector(selector))"
+                ".backgroundColor === 'rgb(241, 241, 238)'",
+                arg=FOCUSED_ROW,
                 timeout=2000,
             )
 
@@ -67,9 +69,9 @@ def test_focused_row_styles_change_with_zone(ace_server, browser_name):
             page.click("#text-panel")
             assert page.evaluate("document.body.dataset.activeZone") == "source"
             page.wait_for_function(
-                "() => getComputedStyle(document.querySelector("
-                "  '.ace-code-row[tabindex=\"0\"]'"
-                ")).backgroundColor === 'rgba(0, 0, 0, 0)'",
+                "(selector) => getComputedStyle(document.querySelector(selector))"
+                ".backgroundColor === 'rgba(0, 0, 0, 0)'",
+                arg=FOCUSED_ROW,
                 timeout=2000,
             )
         finally:
@@ -103,7 +105,7 @@ def test_focused_sentence_thickness_changes_with_zone(ace_server, browser_name):
             )
 
             # Switch to codebook by clicking a code row.
-            page.click(".ace-code-row")
+            page.click(CODE_ROW)
             assert page.evaluate("document.body.dataset.activeZone") == "codebook"
             thickness_codebook = page.evaluate(
                 "() => getComputedStyle("

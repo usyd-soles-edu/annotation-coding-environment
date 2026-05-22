@@ -13,6 +13,9 @@ import pytest
 # Skip if no playwright
 pytest.importorskip("playwright")
 
+CODE_ROW = ".ace-code-row, .ace-ht-row--code"
+CHORD_ROW = ".ace-code-row[data-chord], .ace-ht-row--code[data-chord]"
+
 
 def _free_port():
     s = socket.socket()
@@ -100,7 +103,7 @@ def test_single_key_still_applies(server):
         browser = p.chromium.launch()
         page = browser.new_page()
         page.goto(f"{server}/code")
-        page.wait_for_selector(".ace-code-row")
+        page.wait_for_selector(CODE_ROW)
 
         _focus_first_sentence(page)
         before = page.locator(".ace-applied-code-row").count()
@@ -123,7 +126,7 @@ def test_chord_mode_apply_pd(server):
         browser = p.chromium.launch()
         page = browser.new_page()
         page.goto(f"{server}/code")
-        page.wait_for_selector(".ace-code-row[data-chord]")
+        page.wait_for_selector(CHORD_ROW)
 
         _focus_first_sentence(page)
         page.keyboard.press("Semicolon")
@@ -155,7 +158,7 @@ def test_chord_mode_escape_no_apply(server):
         browser = p.chromium.launch()
         page = browser.new_page()
         page.goto(f"{server}/code")
-        page.wait_for_selector(".ace-code-row")
+        page.wait_for_selector(CODE_ROW)
 
         _focus_first_sentence(page)
         before = page.locator(".ace-applied-code-row").count()

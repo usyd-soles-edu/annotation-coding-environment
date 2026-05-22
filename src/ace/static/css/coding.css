@@ -386,11 +386,39 @@
 .ace-sidebar-codes {
   flex: 1;
   overflow-y: auto;
+  position: relative;
   padding: var(--ace-space-1) 0;
 }
 
+.ace-codebook-drop-line {
+  position: absolute;
+  z-index: 5;
+  display: none;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 999px;
+  background: var(--ace-focus);
+  pointer-events: none;
+}
+
+.ace-codebook-drop-line.is-visible {
+  display: block;
+}
+
+.ace-codebook-drop-line::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 6px;
+  height: 6px;
+  border: 2px solid var(--ace-focus);
+  border-radius: 999px;
+  background: var(--ace-bg);
+}
+
 .ace-code-row {
-  --indent: 0px;  /* Set to 10px for folder children — see Task 4. */
+  --indent: 0px;
   position: relative;
   display: grid;
   grid-template-columns: 1fr 28px 32px;
@@ -410,6 +438,25 @@
 .ace-code-row * {
   user-select: none;
   -webkit-user-select: none;
+}
+
+#code-tree [role="group"] {
+  position: relative;
+}
+
+#code-tree [role="group"]::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--group-indent, 14px) + 1px);
+  top: 1px;
+  bottom: 3px;
+  width: 1px;
+  background: #deded7;
+  pointer-events: none;
+}
+
+#code-tree [role="group"]:empty::before {
+  display: none;
 }
 
 /* Pill stripe — shorter than the row so adjacent stripes read as discrete pills. */
@@ -433,13 +480,52 @@
   width: 3px;
 }
 
-.ace-code-row.ace-code-row--flash {
+.ace-folder-block:has(> [role="group"] [role="treeitem"][tabindex="0"]) > .ace-code-folder-row {
+  background: #f4f4f0;
+  box-shadow: inset 3px 0 0 #8d8d86;
+}
+
+.ace-folder-block:has(> [role="group"] [role="treeitem"][tabindex="0"]) > .ace-code-folder-row .ace-folder-label {
+  font-weight: var(--ace-weight-semibold);
+}
+
+.ace-folder-block:has(> [role="group"] [role="treeitem"][tabindex="0"]) > [role="group"]::before {
+  background: #8d8d86;
+}
+
+.ace-code-row.ace-code-row--flash,
+.ace-ht-row.ace-code-row--flash {
   background: var(--ace-bg-muted);
   transition: none;
 }
 
 .ace-code-row--ghost {
   opacity: 0.4;
+}
+
+.ace-codebook-sort-placeholder {
+  visibility: hidden;
+}
+
+.ace-folder-block.ace-codebook-sort-placeholder > [role="group"] {
+  display: none;
+}
+
+.ace-codebook-drag-clone {
+  opacity: 0.28 !important;
+  box-shadow: none !important;
+  pointer-events: none;
+}
+
+.ace-codebook-drag-clone[role="treeitem"],
+.ace-codebook-drag-clone .ace-code-folder-row {
+  background: transparent !important;
+}
+
+.ace-codebook-drag-clone .ace-code-count,
+.ace-codebook-drag-clone .ace-code-chip,
+.ace-codebook-drag-clone [role="group"] {
+  display: none !important;
 }
 
 /* Focused treeitem — bold persists via the roving tabindex marker so it
@@ -548,6 +634,289 @@
 }
 .ace-code-row:hover .ace-code-chip--chord::before {
   opacity: 0.55;
+}
+
+/* ---- Headless Tree codebook ---- */
+
+.ace-headless-tree-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border-top: 1px solid var(--ace-border);
+  background: var(--ace-bg);
+}
+
+.ace-headless-tree-preview-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ace-space-2);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--ace-border);
+}
+
+.ace-headless-tree-preview-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: var(--ace-weight-semibold);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+.ace-headless-tree-preview-state {
+  font-family: var(--ace-font-mono);
+  font-size: 11px;
+  color: var(--ace-text-muted);
+}
+
+.ace-headless-tree-preview-state:empty {
+  display: none;
+}
+
+.ace-headless-tree-mount {
+  flex: 1 1 auto;
+  min-height: 0;
+  position: relative;
+  overflow: auto;
+  padding: 6px 0;
+}
+
+.ace-ht-row {
+  --ht-indent: 0px;
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px 1fr 28px 32px;
+  align-items: center;
+  column-gap: 6px;
+  min-height: 24px;
+  padding: 0 10px 0 calc(8px + var(--ht-indent));
+  font-size: var(--ace-font-size-2xs);
+  color: var(--ace-text);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ace-ht-row[data-level]:not([data-level="1"])::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(10px + var(--ht-indent) - 7px);
+  border-left: 1px solid var(--ace-border);
+  opacity: 0.75;
+}
+
+.ace-ht-row[hidden] {
+  display: none;
+}
+
+.ace-ht-row:hover {
+  background: var(--ace-bg-muted);
+}
+
+.ace-ht-row--path-parent {
+  background: #f4f4f0;
+  box-shadow: inset 3px 0 0 #8d8d86;
+}
+
+.ace-ht-row--path-parent .ace-ht-label {
+  font-weight: var(--ace-weight-semibold);
+}
+
+.ace-ht-row--path-parent::before {
+  border-left-color: #8d8d86;
+  opacity: 1;
+}
+
+.ace-ht-row--drop-receiver {
+  background: #e8e8e4;
+  box-shadow:
+    inset 3px 0 0 var(--ace-focus),
+    inset 0 0 0 1px var(--ace-focus);
+}
+
+.ace-ht-row--drop-receiver .ace-ht-label {
+  font-weight: var(--ace-weight-semibold);
+}
+
+.ace-ht-row--drop-receiver::before {
+  border-left-color: var(--ace-focus);
+  opacity: 1;
+}
+
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] {
+  background: #f1f1ee;
+  color: var(--ace-text);
+  box-shadow: inset 3px 0 0 var(--ace-focus);
+}
+
+.ace-ht-toggle {
+  width: 14px;
+  color: currentColor;
+  opacity: 0.72;
+  text-align: center;
+}
+
+.ace-ht-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ace-ht-row--folder .ace-ht-label {
+  font-weight: var(--ace-weight-semibold);
+}
+
+.ace-ht-row--code .ace-ht-label {
+  border-left: 2px solid var(--row-colour, transparent);
+  padding-left: 8px;
+}
+
+.ace-ht-row--code .ace-ht-label,
+.ace-ht-chip {
+  cursor: default;
+}
+
+.ace-ht-count {
+  justify-self: end;
+  font-family: var(--ace-font-mono);
+  font-size: var(--ace-font-size-2xs);
+  color: var(--ace-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ace-ht-count:not(:empty)::after {
+  content: "×";
+  margin-left: 1px;
+  opacity: 0.5;
+}
+
+.ace-ht-chip {
+  justify-self: end;
+  min-width: 22px;
+  height: 18px;
+  padding: 1px 6px 0;
+  border-radius: var(--ace-radius);
+  background: #f4f4f0;
+  font-family: var(--ace-font-mono);
+  font-size: var(--ace-font-size-2xs);
+  line-height: 1;
+  color: var(--ace-text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ace-ht-chip:empty {
+  display: none;
+}
+
+.ace-ht-chip--chord::before {
+  content: ";";
+  opacity: 0.4;
+  margin-right: 1px;
+}
+
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-count,
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-chip {
+  color: var(--ace-text);
+}
+
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-chip {
+  background: #e8e8e4;
+}
+
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"]::before {
+  border-left-color: var(--ace-focus);
+  opacity: 1;
+}
+
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-label {
+  font-weight: var(--ace-weight-semibold);
+}
+
+.ace-ht-row[data-drop-target="above"] {
+  box-shadow: inset 0 2px 0 var(--ace-focus);
+}
+
+.ace-ht-row[data-drop-target="below"] {
+  box-shadow: inset 0 -2px 0 var(--ace-focus);
+}
+
+.ace-ht-row[data-drop-target="inside"]:not(.ace-ht-row--drop-receiver) {
+  background: var(--ace-bg-muted);
+}
+
+.ace-ht-create-row {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  column-gap: 6px;
+  min-height: 24px;
+  margin: 2px 8px;
+  padding: 0 8px;
+  border: 1px dashed var(--ace-border);
+  border-radius: var(--ace-radius);
+  color: var(--ace-text-muted);
+  font-size: var(--ace-font-size-2xs);
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ace-ht-create-row:hover,
+.ace-ht-create-row:focus-visible {
+  border-color: var(--ace-focus);
+  color: var(--ace-text);
+  outline: none;
+}
+
+.ace-ht-create-plus {
+  font-family: var(--ace-font-mono);
+  text-align: center;
+}
+
+.ace-ht-create-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ace-ht-create-hint {
+  font-family: var(--ace-font-mono);
+  font-size: 11px;
+  color: var(--ace-text-muted);
+}
+
+.ace-ht-rename {
+  grid-column: 2 / 5;
+  min-height: 22px;
+  border: 1px solid var(--ace-focus);
+  border-radius: var(--ace-radius);
+  padding: 1px 6px;
+  font: inherit;
+}
+
+.ace-ht-drag-line {
+  height: 2px;
+  border-radius: 999px;
+  background: var(--ace-focus);
+  pointer-events: none;
+}
+
+.ace-ht-drag-image {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0.01;
+  pointer-events: none;
 }
 
 /* Chord-mode visuals (carried over from .ace-keycap--chord rules with
@@ -1812,6 +2181,7 @@ body[data-active-zone="codebook"] .ace-sentence--focused {
 
 .ace-code-folder-row {
   --indent: 0px;
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--ace-space-1);
@@ -1879,23 +2249,6 @@ body[data-active-zone="codebook"]:has(#text-panel) .ace-code-folder-row[tabindex
 
 /* Nested folders use per-row --indent from the renderer so folder labels and
    code colour stripes step together at each level. */
-
-/* ─── "Ungrouped" divider before the root code section ─────────────── */
-
-.ace-root-divider {
-  display: flex;
-  align-items: center;
-  gap: var(--ace-space-2);
-  padding: 14px 14px 6px;
-}
-
-.ace-root-divider-label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 1.2px;
-  color: var(--ace-text-muted);
-  font-weight: 600;
-}
 
 /* ─── Sidebar legend (mirrors .ace-legend on the source side) ─────── */
 

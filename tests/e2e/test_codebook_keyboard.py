@@ -112,7 +112,7 @@ def test_alt_shift_right_wraps_two_root_codes_into_folder(ace_server, browser_na
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector(".ace-code-row")
 
             # Pre-condition: zero folders.
@@ -158,7 +158,7 @@ def test_bare_alt_right_on_root_code_does_not_create_folder(ace_server, browser_
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector(".ace-code-row")
 
             # Pre-condition: zero folders.
@@ -202,7 +202,7 @@ def test_shift_enter_in_filter_creates_folder(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector("#code-search-input")
 
             page.fill("#code-search-input", "TestFolder")
@@ -226,7 +226,7 @@ def test_folder_labels_use_readable_text_style(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector("#code-search-input")
 
             _create_folder(page, "Readable Folder")
@@ -259,7 +259,7 @@ def test_alt_right_nests_folder_under_folder(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector("#code-search-input")
 
             page.fill("#code-search-input", "Outer")
@@ -331,7 +331,7 @@ def test_alt_right_uses_previous_row_folder_context(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector("#code-search-input")
 
             _create_folder(page, "A")
@@ -358,15 +358,15 @@ def test_alt_right_uses_previous_row_folder_context(ace_server, browser_name):
             )
 
             _focus_code(page, "Alpha")
-            page.keyboard.press("Meta+x")
+            page.keyboard.press("Control+x")
             _focus_folder(page, "B")
-            page.keyboard.press("Meta+v")
+            page.keyboard.press("Control+v")
             page.wait_for_function(
                 "() => Array.from(document.querySelectorAll('.ace-code-row'))"
                 "      .some(r => r.querySelector('.ace-code-name')?.textContent.trim() === 'Alpha'"
                 "        && r.parentElement?.previousElementSibling"
                 "          ?.querySelector('.ace-folder-label')?.textContent.trim() === 'B')",
-                timeout=3000,
+                timeout=6000,
             )
 
             _create_folder(page, "D")
@@ -396,7 +396,7 @@ def test_cmd_x_then_cmd_v_moves_code_into_folder(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector(".ace-code-row")
 
             # Create a folder first via the filter.
@@ -455,7 +455,7 @@ def test_alt_left_lifts_code_out_of_folder_to_root(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector(".ace-code-row")
 
             # Build the precondition: folder containing Bravo (and Alpha).
@@ -515,7 +515,7 @@ def test_esc_from_sidebar_returns_to_source(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector("#code-tree")
 
             page.click(".ace-code-row")
@@ -552,7 +552,7 @@ def test_tab_cycles_zones(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector("#code-search-input")
 
             # Start in the source.

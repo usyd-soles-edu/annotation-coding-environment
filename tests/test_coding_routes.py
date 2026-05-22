@@ -172,6 +172,79 @@ def test_coding_page_empty_codebook_shows_first_actions(client_with_sources_no_c
     assert "Import codebook CSV" in resp.text
 
 
+def test_codebook_tree_route_returns_headless_tree_item_map(client_with_codes):
+    """GET /api/codes/tree exposes ACE rows in a Headless Tree-friendly shape."""
+    from ace.db.connection import open_project
+    from ace.models.annotation import add_annotation
+    from ace.models.codebook import add_code, add_folder
+
+    client, coder_id, _code_a, _code_b, db_path = client_with_codes
+
+    conn = open_project(db_path)
+    try:
+        source_id = conn.execute(
+            "SELECT id FROM source ORDER BY sort_order LIMIT 1"
+        ).fetchone()["id"]
+        parent = add_folder(conn, "Parent folder")
+        child = add_code(conn, "Nested code", "#123456", parent_id=parent)
+        add_annotation(conn, source_id, coder_id, child, 0, 5, "First")
+    finally:
+        conn.close()
+
+    resp = client.get("/api/codes/tree")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["root_id"] == "root"
+    assert parent in payload["items"]["root"]["children"]
+    assert payload["items"][parent] == {
+        "id": parent,
+        "name": "Parent folder",
+        "kind": "folder",
+        "parent_id": None,
+        "level": 1,
+        "sort_order": payload["items"][parent]["sort_order"],
+        "children": [child],
+        "child_count": 1,
+        "count": 0,
+    }
+    assert payload["items"][child] == {
+        "id": child,
+        "name": "Nested code",
+        "kind": "code",
+        "parent_id": parent,
+        "level": 2,
+        "sort_order": payload["items"][child]["sort_order"],
+        "children": [],
+        "child_count": 0,
+        "count": 1,
+        "colour": "#123456",
+        "chord": None,
+    }
+
+
+def test_codebook_tree_route_handles_empty_codebook(client_with_sources_no_codes):
+    """The JSON tree route gives the future island a stable empty state."""
+    resp = client_with_sources_no_codes.get("/api/codes/tree")
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "root_id": "root",
+        "items": {
+            "root": {
+                "id": "root",
+                "name": "Root",
+                "kind": "folder",
+                "parent_id": None,
+                "level": 0,
+                "children": [],
+                "child_count": 0,
+                "count": 0,
+            }
+        },
+    }
+
+
 def test_coding_page_shows_project_name(client_with_sources):
     """Project name appears in the header."""
     client, _ = client_with_sources
@@ -257,7 +330,7 @@ def test_sidebar_has_aria_tree_roles(client_with_sources, tmp_path):
     add_code(conn, "Nested code", "#1976d2", parent_id=child_folder_id)
     conn.close()
 
-    resp = client.get("/code")
+    resp = client.get("/code?tree=legacy")
     assert resp.status_code == 200
     html = resp.text
     assert 'role="tree"' in html
@@ -2156,6 +2229,80 @@ def test_reorder_in_scope_accepts_folder_rows(client_with_codes):
         conn.close()
     assert before != 0
     assert after == 0, "folder sort_order should be updated by reorder-in-scope"
+
+
+def test_set_parent_route_respects_target_order(client_with_codes):
+    """Cross-scope drag sends the destination sibling order with the parent move."""
+    from ace.db.connection import open_project
+    from ace.models.codebook import add_folder
+
+    client, _coder, _code_a, _code_b, db_path = client_with_codes
+
+    conn = open_project(db_path)
+    try:
+        target_folder = add_folder(conn, "Target")
+        first = _add_test_code(client, "First child", db_path, parent_id=target_folder)
+        second = _add_test_code(client, "Second child", db_path, parent_id=target_folder)
+        moving_folder = add_folder(conn, "Moving folder")
+    finally:
+        conn.close()
+
+    response = client.put(
+        f"/api/codes/{moving_folder}/parent",
+        data={
+            "parent_id": target_folder,
+            "target_order_ids": json.dumps([first, moving_folder, second]),
+            "current_index": 0,
+        },
+    )
+    assert response.status_code == 200
+
+    conn = open_project(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id FROM codebook_code "
+            "WHERE parent_id = ? AND deleted_at IS NULL "
+            "ORDER BY sort_order",
+            (target_folder,),
+        ).fetchall()
+    finally:
+        conn.close()
+    assert [row["id"] for row in rows] == [first, moving_folder, second]
+
+    response = client.post("/api/undo", data={"current_index": 0})
+    assert response.status_code == 200
+
+    conn = open_project(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id FROM codebook_code "
+            "WHERE parent_id = ? AND deleted_at IS NULL "
+            "ORDER BY sort_order",
+            (target_folder,),
+        ).fetchall()
+        parent_after_undo = conn.execute(
+            "SELECT parent_id FROM codebook_code WHERE id = ?",
+            (moving_folder,),
+        ).fetchone()["parent_id"]
+    finally:
+        conn.close()
+    assert [row["id"] for row in rows] == [first, second]
+    assert parent_after_undo is None
+
+    response = client.post("/api/redo", data={"current_index": 0})
+    assert response.status_code == 200
+
+    conn = open_project(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id FROM codebook_code "
+            "WHERE parent_id = ? AND deleted_at IS NULL "
+            "ORDER BY sort_order",
+            (target_folder,),
+        ).fetchall()
+    finally:
+        conn.close()
+    assert [row["id"] for row in rows] == [first, moving_folder, second]
 
 
 def test_reorder_tree_persists_folder_order(client_with_codes):

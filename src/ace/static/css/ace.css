@@ -1163,7 +1163,7 @@ body {
 
 /* Dialog styling.
    Explicit centring — native <dialog> centres via showModal() but NOT via
-   show() or the inline `open` attribute, and WKWebView occasionally drifts
+   show() or the inline `open` attribute, and some webviews occasionally drift
    even with showModal(). Position fixed + 50%/translate keeps every
    .ace-dialog instance centred regardless of how it was opened. */
 .ace-dialog {

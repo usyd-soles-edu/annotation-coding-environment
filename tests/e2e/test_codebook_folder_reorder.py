@@ -66,7 +66,7 @@ def test_folder_reorder_survives_oob_sidebar_swap(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code")
+            page.goto(f"{ace_server}/code?tree=legacy")
             page.wait_for_selector(".ace-code-row")
 
             # --- Create Alpha-folder via filter + Shift+Enter.

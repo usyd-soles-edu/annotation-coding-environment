@@ -15,7 +15,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import quote, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -46,6 +46,24 @@ def _safe_filename(name: str) -> str:
     dot, dash, underscore, and space into underscores.
     """
     return re.sub(r"[^A-Za-z0-9._\- ]", "_", name)
+
+
+def _use_headless_codebook(request: Request) -> bool:
+    """Use the Headless Tree codebook on the coding page.
+
+    Keep `?tree=legacy` as a temporary escape hatch while the replacement
+    settles. The code-view audit page still uses the legacy sidebar.
+    """
+    current_url = request.headers.get("HX-Current-URL")
+    if current_url:
+        parsed = urlparse(current_url)
+        query = parse_qs(parsed.query)
+        if query.get("tree", [""])[0] == "legacy":
+            return False
+        if query.get("tree", [""])[0] == "headless":
+            return True
+        return parsed.path.rstrip("/") == "/code"
+    return request.query_params.get("tree") != "legacy"
 
 
 # ---------------------------------------------------------------------------
@@ -1047,6 +1065,7 @@ def _render_full_coding_oob(
     project_path = request.app.state.project_path
     ctx = _coding_context(conn, coder_id, target_index, project_path=project_path)
     ctx["request"] = request
+    ctx["use_headless_codebook"] = _use_headless_codebook(request)
 
     parts = [render_block(templates.env, "coding.html", "text_panel", ctx)]
     inspector_html = render_block(templates.env, "coding.html", "right_inspector", ctx)
@@ -1565,12 +1584,94 @@ def _render_code_sidebar(request: Request, conn, coder_id: str, current_index: i
     project_path = request.app.state.project_path
     ctx = _coding_context(conn, coder_id, current_index, project_path=project_path)
     ctx["request"] = request
+    ctx["use_headless_codebook"] = _use_headless_codebook(request)
     return render_block(templates.env, "coding.html", "code_sidebar", ctx)
+
+
+def _codebook_tree_payload(
+    tree_codes: list[dict],
+    code_counts_by_id: dict[str, int],
+) -> dict:
+    """Return Headless Tree-friendly codebook data.
+
+    The current sidebar renderer consumes nested Jinja rows. The Headless Tree
+    adapter wants a stable item map: `root.children` gives top-level order and
+    each item carries its direct child ids. Keep this translation server-side
+    so the future tree island does not need to scrape sidebar DOM.
+    """
+    root_nodes = tree_codes[0].get("root_nodes", []) if tree_codes else []
+    items = {
+        "root": {
+            "id": "root",
+            "name": "Root",
+            "kind": "folder",
+            "parent_id": None,
+            "level": 0,
+            "children": [],
+            "child_count": len(root_nodes),
+            "count": 0,
+        }
+    }
+    visited: set[str] = set()
+
+    def visit(node: dict, parent_id: str) -> None:
+        node_id = str(node["id"])
+        if node_id in visited:
+            return
+        visited.add(node_id)
+
+        children = node.get("children") or []
+        child_ids = [str(child["id"]) for child in children]
+        kind = str(node.get("kind", "code"))
+        item = {
+            "id": node_id,
+            "name": str(node.get("name", "")),
+            "kind": kind,
+            "parent_id": None if parent_id == "root" else parent_id,
+            "level": int(node.get("level", 1)),
+            "sort_order": int(node.get("sort_order", 0)),
+            "children": [],
+            "child_count": len(child_ids) if kind == "folder" else 0,
+            "count": int(code_counts_by_id.get(node_id, 0)) if kind == "code" else 0,
+        }
+        if kind == "code":
+            item["colour"] = str(node.get("colour", ""))
+            item["chord"] = node.get("chord")
+        items[node_id] = item
+        items[parent_id]["children"].append(node_id)
+
+        for child in children:
+            visit(child, node_id)
+
+    for root_node in root_nodes:
+        visit(root_node, "root")
+
+    return {
+        "root_id": "root",
+        "items": items,
+    }
 
 
 # ---------------------------------------------------------------------------
 # Codebook CRUD routes
 # ---------------------------------------------------------------------------
+
+
+@router.get("/codes/tree")
+async def codebook_tree_route(request: Request):
+    """Return the current codebook tree as JSON for the Headless Tree island."""
+    from ace.models.annotation import get_annotation_counts_by_code
+    from ace.models.codebook import list_codes_with_tree
+
+    project_path = getattr(request.app.state, "project_path", None)
+    if not project_path:
+        raise HTTPException(status_code=400, detail="project not open")
+
+    coder_id = _require_coder(request)
+    with _project_db(request) as conn:
+        tree_codes = list_codes_with_tree(conn)
+        code_counts_by_id = get_annotation_counts_by_code(conn, coder_id)
+    return JSONResponse(_codebook_tree_payload(tree_codes, code_counts_by_id))
 
 
 @router.post("/codes")
@@ -1664,14 +1765,26 @@ async def set_code_parent_route(
     request: Request,
     code_id: str,
     parent_id: str = Form(default=""),
+    target_order_ids: str = Form(default=""),
     current_index: int = Form(default=0),
 ):
     """Move `code_id` into the scope of `parent_id` (folder id or empty for root)."""
-    from ace.models.codebook import InvariantError, move_code_to_parent
+    from ace.models.codebook import InvariantError, _move_code_to_parent_no_commit
 
     coder_id = _require_coder(request)
     new_parent: str | None = parent_id.strip() if parent_id else None
     new_parent = new_parent or None
+    if target_order_ids:
+        try:
+            target_order = json.loads(target_order_ids)
+        except (json.JSONDecodeError, TypeError):
+            return _oob_status("Invalid target_order_ids format.")
+        if not isinstance(target_order, list) or not all(
+            isinstance(x, str) for x in target_order
+        ):
+            return _oob_status("Invalid target_order_ids format.")
+    else:
+        target_order = []
 
     with _project_db(request) as conn:
         prev = conn.execute(
@@ -1687,9 +1800,24 @@ async def set_code_parent_route(
         prev_dest_ordering = _scope_ordering(conn, new_parent)
 
         try:
-            move_code_to_parent(conn, code_id, new_parent)
+            _move_code_to_parent_no_commit(conn, code_id, new_parent)
+            for i, item_id in enumerate(target_order):
+                conn.execute(
+                    "UPDATE codebook_code SET sort_order = ? "
+                    "WHERE id = ? AND deleted_at IS NULL "
+                    "AND ((? IS NULL AND parent_id IS NULL) OR parent_id = ?)",
+                    (i, item_id, new_parent, new_parent),
+                )
+            conn.commit()
         except InvariantError as e:
+            conn.rollback()
             raise HTTPException(status_code=400, detail=str(e))
+        except Exception:
+            conn.rollback()
+            raise
+
+        new_source_ordering = _scope_ordering(conn, prev_parent)
+        new_dest_ordering = _scope_ordering(conn, new_parent)
 
         _get_undo_manager(request).record_move_parent(
             code_id=code_id,
@@ -1697,6 +1825,8 @@ async def set_code_parent_route(
             new_parent_id=new_parent,
             prev_source_ordering=prev_source_ordering,
             prev_dest_ordering=prev_dest_ordering,
+            new_source_ordering=new_source_ordering,
+            new_dest_ordering=new_dest_ordering,
         )
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
         return HTMLResponse(content)

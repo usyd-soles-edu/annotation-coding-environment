@@ -178,6 +178,8 @@ class UndoManager:
         new_parent_id: str | None,
         prev_source_ordering: list[tuple[str, int]],
         prev_dest_ordering: list[tuple[str, int]],
+        new_source_ordering: list[tuple[str, int]] | None = None,
+        new_dest_ordering: list[tuple[str, int]] | None = None,
     ) -> None:
         """Record a parent change.
 
@@ -196,6 +198,8 @@ class UndoManager:
                 "new_parent_id": new_parent_id,
                 "prev_source_ordering": list(prev_source_ordering),
                 "prev_dest_ordering": list(prev_dest_ordering),
+                "new_source_ordering": list(new_source_ordering or []),
+                "new_dest_ordering": list(new_dest_ordering or []),
             },
         ))
 
@@ -606,8 +610,26 @@ def _undo_move_parent(conn, entry):
 
 
 def _redo_move_parent(conn, entry):
-    from ace.models.codebook import move_code_to_parent
+    from ace.models.codebook import _move_code_to_parent_no_commit, move_code_to_parent
     p = entry.payload
+    if p.get("new_source_ordering") or p.get("new_dest_ordering"):
+        try:
+            _move_code_to_parent_no_commit(conn, p["code_id"], p["new_parent_id"])
+            for cid, sort_order in p.get("new_source_ordering", []):
+                conn.execute(
+                    "UPDATE codebook_code SET sort_order = ? WHERE id = ?",
+                    (sort_order, cid),
+                )
+            for cid, sort_order in p.get("new_dest_ordering", []):
+                conn.execute(
+                    "UPDATE codebook_code SET sort_order = ? WHERE id = ?",
+                    (sort_order, cid),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        return ("Moved code", None)
     move_code_to_parent(conn, p["code_id"], p["new_parent_id"])
     return ("Moved code", None)
 

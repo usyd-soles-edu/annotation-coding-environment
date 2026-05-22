@@ -1,0 +1,59 @@
+# cargo-packager configuration for ACE browser launcher.
+# See: https://docs.rs/cargo-packager/latest/cargo_packager/config/
+
+name = "ace-launcher"
+product-name = "ACE"
+identifier = "au.edu.sydney.ace-coder"
+version = "0.16.0"
+description = "Annotation Coding Environment"
+homepage = "https://github.com/jhar8696/annotation-coding-environment"
+publisher = "University of Sydney"
+
+before-packaging-command = "cargo build --release"
+out-dir = "./target/release"
+formats = ["app", "dmg", "nsis", "wix"]
+
+binaries = [{ path = "ace-launcher", main = true }]
+
+# ACE server payload copied here by scripts/build_sidecar.py. Use exact
+# resource paths: cargo-packager copies a globbed macOS .dist directory as
+# a file and fails with "source path is neither a regular file nor a symlink".
+resources = [
+  "resources/ace-server-aarch64-apple-darwin.dist",
+  "resources/ace-server-x86_64-apple-darwin.dist",
+  "resources/ace-server-x86_64-pc-windows-msvc.exe",
+  "resources/ace-server-x86_64-unknown-linux-gnu",
+]
+
+icons = [
+  "icons/32x32.png",
+  "icons/128x128.png",
+  "icons/128x128@2x.png",
+  "icons/icon.icns",
+  "icons/icon.ico",
+  "icons/icon.png",
+]
+
+[[file-associations]]
+extensions = ["ace"]
+mime-type = "application/x-ace-project"
+description = "ACE Project File"
+
+# ── macOS ──────────────────────────────────────────────
+
+[macos]
+minimum-system-version = "11.0"
+
+[dmg]
+app-position = { x = 180, y = 170 }
+application-folder-position = { x = 480, y = 170 }
+
+# ── Windows ────────────────────────────────────────────
+
+[windows]
+digest-algorithm = "sha256"
+
+[nsis]
+installer-mode = "currentUser"
+
+[wix]

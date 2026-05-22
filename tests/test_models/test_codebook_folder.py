@@ -163,6 +163,27 @@ def test_list_codes_with_tree_returns_nested_folder_dfs_order(conn):
     assert tree[0]["root_nodes"][1]["id"] == root
 
 
+def test_list_codes_with_tree_preserves_mixed_sibling_sort_order(conn):
+    parent = add_folder(conn, "Parent")
+    first = add_code(conn, "First child", "#D55E00", parent_id=parent)
+    nested = add_folder(conn, "Nested folder", parent_id=parent)
+    second = add_code(conn, "Second child", "#56B4E9", parent_id=parent)
+    for order, code_id in enumerate([first, nested, second]):
+        conn.execute(
+            "UPDATE codebook_code SET sort_order = ? WHERE id = ?",
+            (order, code_id),
+        )
+    conn.commit()
+
+    tree = list_codes_with_tree(conn)
+
+    assert [child["name"] for child in tree[0]["children"]] == [
+        "First child",
+        "Nested folder",
+        "Second child",
+    ]
+
+
 def test_list_codes_with_tree_surfaces_orphan_codes(conn):
     """Codes whose parent_id refers to a soft-deleted folder show at root."""
     fid = add_folder(conn, "Themes")

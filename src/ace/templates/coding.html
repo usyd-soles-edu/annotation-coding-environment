@@ -8,10 +8,12 @@
 </script>
 <script>
   // Resume at last viewed source if returning without explicit index
-  if (!window.location.search.includes("index=")) {
+  if (!new URLSearchParams(window.location.search).has("index")) {
     var saved = localStorage.getItem("ace-last-index");
     if (saved && parseInt(saved, 10) > 0) {
-      window.location.replace("/code?index=" + saved);
+      var params = new URLSearchParams(window.location.search);
+      params.set("index", saved);
+      window.location.replace("/code?" + params.toString());
     }
   }
 </script>
@@ -279,8 +281,15 @@ rect.ace-flash-{{ code["id"] }} {
 </div>
 {% endblock %}
 
+{% block pre_bridge_scripts %}
+<script src="/static/js/codebook_tree.js"></script>
+{% endblock %}
+
 {% block scripts %}
 <script src="/static/js/Sortable.min.js"></script>
+{% if use_headless_codebook|default(false) %}
+<script src="/static/js/codebook_headless_tree.js"></script>
+{% endif %}
 <script>
   window.__aceCurrentIndex = {{ current_index }};
   window.__aceTotalSources = {{ total_sources }};
@@ -316,7 +325,8 @@ rect.ace-flash-{{ code["id"] }} {
           break;
         }
       }
-      var clean = window.location.pathname + "?index=" + params.get("index");
+      params.delete("highlight");
+      var clean = window.location.pathname + (params.toString() ? "?" + params.toString() : "");
       history.replaceState(null, "", clean);
     }
   })();

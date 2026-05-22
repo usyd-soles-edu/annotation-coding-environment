@@ -140,28 +140,13 @@
     return detail ? fallback + " " + detail : fallback + " Try again.";
   }
 
-  function tauriDialogOpen() {
-    var tauri = window.__TAURI__;
-    return tauri && tauri.dialog && typeof tauri.dialog.open === "function"
-      ? tauri.dialog.open
-      : null;
-  }
-
   function pickFolderPath() {
-    var open = tauriDialogOpen();
-    if (open) {
-      return open({ directory: true, multiple: false }).then(pathFromNativeSelection);
-    }
     return fetch("/api/native/pick-folder", { method: "POST" })
       .then(function(r) { return r.json(); })
       .then(function(data) { return pathFromNativeSelection(data.path || ""); });
   }
 
   function pickFilePath(accept, filters) {
-    var open = tauriDialogOpen();
-    if (open) {
-      return open({ multiple: false, filters: filters }).then(pathFromNativeSelection);
-    }
     return fetch("/api/native/pick-file", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },

@@ -18,6 +18,8 @@
   <div role="alert" aria-live="assertive" aria-atomic="true" class="ace-sr-only" id="ace-live-region-assertive"></div>
   <script src="/static/js/htmx.min.js"></script>
   <script src="/static/js/fuzzysort.min.js"></script>
+  {% block pre_bridge_scripts %}{% endblock %}
+  <script src="/static/js/runtime.js"></script>
   <script src="/static/js/bridge.js"></script>
   {% block scripts %}{% endblock %}
 </body>
