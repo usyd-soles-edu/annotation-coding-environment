@@ -1920,6 +1920,16 @@ var AceHeadlessTreePreview = (() => {
           if (!dragImageElement.isConnected) document.body.append(dragImageElement);
           return { imgElement: dragImageElement, xOffset: 0, yOffset: 0 };
         }
+        function nativeDragPayload(draggedItems) {
+          return {
+            format: "text/plain",
+            data: draggedItems.map(function(item) {
+              return item.getItemName?.() || "";
+            }).filter(Boolean).join("\n"),
+            dropEffect: "move",
+            effectAllowed: "move"
+          };
+        }
         function dragTargetText(target) {
           if (!target) return "Choose a destination.";
           const targetName = target.item.getId() === ROOT_ID ? "the top level" : target.item.getItemName();
@@ -2417,6 +2427,7 @@ var AceHeadlessTreePreview = (() => {
             indent: 14,
             reorderAreaPercentage: 0.3,
             setDragImage: tinyDragImage,
+            createForeignDragObject: nativeDragPayload,
             canDrag: function(draggedItems) {
               return draggedItems.every(function(item) {
                 return item.getId() !== ROOT_ID;

@@ -128,7 +128,7 @@
   position: absolute;
   top: 100%;
   right: 0;
-  width: 168px;
+  width: 220px;
   padding: 10px 12px 11px;
   border: 1px solid var(--ace-border);
   border-radius: var(--ace-radius);
@@ -153,18 +153,20 @@
 
 .ace-coding-text-options {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(6, minmax(24px, 1fr));
   align-items: baseline;
-  gap: 12px;
+  gap: 4px;
 }
 
 .ace-coding-text-option {
   min-height: 28px;
+  min-width: 24px;
   border: 0;
   padding: 0;
   background: transparent;
   color: rgba(0, 0, 0, 0.42);
   cursor: pointer;
+  font-size: var(--coding-text-preview-size, 17px);
   line-height: 1;
   text-align: center;
   text-decoration-thickness: 1px;
@@ -180,16 +182,31 @@
   text-decoration-line: underline;
 }
 
-.ace-coding-text-option--small {
-  font-size: 14px;
+.ace-coding-text-slider-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
 }
 
-.ace-coding-text-option--default {
-  font-size: 17px;
+.ace-coding-text-slider {
+  width: 100%;
+  accent-color: var(--ace-text);
+  cursor: pointer;
 }
 
-.ace-coding-text-option--large {
-  font-size: 21px;
+.ace-coding-text-slider:focus-visible {
+  outline: 2px solid var(--ace-focus);
+  outline-offset: 3px;
+}
+
+.ace-coding-text-value {
+  min-width: 36px;
+  font-family: var(--ace-font-mono);
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.58);
+  text-align: right;
 }
 
 .ace-coding-text-note {

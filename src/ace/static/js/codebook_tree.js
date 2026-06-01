@@ -308,6 +308,9 @@
       const tree = root();
       if (!tree) return;
 
+      function tauriRuntime() {
+        return !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+      }
 
       if (tree.dataset.aceDragSelectionBound !== "1") {
         tree.dataset.aceDragSelectionBound = "1";

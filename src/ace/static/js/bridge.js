@@ -2082,15 +2082,31 @@
     const root = document.getElementById("code-tree");
     if (!root) return;
 
+    function tauriRuntime() {
+      return !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+    }
+
+    if (tauriRuntime() && root.dataset.aceDragSelectionBound !== "1") {
+      root.dataset.aceDragSelectionBound = "1";
+      root.addEventListener("mousedown", function (evt) {
+        if (evt.target.closest("input, textarea, button, a, [contenteditable='true']")) return;
+        if (!evt.target.closest(".ace-code-row, .ace-code-folder-row")) return;
+        if (evt.cancelable) evt.preventDefault();
+        const selection = window.getSelection && window.getSelection();
+        if (selection && selection.removeAllRanges) selection.removeAllRanges();
+      }, true);
+    }
+
     function commonOpts() {
+      const useFallbackDrag = tauriRuntime();
       return {
         group: "codes",
         animation: 0,
         delay: 200,
         delayOnTouchOnly: true,
-        forceFallback: false,
-        fallbackOnBody: false,
-        fallbackTolerance: 0,
+        forceFallback: useFallbackDrag,
+        fallbackOnBody: useFallbackDrag,
+        fallbackTolerance: useFallbackDrag ? 4 : 0,
         ghostClass: "ace-codebook-sort-placeholder",
         onStart: function () { _isDragging = true; },
       };
@@ -4652,12 +4668,19 @@
 
   const CODING_TEXT_SIZE_KEY = "ace-coding-text-size";
   const CODING_TEXT_DEFAULT_SIZE = 17;
-  const CODING_TEXT_SIZES = [15, 17, 20];
+  const CODING_TEXT_FALLBACK_SIZES = [15, 17, 19, 20, 21, 24];
   let _codingTextGlobalBound = false;
+
+  function _codingTextSizes() {
+    const sizes = Array.from(document.querySelectorAll(".ace-coding-text-option[data-coding-text-size]"))
+      .map(function (option) { return parseInt(option.dataset.codingTextSize, 10); })
+      .filter(function (size) { return Number.isFinite(size) && size >= 13 && size <= 32; });
+    return sizes.length ? sizes : CODING_TEXT_FALLBACK_SIZES;
+  }
 
   function _normaliseCodingTextSize(value) {
     const n = parseInt(value, 10);
-    return CODING_TEXT_SIZES.indexOf(n) >= 0 ? n : CODING_TEXT_DEFAULT_SIZE;
+    return _codingTextSizes().indexOf(n) >= 0 ? n : CODING_TEXT_DEFAULT_SIZE;
   }
 
   function _currentCodingTextSize() {
@@ -4666,6 +4689,12 @@
     } catch (_) {
       return CODING_TEXT_DEFAULT_SIZE;
     }
+  }
+
+  function _codingTextIndex(size) {
+    const sizes = _codingTextSizes();
+    const index = sizes.indexOf(_normaliseCodingTextSize(size));
+    return index >= 0 ? index : sizes.indexOf(CODING_TEXT_DEFAULT_SIZE);
   }
 
   function _setCodingTextMenuOpen(open) {
@@ -4678,11 +4707,23 @@
 
   function _syncCodingTextControls() {
     const size = _currentCodingTextSize();
+    const sizes = _codingTextSizes();
+    const index = _codingTextIndex(size);
     document.documentElement.style.setProperty("--ace-coding-text-size", size + "px");
     document.querySelectorAll(".ace-coding-text-option").forEach(function (btn) {
       const active = _normaliseCodingTextSize(btn.dataset.codingTextSize) === size;
       btn.setAttribute("aria-pressed", active ? "true" : "false");
     });
+    const slider = document.getElementById("coding-text-slider");
+    if (slider) {
+      slider.min = "0";
+      slider.max = String(Math.max(0, sizes.length - 1));
+      slider.step = "1";
+      slider.value = String(Math.max(0, index));
+      slider.setAttribute("aria-valuetext", size + " px");
+    }
+    const value = document.getElementById("coding-text-value");
+    if (value) value.textContent = size + " px";
   }
 
   function _setCodingTextSize(size) {
@@ -4694,6 +4735,12 @@
     requestAnimationFrame(function () {
       _paintSvg();
     });
+  }
+
+  function _setCodingTextIndex(index) {
+    const sizes = _codingTextSizes();
+    const next = sizes[parseInt(index, 10)];
+    if (next) _setCodingTextSize(next);
   }
 
   function _initCodingTextControls() {
@@ -4723,6 +4770,14 @@
         _setCodingTextSize(option.dataset.codingTextSize);
       });
     });
+
+    const slider = document.getElementById("coding-text-slider");
+    if (slider && slider.dataset.aceCodingTextBound !== "1") {
+      slider.dataset.aceCodingTextBound = "1";
+      slider.addEventListener("input", function () {
+        _setCodingTextIndex(slider.value);
+      });
+    }
 
     if (!_codingTextGlobalBound) {
       _codingTextGlobalBound = true;

@@ -23,15 +23,44 @@
            hidden>
         <span class="ace-coding-text-title">Coding text</span>
         <div class="ace-coding-text-options" role="group" aria-label="Coding text size">
-          <button type="button" class="ace-coding-text-option ace-coding-text-option--small"
+          <button type="button" class="ace-coding-text-option"
                   data-coding-text-size="15"
-                  aria-label="Smaller coding text">A−</button>
-          <button type="button" class="ace-coding-text-option ace-coding-text-option--default"
+                  style="--coding-text-preview-size: 14px"
+                  aria-label="Compact coding text">A</button>
+          <button type="button" class="ace-coding-text-option"
                   data-coding-text-size="17"
+                  style="--coding-text-preview-size: 16px"
                   aria-label="Default coding text size">A</button>
-          <button type="button" class="ace-coding-text-option ace-coding-text-option--large"
+          <button type="button" class="ace-coding-text-option"
+                  data-coding-text-size="19"
+                  style="--coding-text-preview-size: 18px"
+                  aria-label="Comfortable coding text">A</button>
+          <button type="button" class="ace-coding-text-option"
                   data-coding-text-size="20"
-                  aria-label="Larger coding text">A+</button>
+                  style="--coding-text-preview-size: 19px"
+                  aria-label="Large coding text">A</button>
+          <button type="button" class="ace-coding-text-option"
+                  data-coding-text-size="21"
+                  style="--coding-text-preview-size: 20px"
+                  aria-label="Larger coding text">A</button>
+          <button type="button" class="ace-coding-text-option"
+                  data-coding-text-size="24"
+                  style="--coding-text-preview-size: 22px"
+                  aria-label="Largest coding text">A</button>
+        </div>
+        <div class="ace-coding-text-slider-row">
+          <input type="range"
+                 class="ace-coding-text-slider"
+                 id="coding-text-slider"
+                 min="0"
+                 max="5"
+                 step="1"
+                 value="1"
+                 aria-label="Coding text scale"
+                 aria-valuetext="17 px">
+          <output class="ace-coding-text-value"
+                  id="coding-text-value"
+                  for="coding-text-slider">17 px</output>
         </div>
         <span class="ace-coding-text-note">Only changes the coding text panel.</span>
       </div>

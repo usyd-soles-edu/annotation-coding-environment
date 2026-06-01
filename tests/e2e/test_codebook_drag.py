@@ -609,6 +609,66 @@ def test_drag_nested_folder_above_first_code_keeps_first_child_position(
             browser.close()
 
 
+@pytest.mark.parametrize("browser_name", _webkit_params())
+def test_tauri_drag_does_not_create_native_text_selection(ace_server, browser_name):
+    """Fallback desktop drags should not create a sidebar text selection."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.add_init_script("window.__TAURI__ = { dialog: {} };")
+            page.goto(f"{ace_server}/code?tree=legacy")
+            page.wait_for_selector("#code-tree")
+            page.evaluate(
+                """
+                () => {
+                  window.__aceLastMouseDownDefaultPrevented = null;
+                  document.addEventListener("mousedown", (event) => {
+                    if (event.target.closest(".ace-code-row")) {
+                      window.__aceLastMouseDownDefaultPrevented = event.defaultPrevented;
+                    }
+                  });
+                }
+                """
+            )
+
+            row = page.locator(".ace-code-row").first
+            box = row.bounding_box()
+            assert box is not None
+            x = box["x"] + box["width"] / 2
+            y = box["y"] + box["height"] / 2
+
+            page.mouse.move(x, y)
+            page.mouse.down()
+            assert page.evaluate("window.__aceLastMouseDownDefaultPrevented") is True
+            page.mouse.move(x, y + 12, steps=4)
+
+            assert page.evaluate("window.getSelection().toString()") == ""
+            page.mouse.up()
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", _webkit_params())
+def test_tauri_webkit_codebook_uses_sortable_fallback_drag(ace_server, browser_name):
+    """The desktop app should not rely on WKWebView native HTML5 drag events."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.add_init_script("window.__TAURI__ = { dialog: {} };")
+            page.goto(f"{ace_server}/code?tree=legacy")
+            page.wait_for_selector("#code-tree")
+
+            assert page.evaluate(
+                """
+                () => Sortable
+                  .get(document.getElementById("code-tree"))
+                  .option("forceFallback")
+                """
+            )
+        finally:
+            browser.close()
 
 
 @pytest.mark.parametrize("browser_name", _webkit_params())

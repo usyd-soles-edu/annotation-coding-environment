@@ -798,7 +798,9 @@ def test_headless_tree_candidate_browser_drag_reorders_root_codes(ace_server, br
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_headless_tree_candidate_uses_tiny_native_drag_image(ace_server, browser_name):
+def test_headless_tree_candidate_uses_native_drag_payload_and_tiny_image(
+    ace_server, browser_name
+):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
         try:
@@ -808,20 +810,23 @@ def test_headless_tree_candidate_uses_tiny_native_drag_image(ace_server, browser
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
 
-            drag_image = page.locator(
+            drag_state = page.locator(
                 "#ace-headless-tree-mount .ace-ht-row--code",
                 has_text="Charlie",
             ).evaluate(
                 """
                 (row) => {
-                  const calls = [];
+                  const imageCalls = [];
+                  const dataCalls = [];
                   const dataTransfer = {
                     effectAllowed: "all",
                     dropEffect: "move",
-                    setData() {},
+                    setData(format, data) {
+                      dataCalls.push({ format, data });
+                    },
                     setDragImage(node, x, y) {
                       const box = node.getBoundingClientRect();
-                      calls.push({
+                      imageCalls.push({
                         className: node.className,
                         tagName: node.tagName,
                         width: box.width,
@@ -837,16 +842,27 @@ def test_headless_tree_candidate_uses_tiny_native_drag_image(ace_server, browser
                   });
                   Object.defineProperty(event, "dataTransfer", { value: dataTransfer });
                   row.dispatchEvent(event);
-                  return calls[0] || null;
+                  return {
+                    dragImage: imageCalls[0] || null,
+                    dataCalls,
+                    effectAllowed: dataTransfer.effectAllowed,
+                    dropEffect: dataTransfer.dropEffect,
+                  };
                 }
                 """
             )
 
+            drag_image = drag_state["dragImage"]
             assert drag_image is not None
             assert "ace-ht-drag-image" in drag_image["className"]
             assert drag_image["tagName"] == "IMG"
             assert drag_image["width"] <= 4
             assert drag_image["height"] <= 4
+            assert drag_state["dataCalls"] == [
+                {"format": "text/plain", "data": "Charlie"}
+            ]
+            assert drag_state["effectAllowed"] == "move"
+            assert drag_state["dropEffect"] == "move"
         finally:
             browser.close()
 

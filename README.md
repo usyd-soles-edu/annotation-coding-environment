@@ -1,65 +1,34 @@
-# ACE — Annotation Coding Environment
+# ACE: Annotation Coding Environment
+ACE is a small qualitative coding tool for researchers who perform qualitative analysis on **text**. It was built to meet the needs of my own research group, and I am sharing it because I think it may be useful to others.
 
-ACE is a qualitative coding tool that I developed for use with my research group at The University of Sydney. We wanted a way to select sections of text and assign qualitative codes and annotations to them but found existing tools to be unintuitive. Most importantly, I realised that we were using perhaps 5% of the features of expensive commercial software.
+See it in action below:
 
-As both a research software engineer and data scientist I realised that I may be able to improve my quality of life and started working on a simple text highlight tool that ended up becoming ACE. ACE does only a *few* things right now. **I do not intend to add anything more than the current feature set** (bevause this is a personal project). These are what ACE does:
+**TBD: demo GIF**
 
-- Import your texts, build a codebook, highlight passages and assign codes and notes to sources
-- Export your annotations and codebook for further analysis
-- Compare coding across team members with built-in inter-coder reliability metrics
+Some of the features include:
 
-I built ACE for myself and my colleagues, so it will probably be nothing like any qualitative coding tool you have used. For example, it is quite keyboard-centric and solves many import/export issues that I had with the existing software that I used.
-
-**Note: I use Anthropic's Claude as a copilot, but all code is audited and verified before they are pushed.** Just putting this here so that it can be part of your decision making process of whether to use ACE or not.
+- Import/export in .csv format for rapid follow-up analysis in R, Python, or Excel
+- Local projects with no cloud storage or user accounts
+- Keyboard-heavy coding workflow for fast annotation
+- Hotkeys for all major functions, including code creation and navigation
 
 ## Download
 
-Pre-built installers are on the [Releases page](https://github.com/januarharianto/annotation-coding-environment/releases/latest), but I encourage you to install from source:
+Pre-built installers are on the [Releases page](https://github.com/januarharianto/annotation-coding-environment/releases/latest), but I encourage you to install from source if you are comfortable with the command line.
 
-- **macOS (Apple Silicon)** — `ACE_*_aarch64.dmg`. Open, drag ACE to Applications. First launch: right-click → Open to bypass Gatekeeper.
-- **Windows** — `ACE_*_x64-setup.exe`. Run the installer. SmartScreen may warn — click "More info" → "Run anyway".
+- **macOS (Apple Silicon)**: download `ACE_*_aarch64.dmg`, open it, then drag ACE to Applications. On first launch, right-click and choose Open to bypass Gatekeeper.
+- **Windows**: download `ACE_*_x64-setup.exe` and run the installer. If SmartScreen warns you, click "More info" then "Run anyway".
 
-Intel Macs are not currently supported. Neither build is code-signed yet.
+Intel Macs are not currently supported. The macOS and Windows builds are not code-signed yet.
 
 ## Install from source
 
-You need some experience with using the command line on either macOS or Windows.
+If you are comfortable with the command line, see [Install from source](INSTALL.md). The guide includes Git and `uv` setup for people who do not already have them installed.
 
-On Windows, install Git first so the `git clone` command below works:
+## Notes on development
 
-```
-winget install --id Git.Git -e --source winget
-```
+This project first started without any AI assistance, but I later used Claude to help with code auditing and debugging. Claude was also used to help with some user interface design decisions as I am hopeless at JavaScript (but ok at CSS).
 
-If `winget` is unavailable, install Git for Windows from <https://git-scm.com/download/win>, then open a new PowerShell window.
+## Citation and licence
 
-In the Terminal or PowerShell, install uv. On macOS and Linux:
-
-```
-curl -LsSf https://astral.sh/uv/install.sh | less
-```
-
-On Windows:
-
-```
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-
-Then, run the following commands:
-
-```
-git clone https://github.com/januarharianto/annotation-coding-environment.git
-cd annotation-coding-environment
-uv run ace
-```
-
-
-ACE will open in your web browser.
-
-In the future, you only need to run the following:
-
-
-```
-cd annotation-coding-environment
-uv run ace
-```
+ACE is released under the MIT License. Use it, modify it, and adapt it for your own research workflow.
