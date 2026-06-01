@@ -122,13 +122,26 @@ jobs:
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cargo-packager
-        run: cargo install cargo-packager --version 0.11.8 --locked
-
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
           workspaces: desktop/launcher -> target
+
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --version 0.11.8 --locked
+
+      - name: Nuitka cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/Nuitka
+            ~/.cache/Nuitka
+            ~/.cache/ccache
+            ~\AppData\Local\Nuitka
+            ~\AppData\Local\ccache
+          key: nuitka-${{ runner.os }}-${{ hashFiles('uv.lock', 'pyproject.toml', 'src/ace/**/*.py', 'src/ace/static/**', 'src/ace/templates/**', 'scripts/build_sidecar.py') }}
+          restore-keys: |
+            nuitka-${{ runner.os }}-
 
       - name: Build launcher package
         run: uv run python scripts/build_launcher_package.py
@@ -137,25 +150,14 @@ jobs:
         id: artifacts
         shell: bash
         run: |
-          shopt -s nullglob globstar
-          ARTIFACTS=(
-            desktop/launcher/target/release/**/*.dmg
-            desktop/launcher/target/release/**/*.msi
-            desktop/launcher/target/release/**/*setup*.exe
-          )
-          if [ ${#ARTIFACTS[@]} -eq 0 ]; then
+          ARTIFACTS=$(find desktop/launcher/target/release -type f \
+            \( -name '*.dmg' -o -name '*.msi' -o -iname '*setup*.exe' \) \
+            -print)
+          if [ -z "$ARTIFACTS" ]; then
             echo "::error::No installer artifacts (.dmg/.msi/*setup*.exe) found under desktop/launcher/target/release/"
             exit 1
           fi
-          DELIM=""
-          MANIFEST=""
-          for f in "${ARTIFACTS[@]}"; do
-            MANIFEST="${MANIFEST}${DELIM}${f}"
-            DELIM=$'\n'
-          done
-          echo "files<<EOF"
-          echo "$MANIFEST"
-          echo "EOF"
+          printf 'files<<EOF\n%s\nEOF\n' "$ARTIFACTS" >> "$GITHUB_OUTPUT"
 
       - name: Upload installer artifacts to draft release
         env:
@@ -168,11 +170,10 @@ jobs:
           else
             TAG="${GITHUB_REF_NAME}"
           fi
-          shopt -s nullglob globstar
-          for artifact in \
-            desktop/launcher/target/release/**/*.dmg \
-            desktop/launcher/target/release/**/*.msi \
-            desktop/launcher/target/release/**/*setup*.exe; do
+          find desktop/launcher/target/release -type f \
+            \( -name '*.dmg' -o -name '*.msi' -o -iname '*setup*.exe' \) \
+            -print |
+          while IFS= read -r artifact; do
             echo "Uploading $(basename "$artifact")..."
             gh release upload "$TAG" "$artifact" --clobber
           done

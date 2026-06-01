@@ -35,6 +35,7 @@ def _temporary_packager_config() -> Path:
     if formats_line not in base:
         raise RuntimeError("Packager.toml missing expected formats line")
     content = base.replace(formats_line, override, 1)
+    content = content.replace('before-packaging-command = "cargo build --release"\n', "", 1)
     with tempfile.NamedTemporaryFile(
         dir=LAUNCHER_DIR,
         mode="w",
