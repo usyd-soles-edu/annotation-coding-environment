@@ -1,0 +1,37 @@
+{
+  "creators": [
+    {
+      "name": "Harianto, Januar",
+      "affiliation": "School of Life and Environmental Sciences, The University of Sydney"
+    },
+    {
+      "name": "Van Den Berg, Francesca",
+      "affiliation": "School of Life and Environmental Sciences, The University of Sydney"
+    },
+    {
+      "name": "Lilje, Osu",
+      "affiliation": "School of Life and Environmental Sciences, The University of Sydney"
+    },
+    {
+      "name": "Pang, Rosita",
+      "affiliation": "School of Life and Environmental Sciences, The University of Sydney"
+    },
+    {
+      "name": "Widjaja, Michael",
+      "affiliation": "School of Life and Environmental Sciences, The University of Sydney"
+    }
+  ],
+  "title": "Annotation Coding Environment (ACE) for collaborative qualitative coding",
+  "version": "1.0.0",
+  "access_right": "open",
+  "license": "mit",
+  "upload_type": "software",
+  "language": "eng",
+  "keywords": [
+    "qualitative coding",
+    "collaborative qualitative analysis",
+    "inter-coder agreement",
+    "codebook",
+    "research software"
+  ]
+}
