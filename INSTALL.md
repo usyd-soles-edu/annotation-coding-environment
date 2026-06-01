@@ -77,7 +77,7 @@ Then open a new PowerShell window and run `uv --version` again.
 Once both `git --version` and `uv --version` work, run:
 
 ```bash
-git clone https://github.com/januarharianto/annotation-coding-environment.git
+git clone https://github.com/usyd-soles-edu/annotation-coding-environment.git
 cd annotation-coding-environment
 uv run ace
 ```

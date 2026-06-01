@@ -7,7 +7,7 @@ Thanks for your interest in contributing. This guide covers how we work together
 You'll need [uv](https://docs.astral.sh/uv/) installed. Then:
 
 ```bash
-git clone https://github.com/januarharianto/annotation-coding-environment.git
+git clone https://github.com/usyd-soles-edu/annotation-coding-environment.git
 cd annotation-coding-environment
 uv sync
 ```
