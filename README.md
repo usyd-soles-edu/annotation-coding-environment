@@ -1,8 +1,7 @@
 <p align="center">
-  <img src="src/ace/static/logo.svg" alt="ACE logo" width="96">
+  <img src="src/ace/static/logo.svg" alt="ACE logo" width="200">
 </p>
 
-# Annotation Coding Environment (ACE)
 
 ACE is an open-source desktop application for collaborative qualitative coding of text. It supports small research teams that need a lightweight way to import sources, build a shared codebook, annotate passages, compare coding patterns, and export data for further analysis.
 
