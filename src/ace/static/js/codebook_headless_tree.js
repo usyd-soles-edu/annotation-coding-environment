@@ -1796,10 +1796,22 @@ var AceHeadlessTreePreview = (() => {
         let changedDropScopes = null;
         let dragImageElement = null;
         let lastAssistiveDragName = "";
+        let suppressNextRefocus = false;
         let searchRaw = "";
         let searchText = "";
         const TRANSPARENT_GIF = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
         const RESERVED_SINGLE_KEYS = /* @__PURE__ */ new Set(["q", "x", "z", "n", "v"]);
+        function clearCodebookActiveState() {
+          const active = document.activeElement;
+          if (active?.closest?.("#ace-headless-tree-mount .ace-ht-row")) active.blur();
+          if (document.body?.dataset?.activeZone === "codebook") {
+            document.body.dataset.activeZone = "source";
+          }
+        }
+        function clearCodebookActiveStateAfterFrame() {
+          clearCodebookActiveState();
+          requestAnimationFrame(clearCodebookActiveState);
+        }
         function itemData(id) {
           return items[id];
         }
@@ -2245,6 +2257,21 @@ var AceHeadlessTreePreview = (() => {
           const dropReceiverId = dropReceiverFolderId();
           const itemProps = { ...item.getProps() };
           const defaultKeyDown = itemProps.onKeyDown;
+          const defaultClick = itemProps.onClick;
+          let renamePointerQueued = false;
+          function queueRenamingFromPointer(event) {
+            if (event.target?.closest?.(".ace-ht-toggle, .ace-ht-chip, input, textarea, button, a")) return false;
+            event.preventDefault();
+            event.stopPropagation();
+            if (renamePointerQueued) return true;
+            renamePointerQueued = true;
+            setTimeout(function() {
+              item.setFocused();
+              item.startRenaming?.();
+              scheduleRender();
+            }, 0);
+            return true;
+          }
           itemProps.onKeyDown = function(event) {
             if (event.key === "Enter" && data.kind === "code") {
               event.preventDefault();
@@ -2259,8 +2286,25 @@ var AceHeadlessTreePreview = (() => {
               return;
             }
             if (typeof defaultKeyDown === "function") defaultKeyDown(event);
+            };
+            itemProps.onClick = function(event) {
+              if (event.target?.closest?.(".ace-ht-rename, input, textarea")) {
+                event.stopPropagation();
+                return;
+              }
+              if (event.detail >= 2 && queueRenamingFromPointer(event)) return;
+              if (data.kind === "folder" && !event.target?.closest?.(".ace-ht-toggle")) {
+                event.preventDefault();
+                event.stopPropagation();
+              item.setFocused();
+              return;
+            }
+            if (typeof defaultClick === "function") defaultClick(event);
           };
           applyProps(row, itemProps);
+          row.addEventListener("dblclick", function(event) {
+            queueRenamingFromPointer(event);
+          });
           row.classList.add("ace-ht-row");
           row.classList.add(data.kind === "folder" ? "ace-ht-row--folder" : "ace-ht-row--code");
           if (focusedAncestors.has(item.getId())) row.classList.add("ace-ht-row--path-parent");
@@ -2284,13 +2328,52 @@ var AceHeadlessTreePreview = (() => {
           toggle.className = "ace-ht-toggle";
           toggle.setAttribute("aria-hidden", "true");
           toggle.textContent = item.isFolder() ? item.isExpanded() ? "v" : ">" : "";
+          if (item.isFolder()) {
+            toggle.addEventListener("click", function(event) {
+              event.preventDefault();
+              event.stopPropagation();
+              item.setFocused();
+              if (item.isExpanded()) item.collapse();
+              else item.expand();
+              scheduleRender();
+            });
+          }
           row.append(toggle);
           if (item.isRenaming?.()) {
-            let commitRename = function() {
+            let removePointerAwayListener = function() {
+              if (!pointerAwayArmed) return;
+              pointerAwayArmed = false;
+              document.removeEventListener("pointerdown", onRenamePointerAway, true);
+            }, commitRename = function() {
               if (renameCommitted) return;
               renameCommitted = true;
+              removePointerAwayListener();
               persistRename(item, input.value);
               tree.completeRenaming();
+            }, cancelRename = function(focusTarget, allowSameRowFocus) {
+              if (renameCommitted) return;
+              renameCommitted = true;
+              removePointerAwayListener();
+              const rowElement = item.getElement?.();
+              tree.abortRenaming();
+              if (!allowSameRowFocus) {
+                suppressNextRefocus = true;
+                clearCodebookActiveStateAfterFrame();
+              }
+              queueMicrotask(function() {
+                const targetIsSameRow = focusTarget && rowElement?.contains?.(focusTarget);
+                if (focusTarget && (!targetIsSameRow || allowSameRowFocus)) {
+                  if (typeof focusTarget.focus === "function" && focusTarget.isConnected) {
+                    focusTarget.focus({ preventScroll: true });
+                    return;
+                  }
+                }
+                const active = document.activeElement;
+                if (active?.closest?.("#ace-headless-tree-mount .ace-ht-row")) active.blur();
+              });
+            }, onRenamePointerAway = function(event) {
+              if (row.contains(event.target)) return;
+              cancelRename(event.target, false);
             };
             const input = document.createElement("input");
             input.className = "ace-ht-rename";
@@ -2301,6 +2384,7 @@ var AceHeadlessTreePreview = (() => {
             delete renameProps.onBlur;
             applyProps(input, renameProps);
             let renameCommitted = false;
+            let pointerAwayArmed = false;
             input.addEventListener("keydown", function(event) {
               if (event.key === "Enter") {
                 event.preventDefault();
@@ -2309,14 +2393,20 @@ var AceHeadlessTreePreview = (() => {
               } else if (event.key === "Escape") {
                 event.preventDefault();
                 event.stopPropagation();
-                renameCommitted = true;
-                tree.abortRenaming();
+                cancelRename(item.getElement?.(), true);
               }
             });
-            input.addEventListener("blur", function() {
-              commitRename();
+            input.addEventListener("blur", function(event) {
+              cancelRename(event.relatedTarget, false);
             }, { once: true });
+            pointerAwayArmed = true;
+            document.addEventListener("pointerdown", onRenamePointerAway, true);
             row.append(input);
+            queueMicrotask(function() {
+              if (!input.isConnected || renameCommitted) return;
+              input.focus({ preventScroll: true });
+              input.select();
+            });
             return row;
           }
           const label = document.createElement("span");
@@ -2368,6 +2458,11 @@ var AceHeadlessTreePreview = (() => {
           mount.append(announcer);
           updateDndAnnouncement();
           const active = document.activeElement;
+          if (suppressNextRefocus) {
+            suppressNextRefocus = false;
+            clearCodebookActiveState();
+            return;
+          }
           if (!tree.getRenamingItem?.() && (!active || active === document.body || mount.contains(active))) {
             tree.getFocusedItem()?.getElement()?.focus({ preventScroll: true });
           }

@@ -13,6 +13,27 @@ CODE_ROW = ".ace-code-row, .ace-ht-row--code"
 FOCUSED_ROW = ".ace-code-row[tabindex=\"0\"], .ace-ht-row[tabindex=\"0\"]"
 
 
+def _create_folder(page, name: str):
+    page.evaluate(
+        """
+        async (label) => {
+          const body = new URLSearchParams({
+            name: label,
+            current_index: String(window.__aceCurrentIndex || 0),
+          });
+          const response = await fetch("/api/codes/folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body,
+          });
+          if (!response.ok) throw new Error(`folder create failed: ${response.status}`);
+        }
+        """,
+        name,
+    )
+    page.reload()
+
+
 @pytest.mark.parametrize("browser_name", browser_params())
 def test_active_zone_toggles_on_focus(ace_server, browser_name):
     """Default = source · click the search input → codebook · click the
@@ -72,6 +93,172 @@ def test_focused_row_styles_change_with_zone(ace_server, browser_name):
                 "(selector) => getComputedStyle(document.querySelector(selector))"
                 ".backgroundColor === 'rgba(0, 0, 0, 0)'",
                 arg=FOCUSED_ROW,
+                timeout=2000,
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_legacy_code_double_click_rename_accepts_typing(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code?tree=legacy")
+            page.wait_for_selector(".ace-code-row .ace-code-name")
+
+            page.dblclick(".ace-code-row .ace-code-name")
+            page.wait_for_selector(".ace-code-row .ace-code-name[contenteditable='true']")
+            page.keyboard.type("Renamed Alpha")
+            page.keyboard.press("Enter")
+
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.ace-code-name'))"
+                ".some(el => el.textContent.trim() === 'Renamed Alpha')",
+                timeout=3000,
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_legacy_folder_double_click_rename_accepts_typing(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code?tree=legacy")
+            _create_folder(page, "Folder One")
+            page.wait_for_selector(".ace-code-folder-row .ace-folder-label")
+
+            page.dblclick(".ace-code-folder-row .ace-folder-label")
+            page.wait_for_selector(".ace-folder-label[contenteditable='true']")
+            page.keyboard.type("Renamed Folder")
+            page.keyboard.press("Enter")
+
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.ace-folder-label'))"
+                ".some(el => el.textContent.trim() === 'Renamed Folder')",
+                timeout=3000,
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_code_double_click_rename_accepts_typing(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-ht-row--code .ace-ht-label")
+
+            page.dblclick(".ace-ht-row--code .ace-ht-label")
+            page.wait_for_selector(".ace-ht-rename")
+            page.click(".ace-ht-rename", position={"x": 12, "y": 8})
+            page.wait_for_selector(".ace-ht-rename")
+            assert page.evaluate(
+                "() => document.activeElement === document.querySelector('.ace-ht-rename')"
+            )
+            page.locator(".ace-ht-rename").fill("Renamed Alpha")
+            page.keyboard.press("Enter")
+
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.ace-ht-row--code .ace-ht-label'))"
+                ".some(el => el.textContent.trim() === 'Renamed Alpha')",
+                timeout=3000,
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_folder_double_click_rename_accepts_typing(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            _create_folder(page, "Folder One")
+            page.wait_for_selector(".ace-ht-row--folder .ace-ht-label")
+
+            page.dblclick(".ace-ht-row--folder .ace-ht-label")
+            page.wait_for_selector(".ace-ht-rename")
+            page.click(".ace-ht-rename", position={"x": 12, "y": 8})
+            page.wait_for_selector(".ace-ht-rename")
+            assert page.evaluate(
+                "() => document.activeElement === document.querySelector('.ace-ht-rename')"
+            )
+            page.locator(".ace-ht-rename").fill("Renamed Folder")
+            page.keyboard.press("Enter")
+
+            page.wait_for_function(
+                "() => Array.from(document.querySelectorAll('.ace-ht-row--folder .ace-ht-label'))"
+                ".some(el => el.textContent.trim() === 'Renamed Folder')",
+                timeout=3000,
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_legacy_inline_rename_click_away_clears_codebook_selection(ace_server, browser_name):
+    """Double-click rename should not leave the row visibly selected after
+    focus moves outside the codebook."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code?tree=legacy")
+            page.wait_for_selector(".ace-code-row")
+
+            page.dblclick(".ace-code-row .ace-code-name")
+            page.wait_for_selector(".ace-code-row .ace-code-name[contenteditable='true']")
+            assert page.evaluate("document.body.dataset.activeZone") == "codebook"
+
+            page.click("#code-sidebar", position={"x": 12, "y": 520})
+
+            page.wait_for_function(
+                "() => !document.querySelector('[contenteditable=\"true\"]')",
+                timeout=2000,
+            )
+            assert page.evaluate("document.body.dataset.activeZone") == "source"
+            page.wait_for_function(
+                "() => getComputedStyle(document.querySelector('.ace-code-row'))"
+                ".backgroundColor === 'rgba(0, 0, 0, 0)'",
+                timeout=2000,
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_inline_rename_click_away_clears_codebook_selection(ace_server, browser_name):
+    """The default headless codebook should also clear its selected-row cue
+    when inline rename is cancelled by clicking away."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-ht-row--code")
+
+            page.dblclick(".ace-ht-row--code .ace-ht-label")
+            page.wait_for_selector(".ace-ht-rename")
+            assert page.evaluate("document.body.dataset.activeZone") == "codebook"
+
+            page.click("#code-sidebar", position={"x": 12, "y": 520})
+
+            page.wait_for_function(
+                "() => !document.querySelector('.ace-ht-rename')",
+                timeout=2000,
+            )
+            assert page.evaluate("document.body.dataset.activeZone") == "source"
+            page.wait_for_function(
+                "() => getComputedStyle(document.querySelector('.ace-ht-row--code'))"
+                ".backgroundColor === 'rgba(0, 0, 0, 0)'",
                 timeout=2000,
             )
         finally:

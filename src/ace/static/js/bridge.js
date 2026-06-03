@@ -230,10 +230,9 @@
     }
   });
 
-  // Folder rename: F2 on a focused folder row enters inline edit on the
-  // .ace-folder-label (handled in the tree keydown listener). Legacy
-  // double-click-to-rename was deleted with the /api/codes/rename-group
-  // endpoint; folders share the PUT /api/codes/{id} route with codes.
+  // Folder rename: F2 or double-click on a folder label enters inline
+  // edit on the .ace-folder-label. Folders share the PUT /api/codes/{id}
+  // route with codes.
 
   // Nav: flag toggle button (delegated — survives OOB swaps)
   let _pendingFlagAnnounce = false;
@@ -1933,11 +1932,34 @@
     sel.addRange(range);
 
     let done = false;
+    function clearRenameState() {
+      nameEl.removeAttribute("contenteditable");
+      const selection = window.getSelection && window.getSelection();
+      if (selection && selection.rangeCount) {
+        const range = selection.getRangeAt(0);
+        if (nameEl.contains(range.commonAncestorContainer)) selection.removeAllRanges();
+      }
+    }
+
+    function cancel(restoreFocus) {
+      if (done) return;
+      done = true;
+      nameEl.textContent = original;
+      clearRenameState();
+      if (restoreFocus) {
+        _focusTreeItem(row);
+      } else {
+        row.setAttribute("tabindex", "-1");
+        if (document.activeElement === row) row.blur();
+        _setActiveZone("source");
+      }
+    }
+
     function save() {
       if (done) return;
       done = true;
       const newName = nameEl.textContent.trim();
-      nameEl.contentEditable = "false";
+      clearRenameState();
       if (!newName || newName === original) {
         nameEl.textContent = original;
         _focusTreeItem(row);
@@ -1951,12 +1973,12 @@
 
     nameEl.addEventListener("keydown", function handler(e) {
       if (e.key === "Enter") { e.preventDefault(); nameEl.removeEventListener("keydown", handler); save(); }
-      if (e.key === "Escape") { e.preventDefault(); nameEl.removeEventListener("keydown", handler); done = true; nameEl.textContent = original; nameEl.contentEditable = "false"; _focusTreeItem(row); }
+      if (e.key === "Escape") { e.preventDefault(); nameEl.removeEventListener("keydown", handler); cancel(true); }
     });
 
     nameEl.addEventListener("blur", function blurHandler() {
       nameEl.removeEventListener("blur", blurHandler);
-      setTimeout(function () { save(); }, 50);
+      setTimeout(function () { cancel(false); }, 50);
     });
 
     nameEl.addEventListener("paste", function pasteHandler(e) {
@@ -1966,17 +1988,19 @@
     });
   }
 
-  // _startGroupRename was removed: the underlying PUT /api/codes/rename-group
-  // route was deleted with the v7 migration (commit 769e51d). Folder rename
-  // will be re-introduced in Task 9 against PUT /api/codes/{id} (folders share
-  // the same `name` column as codes; `kind='folder'` is preserved).
+  // _startGroupRename was removed: folders share the PUT /api/codes/{id}
+  // route with codes, preserving `kind='folder'`.
 
   document.addEventListener("dblclick", function (e) {
-    const nameEl = e.target.closest(".ace-code-name");
+    const nameEl = e.target.closest(".ace-code-name, .ace-folder-label");
     if (!nameEl) return;
-    let row = nameEl.closest(".ace-code-row");
+    const row = nameEl.closest(".ace-code-row, .ace-code-folder-row");
     if (!row) return;
-    let codeId = row.getAttribute("data-code-id");
+    if (row.classList.contains("ace-code-folder-row")) {
+      _startInlineRename(row, { isFolder: true });
+      return;
+    }
+    const codeId = row.getAttribute("data-code-id");
     if (codeId) _startInlineRename(codeId);
   });
 
