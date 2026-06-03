@@ -478,6 +478,19 @@
     }).then(_restoreFocus);
   }
 
+  function _deleteAppliedAnnotation(annotationId) {
+    if (!annotationId) return;
+
+    htmx.ajax("POST", "/api/code/delete-annotation", {
+      target: "#text-panel",
+      swap: "outerHTML",
+      values: {
+        annotation_id: annotationId,
+        current_index: window.__aceCurrentIndex || 0,
+      },
+    }).then(_restoreFocus);
+  }
+
   function _flashCodeRow(codeId) {
     document.querySelectorAll(
       `.ace-code-row[data-code-id="${codeId}"], .ace-ht-row[data-item-id="${codeId}"]`
@@ -1418,6 +1431,26 @@
       }
     }
 
+    const removeAppliedButton = e.target.closest(".ace-applied-annotation-remove");
+    if (removeAppliedButton) {
+      e.preventDefault();
+      e.stopPropagation();
+      _deleteAppliedAnnotation(removeAppliedButton.dataset.annotationId);
+      return;
+    }
+
+    const appliedToggle = e.target.closest(".ace-applied-code-toggle");
+    if (appliedToggle) {
+      e.preventDefault();
+      e.stopPropagation();
+      const expanded = appliedToggle.getAttribute("aria-expanded") === "true";
+      const targetId = appliedToggle.getAttribute("aria-controls");
+      const target = targetId ? document.getElementById(targetId) : null;
+      appliedToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+      if (target) target.hidden = expanded;
+      return;
+    }
+
     // Click an applied-code row to flash every matching annotation in source.
     const appliedCodeRow = e.target.closest(".ace-applied-code-row");
     if (appliedCodeRow) {
@@ -1429,27 +1462,86 @@
       _renderFlashRects(matching);
       return;
     }
+
+    const appliedAnnotationRow = e.target.closest(".ace-applied-annotation-row");
+    if (appliedAnnotationRow) {
+      const annotationId = appliedAnnotationRow.dataset.annotationId;
+      const dataEl = document.getElementById("ace-ann-data");
+      if (!dataEl) return;
+      const matching = JSON.parse(dataEl.dataset.annotations || "[]")
+        .filter(function (a) { return a.id === annotationId; });
+      _renderFlashRects(matching);
+      return;
+    }
   });
 
   document.addEventListener("mouseover", function (e) {
+    const removeButton = e.target.closest(".ace-applied-annotation-remove");
+    if (removeButton && !removeButton.contains(e.relatedTarget)) {
+      _setAppliedAnnotationPreview(removeButton.dataset.annotationId);
+      return;
+    }
+
+    const annRow = e.target.closest(".ace-applied-annotation-row");
+    if (annRow && !annRow.contains(e.relatedTarget)) {
+      _setAppliedAnnotationPreview(annRow.dataset.annotationId);
+      return;
+    }
+
     const row = e.target.closest(".ace-applied-code-row");
     if (!row || row.contains(e.relatedTarget)) return;
     _setAppliedCodePreview(row.dataset.codeId);
   });
 
   document.addEventListener("mouseout", function (e) {
+    const removeButton = e.target.closest(".ace-applied-annotation-remove");
+    if (removeButton && !removeButton.contains(e.relatedTarget)) {
+      _clearAppliedCodePreview();
+      return;
+    }
+
+    const annRow = e.target.closest(".ace-applied-annotation-row");
+    if (annRow && !annRow.contains(e.relatedTarget)) {
+      _clearAppliedCodePreview();
+      return;
+    }
+
     const row = e.target.closest(".ace-applied-code-row");
     if (!row || row.contains(e.relatedTarget)) return;
     _clearAppliedCodePreview();
   });
 
   document.addEventListener("focusin", function (e) {
+    const removeButton = e.target.closest(".ace-applied-annotation-remove");
+    if (removeButton) {
+      _setAppliedAnnotationPreview(removeButton.dataset.annotationId);
+      return;
+    }
+
+    const annRow = e.target.closest(".ace-applied-annotation-row");
+    if (annRow) {
+      _setAppliedAnnotationPreview(annRow.dataset.annotationId);
+      return;
+    }
+
     const row = e.target.closest(".ace-applied-code-row");
     if (!row) return;
     _setAppliedCodePreview(row.dataset.codeId);
   });
 
   document.addEventListener("focusout", function (e) {
+    const removeButton = e.target.closest(".ace-applied-annotation-remove");
+    if (removeButton && !removeButton.contains(e.relatedTarget)) {
+      _clearAppliedCodePreview();
+      return;
+    }
+
+    const annRow = e.target.closest(".ace-applied-annotation-row");
+    if (annRow && !annRow.contains(e.relatedTarget)) {
+      _clearAppliedCodePreview();
+      return;
+    }
+
     const row = e.target.closest(".ace-applied-code-row");
     if (!row || row.contains(e.relatedTarget)) return;
     _clearAppliedCodePreview();
@@ -3646,6 +3738,9 @@
     document.querySelectorAll(".ace-applied-code-row.is-code-preview").forEach(function (row) {
       row.classList.remove("is-code-preview");
     });
+    document.querySelectorAll(".ace-applied-annotation-row.is-code-preview").forEach(function (row) {
+      row.classList.remove("is-code-preview");
+    });
     document.querySelectorAll(".ace-applied-timeline-marker.is-code-preview").forEach(function (marker) {
       marker.classList.remove("is-code-preview");
     });
@@ -3707,6 +3802,27 @@
       row.classList.add("is-code-preview");
     });
     document.querySelectorAll('.ace-applied-timeline-marker[data-code-id="' + codeId + '"]').forEach(function (marker) {
+      marker.classList.add("is-code-preview");
+    });
+    _renderAppliedCodePreviewRects(matching);
+  }
+
+  function _setAppliedAnnotationPreview(annotationId) {
+    _clearAppliedCodePreview();
+    if (!annotationId) return;
+    const dataEl = document.getElementById("ace-ann-data");
+    if (!dataEl) return;
+    let matching;
+    try {
+      matching = JSON.parse(dataEl.dataset.annotations || "[]")
+        .filter(function (a) { return a.id === annotationId; });
+    } catch (err) {
+      return;
+    }
+    document.querySelectorAll('.ace-applied-annotation-row[data-annotation-id="' + annotationId + '"]').forEach(function (row) {
+      row.classList.add("is-code-preview");
+    });
+    document.querySelectorAll('.ace-applied-timeline-marker[data-annotation-id="' + annotationId + '"]').forEach(function (marker) {
       marker.classList.add("is-code-preview");
     });
     _renderAppliedCodePreviewRects(matching);

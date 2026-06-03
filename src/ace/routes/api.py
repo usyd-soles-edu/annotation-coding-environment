@@ -1194,7 +1194,13 @@ async def delete_annotation_route(
         undo = _get_undo_manager(request)
         undo.record_delete(source_id, annotation_id)
 
-        return _annotation_only_response(request, conn, coder_id, current_index)
+        return _annotation_only_response(
+            request,
+            conn,
+            coder_id,
+            current_index,
+            _oob_status_undo("Applied code removed"),
+        )
 
 
 def _build_undo_response(

@@ -27,6 +27,13 @@ from ace.models.source_note import get_note, source_ids_with_notes
 router = APIRouter()
 
 
+def _annotation_excerpt(source_text: str, start: int, end: int, limit: int = 58) -> str:
+    snippet = " ".join(source_text[start:end].split())
+    if len(snippet) > limit:
+        snippet = snippet[: limit - 3].rstrip() + "..."
+    return snippet or "Selected text"
+
+
 @router.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
     templates = request.app.state.templates
@@ -165,12 +172,23 @@ def _coding_context(
     for code in margin_codes:
         cid = code["code_id"]
         segments = []
-        for ann in annotations_by_code.get(cid, []):
+        occurrences = []
+        for idx, ann in enumerate(annotations_by_code.get(cid, []), start=1):
             start_pct = max(0.0, min(100.0, 100.0 * ann["start_offset"] / source_length))
             width_pct = max(0.2, min(100.0 - start_pct, 100.0 * (ann["end_offset"] - ann["start_offset"]) / source_length))
             segments.append({
+                "annotation_id": ann["id"],
                 "left": round(start_pct, 3),
                 "width": round(width_pct, 3),
+            })
+            occurrences.append({
+                "annotation_id": ann["id"],
+                "ordinal": idx,
+                "excerpt": _annotation_excerpt(
+                    source_text,
+                    ann["start_offset"],
+                    ann["end_offset"],
+                ),
             })
         applied_code_rows.append({
             "code_id": cid,
@@ -178,6 +196,7 @@ def _coding_context(
             "colour": code["colour"],
             "count": code_counts.get(cid, 0),
             "segments": segments,
+            "occurrences": occurrences,
         })
 
     # Annotation data for the SVG overlay (client-side rendering via _paintSvg).
