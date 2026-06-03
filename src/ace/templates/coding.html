@@ -25,6 +25,10 @@
   if (_gh) document.documentElement.style.setProperty("--ace-grid-height", _gh);
   var _ts = localStorage.getItem("ace-coding-text-size");
   if (_ts) document.documentElement.style.setProperty("--ace-coding-text-size", _ts + "px");
+  var _tw = localStorage.getItem("ace-coding-text-width");
+  if (["64ch", "72ch", "88ch", "112ch"].indexOf(_tw) >= 0) {
+    document.documentElement.style.setProperty("--ace-coding-text-width", _tw);
+  }
 </script>
 <script>
   // Restore note drawer state before CSS loads to prevent flash on reload.

@@ -4807,8 +4807,11 @@
    * ================================================================ */
 
   const CODING_TEXT_SIZE_KEY = "ace-coding-text-size";
+  const CODING_TEXT_WIDTH_KEY = "ace-coding-text-width";
   const CODING_TEXT_DEFAULT_SIZE = 17;
+  const CODING_TEXT_DEFAULT_WIDTH = "72ch";
   const CODING_TEXT_FALLBACK_SIZES = [15, 17, 19, 20, 21, 24];
+  const CODING_TEXT_FALLBACK_WIDTHS = ["64ch", "72ch", "88ch", "112ch"];
   let _codingTextGlobalBound = false;
 
   function _codingTextSizes() {
@@ -4831,6 +4834,26 @@
     }
   }
 
+  function _codingTextWidths() {
+    const widths = Array.from(document.querySelectorAll(".ace-coding-width-option[data-coding-text-width]"))
+      .map(function (option) { return option.dataset.codingTextWidth; })
+      .filter(function (width) { return CODING_TEXT_FALLBACK_WIDTHS.indexOf(width) >= 0; });
+    return widths.length ? widths : CODING_TEXT_FALLBACK_WIDTHS;
+  }
+
+  function _normaliseCodingTextWidth(value) {
+    const widths = _codingTextWidths();
+    return widths.indexOf(value) >= 0 ? value : CODING_TEXT_DEFAULT_WIDTH;
+  }
+
+  function _currentCodingTextWidth() {
+    try {
+      return _normaliseCodingTextWidth(localStorage.getItem(CODING_TEXT_WIDTH_KEY));
+    } catch (_) {
+      return CODING_TEXT_DEFAULT_WIDTH;
+    }
+  }
+
   function _codingTextIndex(size) {
     const sizes = _codingTextSizes();
     const index = sizes.indexOf(_normaliseCodingTextSize(size));
@@ -4847,11 +4870,17 @@
 
   function _syncCodingTextControls() {
     const size = _currentCodingTextSize();
+    const width = _currentCodingTextWidth();
     const sizes = _codingTextSizes();
     const index = _codingTextIndex(size);
     document.documentElement.style.setProperty("--ace-coding-text-size", size + "px");
+    document.documentElement.style.setProperty("--ace-coding-text-width", width);
     document.querySelectorAll(".ace-coding-text-option").forEach(function (btn) {
       const active = _normaliseCodingTextSize(btn.dataset.codingTextSize) === size;
+      btn.setAttribute("aria-pressed", active ? "true" : "false");
+    });
+    document.querySelectorAll(".ace-coding-width-option").forEach(function (btn) {
+      const active = _normaliseCodingTextWidth(btn.dataset.codingTextWidth) === width;
       btn.setAttribute("aria-pressed", active ? "true" : "false");
     });
     const slider = document.getElementById("coding-text-slider");
@@ -4870,6 +4899,17 @@
     const normalised = _normaliseCodingTextSize(size);
     try {
       localStorage.setItem(CODING_TEXT_SIZE_KEY, String(normalised));
+    } catch (_) {}
+    _syncCodingTextControls();
+    requestAnimationFrame(function () {
+      _paintSvg();
+    });
+  }
+
+  function _setCodingTextWidth(width) {
+    const normalised = _normaliseCodingTextWidth(width);
+    try {
+      localStorage.setItem(CODING_TEXT_WIDTH_KEY, normalised);
     } catch (_) {}
     _syncCodingTextControls();
     requestAnimationFrame(function () {
@@ -4908,6 +4948,15 @@
       option.addEventListener("click", function (e) {
         e.preventDefault();
         _setCodingTextSize(option.dataset.codingTextSize);
+      });
+    });
+
+    document.querySelectorAll(".ace-coding-width-option").forEach(function (option) {
+      if (option.dataset.aceCodingTextWidthBound === "1") return;
+      option.dataset.aceCodingTextWidthBound = "1";
+      option.addEventListener("click", function (e) {
+        e.preventDefault();
+        _setCodingTextWidth(option.dataset.codingTextWidth);
       });
     });
 

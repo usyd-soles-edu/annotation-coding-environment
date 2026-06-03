@@ -5,6 +5,7 @@
   --ace-sidebar-width: 360px;
   --ace-grid-height: 18vh;
   --ace-coding-text-size: var(--ace-font-size-base);
+  --ace-coding-text-width: 72ch;
 }
 
 /* ---- Workspace (full viewport flex column) ---- */
@@ -128,7 +129,7 @@
   position: absolute;
   top: 100%;
   right: 0;
-  width: 220px;
+  width: 232px;
   padding: 10px 12px 11px;
   border: 1px solid var(--ace-border);
   border-radius: var(--ace-radius);
@@ -144,6 +145,16 @@
 .ace-coding-text-title {
   display: block;
   margin-bottom: 10px;
+  font-family: var(--ace-font-mono);
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: rgba(0, 0, 0, 0.58);
+}
+
+.ace-coding-text-subtitle {
+  display: block;
+  margin: 12px 0 6px;
   font-family: var(--ace-font-mono);
   font-size: 10px;
   letter-spacing: 1.2px;
@@ -207,6 +218,41 @@
   font-size: 11px;
   color: rgba(0, 0, 0, 0.58);
   text-align: right;
+}
+
+.ace-coding-width-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--ace-border-light);
+  border-radius: var(--ace-radius);
+  overflow: hidden;
+  background: var(--ace-bg);
+}
+
+.ace-coding-width-option {
+  min-height: 28px;
+  border: 0;
+  border-right: 1px solid var(--ace-border-light);
+  padding: 0;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.58);
+  cursor: pointer;
+  font-family: var(--ace-font-mono);
+  font-size: 10px;
+  line-height: 1;
+  transition: background var(--ace-transition), color var(--ace-transition);
+}
+
+.ace-coding-width-option:last-child {
+  border-right: 0;
+}
+
+.ace-coding-width-option:hover,
+.ace-coding-width-option:focus-visible,
+.ace-coding-width-option[aria-pressed="true"] {
+  background: var(--ace-text);
+  color: #fff;
+  outline: none;
 }
 
 .ace-coding-text-note {
@@ -1099,7 +1145,7 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
   flex: 1;
   min-width: 0;
   min-height: 100%;
-  max-width: 72ch;
+  max-width: var(--ace-coding-text-width);
   margin-left: auto;
   margin-right: auto;
   padding: var(--ace-space-6) var(--ace-space-8);

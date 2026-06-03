@@ -13,13 +13,13 @@
       <button type="button"
               class="ace-coding-text-menu-btn"
               id="coding-text-menu-btn"
-              aria-label="Coding text size"
+              aria-label="Coding text size and width"
               aria-expanded="false"
               aria-controls="coding-text-dropdown">Aa</button>
       <div class="ace-coding-text-dropdown"
            id="coding-text-dropdown"
            role="dialog"
-           aria-label="Coding text size"
+           aria-label="Coding text size and width"
            hidden>
         <span class="ace-coding-text-title">Coding text</span>
         <div class="ace-coding-text-options" role="group" aria-label="Coding text size">
@@ -62,7 +62,22 @@
                   id="coding-text-value"
                   for="coding-text-slider">17 px</output>
         </div>
-        <span class="ace-coding-text-note">Only changes the coding text panel.</span>
+        <span class="ace-coding-text-subtitle">Width</span>
+        <div class="ace-coding-width-options" role="group" aria-label="Coding text width">
+          <button type="button" class="ace-coding-width-option"
+                  data-coding-text-width="64ch"
+                  aria-label="Narrow coding text width">N</button>
+          <button type="button" class="ace-coding-width-option"
+                  data-coding-text-width="72ch"
+                  aria-label="Standard coding text width">S</button>
+          <button type="button" class="ace-coding-width-option"
+                  data-coding-text-width="88ch"
+                  aria-label="Wide coding text width">W</button>
+          <button type="button" class="ace-coding-width-option"
+                  data-coding-text-width="112ch"
+                  aria-label="Full coding text width">F</button>
+        </div>
+        <span class="ace-coding-text-note">Size and width only change the coding text panel.</span>
       </div>
     </div>
     {% endif %}
