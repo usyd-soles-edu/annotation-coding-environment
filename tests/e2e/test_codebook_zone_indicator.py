@@ -9,8 +9,8 @@ from playwright.sync_api import sync_playwright
 
 from .conftest import browser_params
 
-CODE_ROW = ".ace-code-row, .ace-ht-row--code"
-FOCUSED_ROW = ".ace-code-row[tabindex=\"0\"], .ace-ht-row[tabindex=\"0\"]"
+CODE_ROW = ".ace-ht-row--code"
+FOCUSED_ROW = ".ace-ht-row[tabindex=\"0\"]"
 
 
 def _create_folder(page, name: str):
@@ -34,6 +34,66 @@ def _create_folder(page, name: str):
     page.reload()
 
 
+def _seed_reordered_folder_hotkeys(page):
+    page.evaluate(
+        """
+        async () => {
+          async function request(method, url, values) {
+            const response = await fetch(url, {
+              method,
+              headers: { "Content-Type": "application/x-www-form-urlencoded" },
+              body: new URLSearchParams(values),
+            });
+            if (!response.ok) throw new Error(`${method} ${url} failed: ${response.status}`);
+            return response;
+          }
+          async function tree() {
+            return fetch("/api/codes/tree").then((response) => response.json());
+          }
+          function itemByName(payload, name, kind) {
+            return Object.values(payload.items).find(
+              (item) => item.name === name && item.kind === kind
+            );
+          }
+
+          const initial = await tree();
+          const alpha = itemByName(initial, "Alpha", "code").id;
+          const bravo = itemByName(initial, "Bravo", "code").id;
+          const charlie = itemByName(initial, "Charlie", "code").id;
+
+          await request("POST", "/api/codes/folder", {
+            name: "Lower folder",
+            current_index: String(window.__aceCurrentIndex || 0),
+          });
+          await request("POST", "/api/codes/folder", {
+            name: "Upper folder",
+            current_index: String(window.__aceCurrentIndex || 0),
+          });
+
+          const withFolders = await tree();
+          const lower = itemByName(withFolders, "Lower folder", "folder").id;
+          const upper = itemByName(withFolders, "Upper folder", "folder").id;
+
+          await request("PUT", `/api/codes/${alpha}/parent`, {
+            parent_id: lower,
+            target_order_ids: JSON.stringify([alpha]),
+            current_index: String(window.__aceCurrentIndex || 0),
+          });
+          await request("PUT", `/api/codes/${bravo}/parent`, {
+            parent_id: upper,
+            target_order_ids: JSON.stringify([bravo]),
+            current_index: String(window.__aceCurrentIndex || 0),
+          });
+          await request("POST", "/api/codes/reorder-tree", {
+            tree_ids: JSON.stringify([upper, lower, charlie]),
+            current_index: String(window.__aceCurrentIndex || 0),
+          });
+        }
+        """
+    )
+    page.reload()
+
+
 @pytest.mark.parametrize("browser_name", browser_params())
 def test_active_zone_toggles_on_focus(ace_server, browser_name):
     """Default = source · click the search input → codebook · click the
@@ -43,7 +103,7 @@ def test_active_zone_toggles_on_focus(ace_server, browser_name):
         try:
             page = browser.new_page()
             page.goto(f"{ace_server}/code")
-            page.wait_for_selector("#ace-headless-tree-mount, #code-tree")
+            page.wait_for_selector("#ace-headless-tree-mount")
 
             # Default zone is set to "source" by the inline init script in
             # bridge.js (line ~64).
@@ -100,46 +160,31 @@ def test_focused_row_styles_change_with_zone(ace_server, browser_name):
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_legacy_code_double_click_rename_accepts_typing(ace_server, browser_name):
+def test_headless_keycaps_follow_visible_tree_order_after_folder_reorder(
+    ace_server, browser_name
+):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=legacy")
-            page.wait_for_selector(".ace-code-row .ace-code-name")
-
-            page.dblclick(".ace-code-row .ace-code-name")
-            page.wait_for_selector(".ace-code-row .ace-code-name[contenteditable='true']")
-            page.keyboard.type("Renamed Alpha")
-            page.keyboard.press("Enter")
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-ht-row--code")
+            _seed_reordered_folder_hotkeys(page)
+            page.wait_for_selector(".ace-ht-row--code .ace-ht-chip")
 
             page.wait_for_function(
-                "() => Array.from(document.querySelectorAll('.ace-code-name'))"
-                ".some(el => el.textContent.trim() === 'Renamed Alpha')",
-                timeout=3000,
-            )
-        finally:
-            browser.close()
-
-
-@pytest.mark.parametrize("browser_name", browser_params())
-def test_legacy_folder_double_click_rename_accepts_typing(ace_server, browser_name):
-    with sync_playwright() as p:
-        browser = getattr(p, browser_name).launch()
-        try:
-            page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=legacy")
-            _create_folder(page, "Folder One")
-            page.wait_for_selector(".ace-code-folder-row .ace-folder-label")
-
-            page.dblclick(".ace-code-folder-row .ace-folder-label")
-            page.wait_for_selector(".ace-folder-label[contenteditable='true']")
-            page.keyboard.type("Renamed Folder")
-            page.keyboard.press("Enter")
-
-            page.wait_for_function(
-                "() => Array.from(document.querySelectorAll('.ace-folder-label'))"
-                ".some(el => el.textContent.trim() === 'Renamed Folder')",
+                """
+                () => {
+                  const labels = Array.from(
+                    document.querySelectorAll(".ace-ht-row--code .ace-ht-label")
+                  ).map((el) => el.textContent.trim());
+                  const chips = Array.from(
+                    document.querySelectorAll(".ace-ht-row--code .ace-ht-chip")
+                  ).map((el) => el.textContent.trim());
+                  return labels.join("|") === "Bravo|Alpha|Charlie" &&
+                    chips.join("|") === "1|2|3";
+                }
+                """,
                 timeout=3000,
             )
         finally:
@@ -204,31 +249,59 @@ def test_headless_folder_double_click_rename_accepts_typing(ace_server, browser_
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_legacy_inline_rename_click_away_clears_codebook_selection(ace_server, browser_name):
-    """Double-click rename should not leave the row visibly selected after
-    focus moves outside the codebook."""
+def test_headless_code_double_click_rename_saves_on_blur(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=legacy")
-            page.wait_for_selector(".ace-code-row")
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-ht-row--code .ace-ht-label")
 
-            page.dblclick(".ace-code-row .ace-code-name")
-            page.wait_for_selector(".ace-code-row .ace-code-name[contenteditable='true']")
-            assert page.evaluate("document.body.dataset.activeZone") == "codebook"
-
-            page.click("#code-sidebar", position={"x": 12, "y": 520})
+            item_id = page.locator(".ace-ht-row--code").first.get_attribute("data-item-id")
+            assert item_id
+            page.dblclick(".ace-ht-row--code .ace-ht-label")
+            page.wait_for_selector(".ace-ht-rename")
+            page.keyboard.type("Blur Saved Headless Code")
+            page.click("#text-panel")
 
             page.wait_for_function(
-                "() => !document.querySelector('[contenteditable=\"true\"]')",
-                timeout=2000,
+                """
+                async ({ itemId }) => {
+                  const payload = await fetch("/api/codes/tree").then((r) => r.json());
+                  return payload.items[itemId]?.name === "Blur Saved Headless Code";
+                }
+                """,
+                arg={"itemId": item_id},
             )
-            assert page.evaluate("document.body.dataset.activeZone") == "source"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_folder_double_click_rename_saves_on_blur(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            _create_folder(page, "Folder One")
+            page.wait_for_selector(".ace-ht-row--folder .ace-ht-label")
+
+            item_id = page.locator(".ace-ht-row--folder").first.get_attribute("data-item-id")
+            assert item_id
+            page.dblclick(".ace-ht-row--folder .ace-ht-label")
+            page.wait_for_selector(".ace-ht-rename")
+            page.keyboard.type("Blur Saved Headless Folder")
+            page.click("#text-panel")
+
             page.wait_for_function(
-                "() => getComputedStyle(document.querySelector('.ace-code-row'))"
-                ".backgroundColor === 'rgba(0, 0, 0, 0)'",
-                timeout=2000,
+                """
+                async ({ itemId }) => {
+                  const payload = await fetch("/api/codes/tree").then((r) => r.json());
+                  return payload.items[itemId]?.name === "Blur Saved Headless Folder";
+                }
+                """,
+                arg={"itemId": item_id},
             )
         finally:
             browser.close()

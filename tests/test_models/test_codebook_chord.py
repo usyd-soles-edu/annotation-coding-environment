@@ -9,8 +9,10 @@ from ace.db.connection import open_project, create_project
 from ace.models.codebook import (
     SINGLE_KEY_LIMIT,
     add_code,
+    add_folder,
     list_codes_with_tree,
     reorder_codes,
+    reorder_tree,
 )
 
 
@@ -99,5 +101,26 @@ def test_chord_results_are_deterministic(tmp_path):
         first = [(c["id"], c["chord"]) for c in _codes(list_codes_with_tree(conn))]
         second = [(c["id"], c["chord"]) for c in _codes(list_codes_with_tree(conn))]
         assert first == second
+    finally:
+        conn.close()
+
+
+def test_chord_rank_follows_flattened_tree_order_after_folder_reorder(tmp_path):
+    """Moving folders changes the visible code order, so key/chord rank follows."""
+    path = _fresh_project(tmp_path)
+    conn = open_project(path)
+    try:
+        later_folder = add_folder(conn, "Later folder")
+        for i in range(SINGLE_KEY_LIMIT):
+            add_code(conn, f"Earlier child {i:02d}", "#A91818", parent_id=later_folder)
+        front_folder = add_folder(conn, "Front folder")
+        front_code = add_code(conn, "Front child", "#557FE6", parent_id=front_folder)
+
+        reorder_tree(conn, [front_folder, later_folder])
+
+        codes = _codes(list_codes_with_tree(conn))
+        assert codes[0]["id"] == front_code
+        assert codes[0]["chord"] is None
+        assert codes[SINGLE_KEY_LIMIT]["chord"] is not None
     finally:
         conn.close()

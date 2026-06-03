@@ -46,7 +46,7 @@ def _pointer_drag_between(page, source, target, *, target_y_fraction: float = 0.
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_headless_tree_is_default_with_legacy_escape_hatch(ace_server, browser_name):
+def test_headless_tree_is_default_and_legacy_query_is_ignored(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
         try:
@@ -62,8 +62,9 @@ def test_headless_tree_is_default_with_legacy_escape_hatch(ace_server, browser_n
             assert preview == api
 
             page.goto(f"{ace_server}/code?tree=legacy")
-            expect(page.locator("#ace-headless-tree-preview")).to_have_count(0)
-            expect(page.locator("#code-tree")).to_be_visible()
+            expect(page.locator("#ace-headless-tree-preview")).to_be_visible()
+            expect(page.locator("#ace-headless-tree-mount")).to_be_visible()
+            expect(page.locator("#code-tree")).to_have_count(0)
         finally:
             browser.close()
 
@@ -74,8 +75,8 @@ def test_headless_tree_preview_renders_nested_codebook_data(ace_server, browser_
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=legacy")
-            page.wait_for_selector("#code-tree")
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount")
             folder_id = page.evaluate(
                 """
                 async () => {
@@ -116,7 +117,7 @@ def test_headless_tree_preview_renders_nested_codebook_data(ace_server, browser_
                 """
             )
 
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -144,8 +145,8 @@ def test_headless_tree_preview_marks_folder_levels_and_paths(ace_server, browser
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=legacy")
-            page.wait_for_selector("#code-tree")
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount")
             ids = page.evaluate(
                 """
                 async () => {
@@ -171,7 +172,7 @@ def test_headless_tree_preview_marks_folder_levels_and_paths(ace_server, browser
                 """
             )
 
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -199,8 +200,8 @@ def test_headless_tree_highlights_parent_chain_for_focused_nested_item(
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=legacy")
-            page.wait_for_selector("#code-tree")
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount")
             ids = page.evaluate(
                 """
                 async () => {
@@ -239,7 +240,7 @@ def test_headless_tree_highlights_parent_chain_for_focused_nested_item(
                 """
             )
 
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -275,7 +276,7 @@ def test_headless_tree_preview_survives_sidebar_oob_swap(ace_server, browser_nam
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             expect(page.locator("#ace-headless-tree-preview")).to_be_visible()
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
@@ -321,7 +322,7 @@ def test_headless_tree_preview_applies_focused_code(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_selector(".ace-sentence")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
@@ -349,7 +350,7 @@ def test_headless_tree_preview_renames_item_through_ace_api(ace_server, browser_
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -390,7 +391,7 @@ def test_headless_tree_candidate_is_primary_tree_in_gated_mode(ace_server, brows
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             expect(page.locator("#ace-headless-tree-preview")).to_be_visible()
             expect(page.locator("#ace-headless-tree-mount")).to_be_visible()
             expect(page.locator("#code-tree")).to_have_count(0)
@@ -404,7 +405,7 @@ def test_headless_tree_candidate_filters_from_search_input(ace_server, browser_n
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -424,7 +425,7 @@ def test_headless_tree_candidate_tab_cycles_into_tree(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -451,7 +452,7 @@ def test_headless_tree_candidate_creates_code_from_empty_search(ace_server, brow
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -509,7 +510,7 @@ def test_headless_tree_candidate_bridge_reorder_shortcut_persists(ace_server, br
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -543,7 +544,7 @@ def test_headless_tree_candidate_cut_paste_shortcut_moves_into_folder(
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -571,7 +572,7 @@ def test_headless_tree_candidate_cut_paste_shortcut_moves_into_folder(
                 """
             )
 
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -612,7 +613,7 @@ def test_headless_tree_candidate_deletes_focused_item(ace_server, browser_name):
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -636,7 +637,7 @@ def test_headless_tree_candidate_v_opens_focused_code_view(ace_server, browser_n
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -661,8 +662,8 @@ def test_headless_tree_candidate_persists_drop_at_exact_order(ace_server, browse
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=legacy")
-            page.wait_for_selector("#code-tree")
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount")
             ids = page.evaluate(
                 """
                 async () => {
@@ -705,7 +706,7 @@ def test_headless_tree_candidate_persists_drop_at_exact_order(ace_server, browse
                 """
             )
 
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -758,7 +759,7 @@ def test_headless_tree_candidate_browser_drag_reorders_root_codes(ace_server, br
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -805,7 +806,7 @@ def test_headless_tree_candidate_uses_native_drag_payload_and_tiny_image(
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -873,7 +874,7 @@ def test_headless_tree_candidate_direct_folder_drop_moves_inside(ace_server, bro
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -913,7 +914,7 @@ def test_headless_tree_candidate_direct_folder_drop_moves_inside(ace_server, bro
                 """
             )
 
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -956,7 +957,7 @@ def test_headless_tree_candidate_folder_body_accepts_inside_drop(
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -996,7 +997,7 @@ def test_headless_tree_candidate_folder_body_accepts_inside_drop(
                 """
             )
 
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -1043,7 +1044,7 @@ def test_headless_tree_candidate_highlights_drop_receiver_folder(
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -1089,7 +1090,7 @@ def test_headless_tree_candidate_highlights_drop_receiver_folder(
                 """
             )
 
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
@@ -1164,7 +1165,7 @@ def test_headless_tree_candidate_announces_keyboard_drag_state(
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/code?tree=headless")
+            page.goto(f"{ace_server}/code")
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )

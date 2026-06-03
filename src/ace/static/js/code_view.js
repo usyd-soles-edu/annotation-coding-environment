@@ -14,6 +14,40 @@
   const tableEl = document.getElementById("cv-table");
   const ctxEl = document.getElementById("cv-ctx");
   const clearBtn = document.getElementById("cv-clear");
+  const CODEBOOK_CODE_ROW_SELECTOR = ".ace-ht-row--code[data-code-id]";
+
+  function codebookTreeElement() {
+    return document.getElementById("ace-headless-tree-mount");
+  }
+
+  function sidebarCodeRows(root) {
+    const scope = root || document;
+    return Array.from(scope.querySelectorAll(`#code-sidebar ${CODEBOOK_CODE_ROW_SELECTOR}`));
+  }
+
+  function codebookCodeRowFromTarget(target) {
+    return target?.closest?.(`#code-sidebar ${CODEBOOK_CODE_ROW_SELECTOR}`) || null;
+  }
+
+  function codeIdFromCodebookRow(row) {
+    return row?.dataset?.codeId || row?.getAttribute?.("data-code-id") || "";
+  }
+
+  function isCodebookCodeRow(row) {
+    return !!(row?.matches?.(CODEBOOK_CODE_ROW_SELECTOR));
+  }
+
+  function setCurrentSidebarCode(codeId) {
+    sidebarCodeRows().forEach((row) => {
+      row.removeAttribute("aria-current");
+      row.classList.remove("ace-ht-row--current");
+    });
+    const current = sidebarCodeRows().find((row) => codeIdFromCodebookRow(row) === codeId);
+    if (current) {
+      current.setAttribute("aria-current", "page");
+      current.classList.add("ace-ht-row--current");
+    }
+  }
 
   function escapeHtml(s) {
     return String(s)
@@ -152,18 +186,7 @@
     document.documentElement.style.setProperty("--code-colour", data.code.colour);
     document.documentElement.style.setProperty("--code-bg", data.code.colour + "22");
 
-    // Sidebar aria-current swap (the focused row tracks via tabindex separately)
-    document.querySelectorAll('#code-sidebar .ace-code-row[aria-current="page"]').forEach((r) => {
-      r.removeAttribute("aria-current");
-      r.classList.remove("ace-code-row--current");
-    });
-    const newCur = document.querySelector(
-      `#code-sidebar .ace-code-row[data-code-id="${data.code.id}"]`,
-    );
-    if (newCur) {
-      newCur.setAttribute("aria-current", "page");
-      newCur.classList.add("ace-code-row--current");
-    }
+    setCurrentSidebarCode(data.code.id);
   }
 
   // Returns the set of source idx values currently visible in the excerpts
@@ -688,22 +711,21 @@
   // viewed code and intercept clicks on rows to navigate instead of apply.
   (function initSidebar() {
     const currentId = data.code.id;
-    const currentRow = document.querySelector(
-      `#code-sidebar .ace-code-row[data-code-id="${currentId}"]`,
-    );
-    if (currentRow) {
-      currentRow.classList.add("ace-code-row--current");
-      currentRow.setAttribute("aria-current", "page");
+    setCurrentSidebarCode(currentId);
+    const root = codebookTreeElement();
+    if (root) {
+      const observer = new MutationObserver(() => setCurrentSidebarCode(data.code.id));
+      observer.observe(root, { childList: true, subtree: true });
     }
 
     // Capture-phase click handler so bridge.js's row handlers don't also act.
     document.addEventListener("click", (evt) => {
-      const row = evt.target.closest("#code-sidebar .ace-code-row[data-code-id]");
+      const row = codebookCodeRowFromTarget(evt.target);
       if (!row) return;
       // Ignore clicks inside the right-click menu or on the code chip (there
       // shouldn't be any — chips are display:none here — but be defensive).
       if (evt.target.closest(".ace-code-menu") || evt.target.closest(".ace-code-chip")) return;
-      const id = row.getAttribute("data-code-id");
+      const id = codeIdFromCodebookRow(row);
       if (!id) return;
       evt.preventDefault();
       evt.stopImmediatePropagation();
@@ -714,7 +736,7 @@
     // Replace the codebook-edit context menu with a read-only info popover.
     // Editing actions (rename / colour / move / delete) belong on /code.
     document.addEventListener("contextmenu", (evt) => {
-      if (!evt.target.closest("#code-sidebar .ace-code-row[data-code-id]")) return;
+      if (!codebookCodeRowFromTarget(evt.target)) return;
       evt.preventDefault();
       evt.stopImmediatePropagation();
       _showInfoMenu(evt.clientX, evt.clientY);
@@ -814,13 +836,11 @@
   try {
     if (sessionStorage.getItem(CODEBOOK_FOCUS_RESTORE_KEY) === "1") {
       sessionStorage.removeItem(CODEBOOK_FOCUS_RESTORE_KEY);
-      const currentRow = document.querySelector(
-        '#code-tree .ace-code-row[aria-current="page"]',
+      const currentRow = sidebarCodeRows().find(
+        (row) => row.getAttribute("aria-current") === "page",
       );
       if (currentRow) {
-        document.querySelectorAll("#code-tree .ace-code-row").forEach((r) =>
-          r.setAttribute("tabindex", "-1"),
-        );
+        sidebarCodeRows().forEach((r) => r.setAttribute("tabindex", "-1"));
         currentRow.setAttribute("tabindex", "0");
         currentRow.focus({ preventScroll: true });
         currentRow.scrollIntoView({ block: "nearest" });
@@ -833,27 +853,16 @@
   // skipping collapsed-group contents); Enter → navigate; search ↓/↑/Esc.
   // T7 will extend the document-level keydown listener here with `?`.
 
-  const treeEl = document.getElementById("code-tree");
+  const treeEl = codebookTreeElement();
   const codeSearchInput = document.getElementById("code-search-input");
   let previousFocusBeforeSearch = null;
 
   function visibleCodeRows() {
     if (!treeEl) return [];
-    const all = Array.from(treeEl.querySelectorAll(".ace-code-row"));
+    const all = Array.from(treeEl.querySelectorAll(CODEBOOK_CODE_ROW_SELECTOR));
     return all.filter((row) => {
-      let group = row.parentElement && row.parentElement.getAttribute("role") === "group"
-        ? row.parentElement
-        : null;
-      while (group) {
-        const header = group.previousElementSibling;
-        if (header && header.classList.contains("ace-code-folder-row")
-            && header.getAttribute("aria-expanded") === "false") {
-          return false;
-        }
-        const block = group.parentElement;
-        group = block && block.parentElement && block.parentElement.getAttribute("role") === "group"
-          ? block.parentElement
-          : null;
+      if (row.hidden || row.style.display === "none" || row.getAttribute("aria-hidden") === "true") {
+        return false;
       }
       return true;
     });
@@ -951,7 +960,7 @@
   // doesn't stack 50 entries.
   function maybeAutoNavigate(targetRow) {
     if (!targetRow) return;
-    const codeId = targetRow.dataset.codeId;
+    const codeId = codeIdFromCodebookRow(targetRow);
     if (!codeId || codeId === data.code.id) return;
     loadCode(codeId, { pushHistory: false });
   }
@@ -1088,8 +1097,9 @@
   // bridge.js binds them as code-editing actions.
   if (treeEl) {
     treeEl.addEventListener("focusin", (evt) => {
-      const row = evt.target.closest && evt.target.closest(".ace-code-row[data-code-id]");
-      if (row) prefetch(row.dataset.codeId);
+      const row = evt.target.closest && evt.target.closest(CODEBOOK_CODE_ROW_SELECTOR);
+      const codeId = codeIdFromCodebookRow(row);
+      if (codeId) prefetch(codeId);
     }, true);
 
     treeEl.addEventListener("keydown", (evt) => {
@@ -1097,7 +1107,7 @@
       if (!target || !target.getAttribute) return;
       const isTreeItem = target.getAttribute("role") === "treeitem";
       if (!isTreeItem) return;
-      const isCodeRow = target.classList && target.classList.contains("ace-code-row");
+      const isCodeRow = isCodebookCodeRow(target);
 
       const plainKey = !evt.ctrlKey && !evt.metaKey && !evt.altKey && !evt.shiftKey;
 
@@ -1151,7 +1161,7 @@
       }
       if (plainKey && evt.key === "Enter") {
         claim(evt);
-        const codeId = target.dataset.codeId;
+        const codeId = codeIdFromCodebookRow(target);
         if (codeId) loadCode(codeId, { pushHistory: true });
         return;
       }
@@ -1238,7 +1248,7 @@
     if (rows.length === 0) return;
     let target = null;
     if (rememberedCursor.codebook != null) {
-      target = rows.find((r) => r.dataset.codeId === rememberedCursor.codebook) || null;
+      target = rows.find((r) => codeIdFromCodebookRow(r) === rememberedCursor.codebook) || null;
     }
     if (!target) {
       // Fall back to the currently-viewed code (has aria-current="page")
@@ -1273,8 +1283,9 @@
       if (idx >= 0) rememberedCursor.tracks = idx;
     } else if (a.classList.contains("cv-row")) {
       if (a.dataset.annId) rememberedCursor.excerpts = a.dataset.annId;
-    } else if (a.classList.contains("ace-code-row")) {
-      if (a.dataset.codeId) rememberedCursor.codebook = a.dataset.codeId;
+    } else if (isCodebookCodeRow(a)) {
+      const codeId = codeIdFromCodebookRow(a);
+      if (codeId) rememberedCursor.codebook = codeId;
     }
     // back link has no remembered state — not a roving zone
   }, true); // capture phase

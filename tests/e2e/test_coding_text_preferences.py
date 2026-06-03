@@ -5,7 +5,7 @@ from playwright.sync_api import sync_playwright
 
 from .conftest import browser_params
 
-CODE_ROW = ".ace-code-row, .ace-ht-row--code"
+CODE_ROW = ".ace-ht-row--code"
 CODING_TEXT_SIZES = ["15", "17", "19", "20", "21", "24"]
 CODING_TEXT_WIDTHS = ["64ch", "72ch", "88ch", "112ch"]
 

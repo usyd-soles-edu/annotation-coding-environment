@@ -3,8 +3,8 @@
    Required context: version, project_file_stem, tree_codes
                      (DFS-ordered list with kind/name/colour/chord/
                      child_count/parent_id; see list_codes_with_tree),
-                     code_counts_by_id (for the per-row count cell). #}
-{% set use_headless = use_headless_codebook|default(false) %}
+                    code_counts_by_id (for the per-row count cell). #}
+{% set read_only = codebook_readonly|default(false) %}
 <div class="ace-sidebar-strip" role="banner">
   <a href="/" class="ace-sidebar-strip-mark" title="ACE v{{ version }}">ACE</a>
   <div class="ace-sidebar-strip-actions">
@@ -102,22 +102,21 @@
   <div class="ace-sidebar-search-wrap">
     <input type="search" class="ace-sidebar-search" placeholder="Filter codes&hellip;"
            id="code-search-input" autocomplete="off"
-           aria-controls="{{ 'ace-headless-tree-mount' if use_headless else 'code-tree' }}"
+           aria-controls="ace-headless-tree-mount"
            aria-label="Filter codes"
            aria-keyshortcuts="/">
   </div>
   <div class="ace-sidebar-search-hint-line" aria-hidden="true">
-    {% if use_headless %}
+    {% if read_only %}
+    <span class="ace-search-hint-group"><kbd>&#8593;</kbd><kbd>&#8595;</kbd> browse</span>
+    <span class="ace-search-hint-group"><kbd>&#8629;</kbd> view</span>
+    {% else %}
     <span class="ace-search-hint-group"><kbd>&#8629;</kbd> apply or create</span>
     <span class="ace-search-hint-group"><kbd>F2</kbd> rename</span>
     <span class="ace-search-hint-group"><kbd>del</kbd> delete</span>
-    {% else %}
-    <span class="ace-search-hint-group"><kbd class="ace-hint-meta"></kbd><kbd>&#8629;</kbd> create code</span>
-    <span class="ace-search-hint-group"><kbd>/</kbd> for commands</span>
     {% endif %}
   </div>
 </div>
-{% if use_headless %}
 <section id="ace-headless-tree-preview"
          class="ace-headless-tree-preview"
          aria-labelledby="ace-headless-tree-preview-title">
@@ -133,8 +132,8 @@
        data-headless-tree-mount
        role="tree"
        aria-label="Code list"
-       aria-keyshortcuts="Enter F2 Delete"></div>
-  {% if not tree_codes %}
+       aria-keyshortcuts="{{ 'Enter' if read_only else 'Enter F2 Delete' }}"></div>
+  {% if not tree_codes and not read_only %}
   <div class="ace-sidebar-empty">
     <p>No codes yet.</p>
     <div class="ace-empty-actions">
@@ -149,109 +148,3 @@
   </div>
   {% endif %}
 </section>
-{% else %}
-{% macro code_row(row, level) -%}
-  {% set n = (code_counts_by_id or {}).get(row.id, 0) %}
-  <div role="treeitem" aria-level="{{ level }}"
-       class="ace-code-row" data-code-id="{{ row.id }}"
-       {% if row.chord %}data-chord="{{ row.chord }}"{% endif %}
-       style="--row-colour: {{ row.colour }}; --tree-level: {{ level }}; --indent: {{ (level - 1) * 14 }}px"
-       tabindex="-1">
-    <span class="ace-code-name">{{ row.name }}</span>
-    {% if n > 0 %}<span class="ace-code-count" title="{{ n }} annotation{{ 's' if n != 1 else '' }} in this source">{{ n }}</span>{% else %}<span class="ace-code-count" aria-hidden="true"></span>{% endif %}
-    {% if row.chord %}
-    <span class="ace-code-chip ace-code-chip--chord"
-          title="Press ; then {{ row.chord }} to apply">{{ row.chord }}</span>
-    {% else %}
-    <span class="ace-code-chip ace-code-chip--key"
-          title="Click or press the row key to apply"></span>
-    {% endif %}
-  </div>
-{%- endmacro %}
-
-{% macro folder_node(row, level) -%}
-  <div class="ace-folder-block" data-folder-id="{{ row.id }}">
-    <div role="treeitem" aria-expanded="true" aria-level="{{ level }}"
-         class="ace-code-folder-row" data-folder-id="{{ row.id }}"
-         aria-keyshortcuts="F2 Delete"
-         style="--tree-level: {{ level }}; --indent: {{ (level - 1) * 14 }}px"
-         tabindex="-1">
-      <span class="ace-folder-toggle" aria-hidden="true">
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M3 5l4 4 4-4"/>
-        </svg>
-      </span>
-      <span class="ace-folder-label">{{ row.name }}</span>
-    </div>
-    <div role="group" data-folder-children="{{ row.id }}"
-         style="--group-indent: {{ level * 14 }}px">
-      {% for child in row.children|default([]) %}
-        {% if child.kind == 'folder' %}
-          {{ folder_node(child, level + 1) }}
-        {% else %}
-          {{ code_row(child, level + 1) }}
-        {% endif %}
-      {% endfor %}
-    </div>
-  </div>
-{%- endmacro %}
-
-<div id="code-tree" role="tree" aria-label="Code list" class="ace-sidebar-codes">
-  {% set root = namespace(nodes=[]) %}
-  {% if tree_codes %}
-    {% set root.nodes = tree_codes[0].root_nodes|default([]) %}
-  {% endif %}
-  {% for row in root.nodes %}
-    {% if row.kind == 'folder' %}
-      {{ folder_node(row, 1) }}
-    {% else %}
-      {{ code_row(row, 1) }}
-    {% endif %}
-  {% endfor %}
-
-  {% if not tree_codes %}
-  <div class="ace-sidebar-empty">
-    <p>No codes yet.</p>
-    <div class="ace-empty-actions">
-      <button type="button" class="ace-empty-action" id="create-first-code-btn">
-        Create first code
-      </button>
-      <button type="button" class="ace-empty-action" id="empty-import-codebook-btn">
-        Import codebook CSV
-      </button>
-    </div>
-    <p class="ace-empty-hint">You can also type a name and press <kbd>Enter</kbd>.</p>
-  </div>
-  {% endif %}
-</div>
-<div class="ace-sidebar-legend" aria-hidden="true">
-  <span class="ace-legend-item">
-    <span class="ace-legend-key-pair">
-      <span class="ace-legend-key" title="Up arrow">
-        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 10 L6 2 M3 5 L6 2 L9 5"/></svg>
-      </span>
-      <span class="ace-legend-key" title="Down arrow">
-        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2 L6 10 M3 7 L6 10 L9 7"/></svg>
-      </span>
-    </span>
-    navigate
-  </span>
-  <span class="ace-legend-item">
-    <span class="ace-legend-key-pair">
-      <span class="ace-legend-key" title="Option / Alt">alt</span>
-      <span class="ace-legend-key" title="Right arrow">
-        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2 6 L10 6 M7 3 L10 6 L7 9"/></svg>
-      </span>
-    </span>
-    nest
-  </span>
-  <span class="ace-legend-item">
-    <span class="ace-legend-key" title="F2">F2</span>
-    rename
-  </span>
-  <span class="ace-legend-item">
-    <span class="ace-legend-key" title="Backspace / Delete">del</span>
-    delete
-  </span>
-</div>
-{% endif %}

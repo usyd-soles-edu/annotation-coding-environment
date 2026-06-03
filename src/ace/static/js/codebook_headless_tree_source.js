@@ -37,7 +37,12 @@ import {
 
   function clearCodebookActiveStateAfterFrame() {
     clearCodebookActiveState();
-    requestAnimationFrame(clearCodebookActiveState);
+    requestAnimationFrame(function () {
+      clearCodebookActiveState();
+      requestAnimationFrame(clearCodebookActiveState);
+    });
+    setTimeout(clearCodebookActiveState, 0);
+    setTimeout(clearCodebookActiveState, 50);
   }
 
   function itemData(id) {
@@ -90,10 +95,7 @@ import {
   }
 
   function codeRank(itemId) {
-    const codeIds = Object.values(items)
-      .filter((item) => item.kind === "code")
-      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
-      .map((item) => item.id);
+    const codeIds = visibleCodeItems().map((item) => item.getId());
     return codeIds.indexOf(itemId);
   }
 
@@ -228,6 +230,10 @@ import {
   }
 
   async function persistDrop(id, previousParent, nextParent, order, restoreSnapshot) {
+    if (denyCodebookEditing()) {
+      restoreChildrenByParent(restoreSnapshot);
+      return;
+    }
     setStatus("Saving");
     try {
       if (previousParent === nextParent) {
@@ -268,6 +274,16 @@ import {
 
   function currentIndex() {
     return window.__aceCurrentIndex || 0;
+  }
+
+  function codebookEditingDisabled() {
+    return !!document.getElementById("code-view");
+  }
+
+  function denyCodebookEditing() {
+    if (!codebookEditingDisabled()) return false;
+    setStatus("Back to source to edit the codebook");
+    return true;
   }
 
   function formParentId(parentId) {
@@ -437,6 +453,7 @@ import {
   }
 
   function createCode(name) {
+    if (denyCodebookEditing()) return;
     const next = name.trim();
     if (!next) return;
     const duplicate = findDuplicateName("code", next);
@@ -460,6 +477,7 @@ import {
   }
 
   function createFolder(name) {
+    if (denyCodebookEditing()) return;
     const next = name.trim();
     if (!next) return;
     const duplicate = findDuplicateName("folder", next);
@@ -547,6 +565,7 @@ import {
     const defaultClick = itemProps.onClick;
     let renamePointerQueued = false;
     function queueRenamingFromPointer(event) {
+      if (denyCodebookEditing()) return true;
       if (event.target?.closest?.(".ace-ht-toggle, .ace-ht-chip, input, textarea, button, a")) return false;
       event.preventDefault();
       event.stopPropagation();
@@ -569,6 +588,7 @@ import {
       if ((event.key === "Delete" || event.key === "Backspace") && item.getId() !== ROOT_ID) {
         event.preventDefault();
         event.stopPropagation();
+        if (denyCodebookEditing()) return;
         deleteItem(item);
         return;
       }
@@ -653,6 +673,24 @@ import {
         persistRename(item, input.value);
         tree.completeRenaming();
       }
+      function commitRenameAway(focusTarget) {
+        if (renameCommitted) return;
+        renameCommitted = true;
+        removePointerAwayListener();
+        persistRename(item, input.value);
+        tree.completeRenaming();
+        suppressNextRefocus = true;
+        clearCodebookActiveStateAfterFrame();
+        queueMicrotask(function () {
+          if (
+            focusTarget &&
+            typeof focusTarget.focus === "function" &&
+            focusTarget.isConnected
+          ) {
+            focusTarget.focus({ preventScroll: true });
+          }
+        });
+      }
       function cancelRename(focusTarget, allowSameRowFocus) {
         if (renameCommitted) return;
         renameCommitted = true;
@@ -678,8 +716,16 @@ import {
           if (active?.closest?.("#ace-headless-tree-mount .ace-ht-row")) active.blur();
         });
       }
+      function renameChanged() {
+        const next = input.value.trim();
+        return !!next && next !== item.getItemData().name;
+      }
       function onRenamePointerAway(event) {
         if (row.contains(event.target)) return;
+        if (renameChanged()) {
+          commitRenameAway(event.target);
+          return;
+        }
         cancelRename(event.target, false);
       }
       input.addEventListener("keydown", function (event) {
@@ -694,6 +740,10 @@ import {
         }
       });
       input.addEventListener("blur", function (event) {
+        if (renameChanged()) {
+          commitRenameAway(event.relatedTarget);
+          return;
+        }
         cancelRename(event.relatedTarget, false);
       }, { once: true });
       pointerAwayArmed = true;
@@ -828,6 +878,7 @@ import {
       setDragImage: tinyDragImage,
       createForeignDragObject: nativeDragPayload,
       canDrag: function (draggedItems) {
+        if (codebookEditingDisabled()) return false;
         return draggedItems.every(function (item) { return item.getId() !== ROOT_ID; });
       },
       canDrop,
@@ -845,7 +896,10 @@ import {
       setRenamingValue: function () {},
       setDndState: scheduleDragStateRender,
       setAssistiveDndState: scheduleDragStateRender,
-      features: [
+      features: codebookEditingDisabled() ? [
+        syncDataLoaderFeature,
+        hotkeysCoreFeature,
+      ] : [
         syncDataLoaderFeature,
         hotkeysCoreFeature,
         dragAndDropFeature,

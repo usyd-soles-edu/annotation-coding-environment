@@ -311,35 +311,16 @@ def test_sidebar_dropdown_carries_keyboard_shortcuts(client_with_sources):
     assert shortcuts_pos < import_pos
 
 
-def test_sidebar_has_aria_tree_roles(client_with_sources, tmp_path):
-    """Sidebar renders with ARIA treeview roles.
-
-    `role="group"` only wraps folder children in the new tree shape, so
-    seed one folder + child code to verify the wrapper still renders.
-    """
+def test_sidebar_has_headless_tree_mount(client_with_sources):
+    """Sidebar exposes the headless tree mount; treeitems render client-side."""
     client, _ = client_with_sources
-    # Seed a folder + nested code via the app's open project to exercise
-    # the tree renderer's `role="group"` branch.
-    from ace.db.connection import open_project
-    from ace.models.codebook import add_code, add_folder
-
-    project_path = client.app.state.project_path
-    conn = open_project(project_path)
-    folder_id = add_folder(conn, "Folder One")
-    child_folder_id = add_folder(conn, "Folder Two", parent_id=folder_id)
-    add_code(conn, "Nested code", "#1976d2", parent_id=child_folder_id)
-    conn.close()
-
-    resp = client.get("/code?tree=legacy")
+    resp = client.get("/code")
     assert resp.status_code == 200
     html = resp.text
+    assert 'id="ace-headless-tree-mount"' in html
     assert 'role="tree"' in html
     assert 'aria-label="Code list"' in html
-    assert 'role="treeitem"' in html
-    assert 'role="group"' in html
-    assert 'aria-level="1"' in html
-    assert 'aria-level="2"' in html
-    assert 'aria-level="3"' in html
+    assert 'id="code-tree"' not in html
 
 
 # ---------------------------------------------------------------------------

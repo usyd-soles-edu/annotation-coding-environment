@@ -21,10 +21,10 @@ from .conftest import browser_params
 
 
 _EXPECTED_CODE_ITEMS = ["Convert to folder", "Cut", "Paste here", "Rename", "Delete"]
-CODE_ROW = ".ace-code-row, .ace-ht-row--code"
-CODE_NAME = ".ace-code-name, .ace-ht-label"
-FOLDER_ROW = ".ace-code-folder-row, .ace-ht-row--folder"
-FOLDER_NAME = ".ace-folder-label, .ace-ht-label"
+CODE_ROW = ".ace-ht-row--code"
+CODE_NAME = ".ace-ht-label"
+FOLDER_ROW = ".ace-ht-row--folder"
+FOLDER_NAME = ".ace-ht-label"
 
 
 @pytest.mark.parametrize("browser_name", browser_params())

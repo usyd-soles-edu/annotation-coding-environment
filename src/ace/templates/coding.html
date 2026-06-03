@@ -331,15 +331,8 @@ rect.ace-flash-{{ code["id"] }} {
 </div>
 {% endblock %}
 
-{% block pre_bridge_scripts %}
-<script src="/static/js/codebook_tree.js"></script>
-{% endblock %}
-
 {% block scripts %}
-<script src="/static/js/Sortable.min.js"></script>
-{% if use_headless_codebook|default(false) %}
 <script src="/static/js/codebook_headless_tree.js"></script>
-{% endif %}
 <script>
   window.__aceCurrentIndex = {{ current_index }};
   window.__aceTotalSources = {{ total_sources }};

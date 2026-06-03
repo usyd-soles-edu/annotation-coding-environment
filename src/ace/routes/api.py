@@ -15,7 +15,7 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from urllib.parse import parse_qs, quote, unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request, UploadFile, File
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -46,24 +46,6 @@ def _safe_filename(name: str) -> str:
     dot, dash, underscore, and space into underscores.
     """
     return re.sub(r"[^A-Za-z0-9._\- ]", "_", name)
-
-
-def _use_headless_codebook(request: Request) -> bool:
-    """Use the Headless Tree codebook on the coding page.
-
-    Keep `?tree=legacy` as a temporary escape hatch while the replacement
-    settles. The code-view audit page still uses the legacy sidebar.
-    """
-    current_url = request.headers.get("HX-Current-URL")
-    if current_url:
-        parsed = urlparse(current_url)
-        query = parse_qs(parsed.query)
-        if query.get("tree", [""])[0] == "legacy":
-            return False
-        if query.get("tree", [""])[0] == "headless":
-            return True
-        return parsed.path.rstrip("/") == "/code"
-    return request.query_params.get("tree") != "legacy"
 
 
 # ---------------------------------------------------------------------------
@@ -1065,7 +1047,6 @@ def _render_full_coding_oob(
     project_path = request.app.state.project_path
     ctx = _coding_context(conn, coder_id, target_index, project_path=project_path)
     ctx["request"] = request
-    ctx["use_headless_codebook"] = _use_headless_codebook(request)
 
     parts = [render_block(templates.env, "coding.html", "text_panel", ctx)]
     inspector_html = render_block(templates.env, "coding.html", "right_inspector", ctx)
@@ -1590,7 +1571,6 @@ def _render_code_sidebar(request: Request, conn, coder_id: str, current_index: i
     project_path = request.app.state.project_path
     ctx = _coding_context(conn, coder_id, current_index, project_path=project_path)
     ctx["request"] = request
-    ctx["use_headless_codebook"] = _use_headless_codebook(request)
     return render_block(templates.env, "coding.html", "code_sidebar", ctx)
 
 

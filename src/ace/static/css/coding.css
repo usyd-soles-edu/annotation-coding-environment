@@ -503,25 +503,6 @@
   -webkit-user-select: none;
 }
 
-#code-tree [role="group"] {
-  position: relative;
-}
-
-#code-tree [role="group"]::before {
-  content: "";
-  position: absolute;
-  left: calc(var(--group-indent, 14px) + 1px);
-  top: 1px;
-  bottom: 3px;
-  width: 1px;
-  background: #deded7;
-  pointer-events: none;
-}
-
-#code-tree [role="group"]:empty::before {
-  display: none;
-}
-
 /* Pill stripe — shorter than the row so adjacent stripes read as discrete pills. */
 .ace-code-row::before {
   content: "";

@@ -17,7 +17,7 @@ from ace.services.chord_assignment import assign_chord
 
 # Single-key shortcut slots: 10 digits (1-9, 0) + a-p minus n (15) +
 # r-y minus v and x (6) = 31. Reserved keys: q, x, z, n, v.
-# Codes at position >= 31 (0-indexed by sort_order rank) get a 2-letter chord shortcut.
+# Codes at position >= 31 in flattened tree order get a 2-letter chord shortcut.
 SINGLE_KEY_LIMIT = 31
 
 _INSERT_CODE_SQL = (
@@ -123,9 +123,9 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
     Each folder row carries `children`, `child_count`, and `child_ids` for the
     recursive renderer. Codes are leaves. Orphans are surfaced at root.
 
-    Chord shortcuts are derived here, not stored: codes at sort_order rank
+    Chord shortcuts are derived here, not stored: codes at flattened tree rank
     >= SINGLE_KEY_LIMIT get a 2-letter chord assigned by `assign_chord`,
-    walking codes in rank order with a growing `taken` set so values are
+    walking visible codes in rank order with a growing `taken` set so values are
     deterministic and unique within the snapshot.
     """
     rows = conn.execute(
@@ -133,18 +133,6 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
         "FROM codebook_code WHERE deleted_at IS NULL "
         "ORDER BY sort_order"
     ).fetchall()
-
-    chord_for: dict[str, str] = {}
-    rank = 0
-    taken: set[str] = set()
-    for r in rows:
-        if r["kind"] != "code":
-            continue
-        if rank >= SINGLE_KEY_LIMIT:
-            chord = assign_chord(r["name"], taken)
-            chord_for[r["id"]] = chord
-            taken.add(chord)
-        rank += 1
 
     active_folder_ids = {r["id"] for r in rows if r["kind"] == "folder"}
     by_parent: dict[str | None, list[sqlite3.Row]] = {}
@@ -162,7 +150,7 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
             "id": r["id"], "name": r["name"], "colour": r["colour"],
             "sort_order": r["sort_order"], "kind": r["kind"],
             "parent_id": parent_id,
-            "chord": chord_for.get(r["id"]) if r["kind"] == "code" else None,
+            "chord": None,
             "level": 1,
             "children": [],
         }
@@ -208,6 +196,17 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
         root_node = visit(row, 1)
         if root_node is not None:
             roots.append(root_node)
+
+    rank = 0
+    taken: set[str] = set()
+    for node in out:
+        if node["kind"] != "code":
+            continue
+        if rank >= SINGLE_KEY_LIMIT:
+            chord = assign_chord(node["name"], taken)
+            node["chord"] = chord
+            taken.add(chord)
+        rank += 1
 
     # Keep the top-level list flat for existing callers/tests, but attach the
     # root list to the first item so templates can recurse without rebuilding.

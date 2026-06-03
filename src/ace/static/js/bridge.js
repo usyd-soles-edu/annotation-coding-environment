@@ -47,6 +47,18 @@
     document.body.dataset.activeZone = zone;
   }
 
+  function _codebookEditingDisabled() {
+    return !!document.getElementById("code-view");
+  }
+
+  function _denyCodebookEditing() {
+    if (!_codebookEditingDisabled()) return false;
+    if (typeof window._setStatus === "function") {
+      window._setStatus("Back to source to edit the codebook", "ok");
+    }
+    return true;
+  }
+
   document.addEventListener("focusin", function (e) {
     const t = e.target;
     if (!t || !t.closest) return;
@@ -129,42 +141,19 @@
 
   /* ================================================================
    * 3. Folder collapse / expand
-   *
-   * Folders are <div class="ace-code-folder-row" aria-expanded="…"
-   * data-folder-id="…"> rows. The sibling <div role="group"
-   * data-folder-children="…"> child container is hidden by CSS when
-   * aria-expanded="false" (see coding.css). Toggling collapse is just
-   * flipping the attribute on the folder row.
-   *
-   * Collapse state is per-tab in-memory (folder id → bool). We default
-   * to expanded on first paint; explicit collapse persists across
-   * sidebar OOB swaps within the session.
    * ================================================================ */
-
-  const _collapsedFolders = {};
-  let _sidebarTreeController = null;
 
   function _getSidebarTreeController() {
     const headlessMount = document.getElementById("ace-headless-tree-mount");
-    if (headlessMount) {
-      const headless = window.AceHeadlessTreePreview &&
-        typeof window.AceHeadlessTreePreview.getController === "function"
-          ? window.AceHeadlessTreePreview.getController()
-          : window.__aceHeadlessTreeController;
-      if (headless && typeof headless.refresh === "function") {
-        return headless.refresh();
-      }
+    if (!headlessMount) return null;
+    const headless = window.AceHeadlessTreePreview &&
+      typeof window.AceHeadlessTreePreview.getController === "function"
+        ? window.AceHeadlessTreePreview.getController()
+        : window.__aceHeadlessTreeController;
+    if (headless && typeof headless.refresh === "function") {
+      return headless.refresh();
     }
-    if (typeof window.AceCodebookTree === "undefined") return null;
-    if (!_sidebarTreeController) {
-      _sidebarTreeController = window.AceCodebookTree.createController({
-        collapsedFolders: _collapsedFolders,
-      });
-      window.__aceSidebarTree = _sidebarTreeController;
-    } else if (typeof _sidebarTreeController.refresh === "function") {
-      _sidebarTreeController.refresh();
-    }
-    return _sidebarTreeController;
+    return null;
   }
 
   function _refreshSidebarTreeController() {
@@ -182,14 +171,6 @@
     const controller = _getSidebarTreeController();
     if (controller) {
       controller.toggleFolderCollapse(folderRow);
-      return;
-    }
-    if (!folderRow) return;
-    const expanded = folderRow.getAttribute("aria-expanded") === "true";
-    if (expanded) {
-      _collapseFolder(folderRow);
-    } else {
-      _expandFolder(folderRow);
     }
   }
 
@@ -197,15 +178,7 @@
     const controller = _getSidebarTreeController();
     if (controller) {
       controller.restoreCollapseState();
-      return;
     }
-    const rows = document.querySelectorAll(".ace-code-folder-row");
-    rows.forEach(function (row) {
-      const folderId = row.getAttribute("data-folder-id");
-      if (folderId && _collapsedFolders[folderId]) {
-        _collapseFolder(row);
-      }
-    });
   }
 
   // Click handler for folder rows — toggle on the chevron, focus on label.
@@ -252,21 +225,16 @@
   let _currentKeyMap = []; // array of code IDs in keycap order
 
   function _keymapRoot() {
-    return document.getElementById("ace-headless-tree-mount") ||
-      document.getElementById("code-tree");
+    return document.getElementById("ace-headless-tree-mount");
   }
 
   function _updateKeycaps() {
     const tree = _keymapRoot();
     if (!tree) return;
-    const isHeadless = tree.id === "ace-headless-tree-mount";
-    const rows = tree.querySelectorAll(
-      isHeadless ? ".ace-ht-row--code[data-code-id]" : ".ace-code-row"
-    );
+    const rows = tree.querySelectorAll(".ace-ht-row--code[data-code-id]");
     _currentKeyMap = [];
     let labelIdx = 0; // Counter that only increments for non-chord rows
     rows.forEach(function (row) {
-      if (!isHeadless && _isHiddenByCollapsedAncestor(row)) return;
       // Also skip rows hidden by search filter
       if (row.hidden || row.style.display === "none") return;
 
@@ -283,9 +251,7 @@
       _currentKeyMap.push(row.getAttribute("data-code-id"));
 
       const label = _keylabel(labelIdx);
-      const keycap = row.querySelector(
-        isHeadless ? ".ace-ht-chip:not(.ace-ht-chip--chord)" : ".ace-code-chip--key"
-      );
+      const keycap = row.querySelector(".ace-ht-chip:not(.ace-ht-chip--chord)");
       if (keycap) keycap.textContent = label;
       row.setAttribute("aria-keyshortcuts", label);
       labelIdx++;
@@ -342,8 +308,8 @@
       document.body.dataset.chordBuffer = _chordBuffer;
       const tree = _keymapRoot();
       if (tree) {
-        tree.querySelectorAll(".ace-code-chip--chord, .ace-ht-chip--chord").forEach(function (cap) {
-          const row = cap.closest(".ace-code-row, .ace-ht-row--code");
+        tree.querySelectorAll(".ace-ht-chip--chord").forEach(function (cap) {
+          const row = cap.closest(".ace-ht-row--code");
           const chord = row && row.dataset.chord;
           cap.classList.toggle(
             "ace-chord-match",
@@ -357,9 +323,7 @@
   function _resolveChord(chord) {
     const tree = _keymapRoot();
     if (tree) {
-      const row = tree.querySelector(
-        `.ace-code-row[data-chord="${chord}"], .ace-ht-row--code[data-chord="${chord}"]`
-      );
+      const row = tree.querySelector(`.ace-ht-row--code[data-chord="${chord}"]`);
       if (row) {
         const codeId = row.getAttribute("data-code-id");
         if (codeId) _applyCode(codeId);
@@ -1590,7 +1554,7 @@
     let search = document.getElementById("code-search-input");
     _sidebarFocusState.searchText = search ? search.value : "";
 
-    const tree = document.getElementById("code-tree");
+    const tree = document.getElementById("ace-headless-tree-mount");
     _sidebarFocusState.scrollTop = tree ? tree.scrollTop : 0;
   });
 
@@ -1627,23 +1591,6 @@
       counts.set(a.code_id, (counts.get(a.code_id) || 0) + 1);
     }
     document
-      .querySelectorAll("#code-tree .ace-code-row[data-code-id]")
-      .forEach(function (row) {
-        const cnt = row.querySelector(".ace-code-count");
-        if (!cnt) return;
-        const n = counts.get(row.dataset.codeId) || 0;
-        if (n > 0) {
-          cnt.textContent = String(n);
-          cnt.title =
-            n + " annotation" + (n !== 1 ? "s" : "") + " in this source";
-          cnt.removeAttribute("aria-hidden");
-        } else {
-          cnt.textContent = "";
-          cnt.setAttribute("aria-hidden", "true");
-          cnt.removeAttribute("title");
-        }
-      });
-    document
       .querySelectorAll("#ace-headless-tree-mount .ace-ht-row--code[data-code-id]")
       .forEach(function (row) {
         const cnt = row.querySelector(".ace-ht-count");
@@ -1664,7 +1611,7 @@
     _restoreCollapseState();
     _updateKeycaps();
     if (opts.gridResize) _initGridResize();
-    const tree = document.getElementById("code-tree");
+    const tree = document.getElementById("ace-headless-tree-mount");
     if (tree && _sidebarFocusState.scrollTop) {
       tree.scrollTop = _sidebarFocusState.scrollTop;
     }
@@ -1882,6 +1829,7 @@
   }
 
   function _startCodebookRename(row) {
+    if (_denyCodebookEditing()) return;
     if (!row) return;
     const itemId = _itemIdFromTreeElement(row);
     const controller = _getSidebarTreeController();
@@ -1923,6 +1871,7 @@
   }
 
   function _openColourPopover(codeId) {
+    if (_denyCodebookEditing()) return;
     _closeAllPopovers();
     let row = document.querySelector(`.ace-code-row[data-code-id="${codeId}"]`);
     if (!row) return;
@@ -1983,6 +1932,7 @@
   }
 
   function _codeAction(method, url, body) {
+    if (_denyCodebookEditing()) return Promise.resolve();
     return fetch(url, {
       method: method,
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -1994,6 +1944,7 @@
   }
 
   function _startInlineRename(elementOrId, opts) {
+    if (_denyCodebookEditing()) return;
     opts = opts || {};
     const isFolder = !!opts.isFolder;
     let row;
@@ -2041,36 +1992,42 @@
       if (restoreFocus) {
         _focusTreeItem(row);
       } else {
-        row.setAttribute("tabindex", "-1");
-        if (document.activeElement === row) row.blur();
-        _setActiveZone("source");
+        clearInactiveSelection();
       }
     }
 
-    function save() {
+    function clearInactiveSelection() {
+      row.setAttribute("tabindex", "-1");
+      if (document.activeElement === row) row.blur();
+      _setActiveZone("source");
+    }
+
+    function save(restoreFocus) {
       if (done) return;
       done = true;
       const newName = nameEl.textContent.trim();
       clearRenameState();
       if (!newName || newName === original) {
         nameEl.textContent = original;
-        _focusTreeItem(row);
+        if (restoreFocus) _focusTreeItem(row);
+        else clearInactiveSelection();
         return;
       }
       _codeAction("PUT", `/api/codes/${targetId}`,
         `name=${encodeURIComponent(newName)}&current_index=${window.__aceCurrentIndex}`
       ).catch(function () { nameEl.textContent = original; });
-      _focusTreeItem(row);
+      if (restoreFocus) _focusTreeItem(row);
+      else clearInactiveSelection();
     }
 
     nameEl.addEventListener("keydown", function handler(e) {
-      if (e.key === "Enter") { e.preventDefault(); nameEl.removeEventListener("keydown", handler); save(); }
+      if (e.key === "Enter") { e.preventDefault(); nameEl.removeEventListener("keydown", handler); save(true); }
       if (e.key === "Escape") { e.preventDefault(); nameEl.removeEventListener("keydown", handler); cancel(true); }
     });
 
     nameEl.addEventListener("blur", function blurHandler() {
       nameEl.removeEventListener("blur", blurHandler);
-      setTimeout(function () { cancel(false); }, 50);
+      setTimeout(function () { save(false); }, 50);
     });
 
     nameEl.addEventListener("paste", function pasteHandler(e) {
@@ -2086,6 +2043,7 @@
   document.addEventListener("dblclick", function (e) {
     const nameEl = e.target.closest(".ace-code-name, .ace-folder-label");
     if (!nameEl) return;
+    if (_denyCodebookEditing()) return;
     const row = nameEl.closest(".ace-code-row, .ace-code-folder-row");
     if (!row) return;
     if (row.classList.contains("ace-code-folder-row")) {
@@ -2097,6 +2055,7 @@
   });
 
   function _executeDelete(codeId) {
+    if (_denyCodebookEditing()) return;
     _lastSelectedCodeId = null;
     // Route the response through HTMX (not _codeAction's plain fetch) so the
     // OOB statusbar/pill fragments carrying the [Z] undo affordance get
@@ -2111,6 +2070,7 @@
   }
 
   function _moveCode(codeId, direction) {
+    if (_denyCodebookEditing()) return;
     const controller = _getSidebarTreeController();
     if (controller && typeof controller.moveItemInDirection === "function") {
       const row = _findCodebookItemRow(codeId);
@@ -2153,6 +2113,7 @@
   let _origRowPositions = null;
 
   function _initSortable() {
+    if (_codebookEditingDisabled()) return;
     const controller = _getSidebarTreeController();
     if (controller && typeof controller.initSortable === "function") {
       controller.initSortable({
@@ -2179,114 +2140,10 @@
       });
       return;
     }
-
-    // Sortable.min.js only loads on /code (coding.html). On /code/{id}/view the
-    // sidebar partial is shared but drag-to-reorder isn't wired — bail quietly.
-    if (typeof Sortable === "undefined") return;
-
-    // Destroy any prior instances bound to detached DOM. Without this, OOB
-    // swaps accumulate Sortable bindings and onEnd fires multiple times per
-    // drop — every swap that re-renders the sidebar would otherwise leave
-    // stale instances pointing at orphaned nodes.
     _sortableInstances.forEach(function (s) {
       try { s.destroy(); } catch (_) {}
     });
     _sortableInstances = [];
-
-    // Root and every folder group accept code rows and folder blocks. Codes
-    // stay leaves because only `.ace-folder-block` owns a child group.
-    const root = document.getElementById("code-tree");
-    if (!root) return;
-
-    function tauriRuntime() {
-      return !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
-    }
-
-    if (tauriRuntime() && root.dataset.aceDragSelectionBound !== "1") {
-      root.dataset.aceDragSelectionBound = "1";
-      root.addEventListener("mousedown", function (evt) {
-        if (evt.target.closest("input, textarea, button, a, [contenteditable='true']")) return;
-        if (!evt.target.closest(".ace-code-row, .ace-code-folder-row")) return;
-        if (evt.cancelable) evt.preventDefault();
-        const selection = window.getSelection && window.getSelection();
-        if (selection && selection.removeAllRanges) selection.removeAllRanges();
-      }, true);
-    }
-
-    function commonOpts() {
-      const useFallbackDrag = tauriRuntime();
-      return {
-        group: "codes",
-        animation: 0,
-        delay: 200,
-        delayOnTouchOnly: true,
-        forceFallback: useFallbackDrag,
-        fallbackOnBody: useFallbackDrag,
-        fallbackTolerance: useFallbackDrag ? 4 : 0,
-        ghostClass: "ace-codebook-sort-placeholder",
-        onStart: function () { _isDragging = true; },
-      };
-    }
-
-    function isInvalidFolderDrop(container, dragEl) {
-      if (!dragEl.classList.contains("ace-folder-block")) return false;
-      return dragEl.contains(container);
-    }
-
-    function handleItemEnd(evt) {
-      const itemId = _itemIdFromTreeElement(evt.item);
-      if (!itemId) return;
-      const newContainer = evt.to;
-      const newParentId = newContainer.getAttribute("data-folder-children") || "";
-      const oldContainer = evt.from;
-      const oldParentId = oldContainer.getAttribute("data-folder-children") || "";
-      if (isInvalidFolderDrop(newContainer, evt.item)) {
-        _refreshSidebar();
-        window._setStatus("A folder cannot move inside itself", "err");
-        return;
-      }
-
-      if (newParentId === oldParentId) {
-        _persistScopeOrder(newContainer);
-      } else {
-        htmx.ajax("PUT", "/api/codes/" + itemId + "/parent", {
-          target: "#text-panel",
-          swap: "outerHTML",
-          values: {
-            parent_id: newParentId,
-            current_index: window.__aceCurrentIndex,
-          },
-        });
-      }
-    }
-
-    const rootInstance = new Sortable(root, Object.assign(commonOpts(), {
-      handle: ".ace-code-row, .ace-code-folder-row",
-      draggable: ".ace-code-row, .ace-folder-block",
-      onEnd: function (evt) {
-        _isDragging = false;
-        handleItemEnd(evt);
-      },
-    }));
-    _sortableInstances.push(rootInstance);
-
-    document.querySelectorAll('#code-tree [role="group"]').forEach(function (container) {
-      const instance = new Sortable(container, Object.assign(commonOpts(), {
-        group: {
-          name: "codes",
-          put: function (to, _from, dragEl) {
-            return !isInvalidFolderDrop(to.el, dragEl);
-          },
-        },
-        handle: ".ace-code-row, .ace-code-folder-row",
-        draggable: ".ace-code-row, .ace-folder-block",
-        onEnd: function (evt) {
-          _isDragging = false;
-          handleItemEnd(evt);
-        },
-      }));
-      _sortableInstances.push(instance);
-    });
   }
 
   /* ================================================================
@@ -2297,7 +2154,7 @@
    *   - code row: Move to folder \u25b8, Move to root, Convert to folder,
    *     Cut, Paste here, Rename, Change colour\u2026, View coded text, Delete
    *   - folder row: Rename, Cut, Paste here, Delete folder
-   *   - empty area of #code-tree: New folder, Paste here
+   *   - empty area of the tree: New folder, Paste here
    *
    * Submenus (Move to folder \u25b8) render in-place: clicking the parent
    * item REPLACES the menu's contents with the submenu items, prefixed
@@ -2341,6 +2198,7 @@
 
   /** Move a code into the named folder via PUT /api/codes/{id}/parent. */
   function _moveCodeToFolder(codeId, folderId) {
+    if (_denyCodebookEditing()) return;
     if (!codeId || !folderId) return;
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       target: "#text-panel",
@@ -2351,6 +2209,7 @@
 
   /** Move an item back to root (empty parent_id). */
   function _moveCodeToRoot(codeId) {
+    if (_denyCodebookEditing()) return;
     if (!codeId) return;
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       target: "#text-panel",
@@ -2361,6 +2220,7 @@
 
   /** Paste the cut item onto a code row (target_id is a code id). */
   function _pasteCodeInto(targetId) {
+    if (_denyCodebookEditing()) return;
     if (!_cutCode || !targetId || targetId === _cutCode) return;
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
@@ -2379,6 +2239,7 @@
 
   /** Paste the cut item into a folder (target_id is a folder id; "" = root). */
   function _pasteCodeIntoFolder(folderId) {
+    if (_denyCodebookEditing()) return;
     if (!_cutCode) return;
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
@@ -2396,6 +2257,7 @@
   }
 
   function _convertCodeToFolder(codeId) {
+    if (_denyCodebookEditing()) return;
     if (!codeId) return;
     htmx.ajax("POST", `/api/codes/${codeId}/convert-to-folder`, {
       target: "#text-panel",
@@ -2409,6 +2271,7 @@
    *  hits Shift+Enter (existing handler in section 15). If `forCodeId` is
    *  set we just hint that the next step (cut/paste) is on them. */
   function _promptNewFolder(forCodeId) {
+    if (_denyCodebookEditing()) return;
     const input = document.getElementById("code-search-input");
     if (!input) return;
     input.focus();
@@ -2427,6 +2290,16 @@
 
   function _buildCodeRowMenu(row) {
     const codeId = _itemIdFromTreeElement(row);
+    if (_codebookEditingDisabled()) {
+      return [{
+        label: "View coded text",
+        shortcut: "V",
+        handler: function () {
+          try { sessionStorage.setItem("cv-restore-codebook-focus", "1"); } catch (_) {}
+          window.location.href = `/code/${codeId}/view`;
+        },
+      }];
+    }
     const inFolder = !!_parentFolderRow(row);
     const folders = _codebookFolderRows()
       .map(function (f) {
@@ -2514,6 +2387,7 @@
   }
 
   function _buildFolderRowMenu(folderRow) {
+    if (_codebookEditingDisabled()) return [];
     const folderId = _itemIdFromTreeElement(folderRow);
     const name = _codebookRowLabel(folderRow) || "folder";
     return [
@@ -2547,6 +2421,7 @@
   }
 
   function _buildEmptyAreaMenu() {
+    if (_codebookEditingDisabled()) return [];
     return [
       {
         label: "New folder",
@@ -2647,11 +2522,12 @@
       items = _buildCodeRowMenu(codeRow);
     } else if (folderRow) {
       items = _buildFolderRowMenu(folderRow);
-    } else if (e.target.closest("#code-tree, #ace-headless-tree-mount")) {
+    } else if (e.target.closest("#ace-headless-tree-mount")) {
       items = _buildEmptyAreaMenu();
     } else {
       return;
     }
+    if (!items.length) return;
     e.preventDefault();
     e.stopPropagation();
     _renderContextMenu(items, e.clientX, e.clientY);
@@ -2687,6 +2563,7 @@
   });
 
   document.addEventListener("ace:rename-codebook-item", function (event) {
+    if (_denyCodebookEditing()) return;
     const detail = event.detail || {};
     const itemId = detail.itemId;
     const name = (detail.name || "").trim();
@@ -2702,6 +2579,7 @@
   });
 
   document.addEventListener("ace:delete-codebook-item", function (event) {
+    if (_denyCodebookEditing()) return;
     const detail = event.detail || {};
     if (!detail.itemId) return;
     _executeDelete(detail.itemId);
@@ -2749,7 +2627,7 @@
     if (e.target.id !== "code-search-input") return;
     const rawValue = e.target.value;
     const query = rawValue.toLowerCase();
-    const tree = document.getElementById("code-tree");
+    const tree = null;
     if (!tree) return;
 
     // Slash command mode dispatch — when input starts with "/" we replace
@@ -2905,6 +2783,7 @@
   });
 
   function _createCodeFromSearchOrSlash(rawValue) {
+    if (_denyCodebookEditing()) return;
     const input = document.getElementById("code-search-input");
     if (!input) return;
     let val = (rawValue !== undefined ? rawValue : input.value).trim();
@@ -3003,6 +2882,7 @@
    *  folder row and open inline rename (the Shift+Enter behaviour). The
    *  slash-command path leaves it false; the folder is just created. */
   function _createFolderSafe(name, opts) {
+    if (_denyCodebookEditing()) return;
     opts = opts || {};
     if (!name) return;
     const dupRow = _findRowByName(name, { isFolder: true, caseInsensitive: true });
@@ -3080,7 +2960,7 @@
     // Snapshot the current tree HTML so we can restore it if the user exits
     // slash mode without committing (slash-mode renders REPLACE the tree's
     // innerHTML, so without this snapshot the original rows are lost).
-    const tree = document.getElementById("code-tree");
+    const tree = null;
     if (tree) _slashState.savedTreeHTML = tree.innerHTML;
     const input = document.getElementById("code-search-input");
     if (input) input.classList.add("slash-active");
@@ -3092,7 +2972,7 @@
    *  on hidden rows, drops the search-target marker. Safe to call when no
    *  filter is active (it's a no-op in that case). */
   function _resetSearchFilterState() {
-    const tree = document.getElementById("code-tree");
+    const tree = null;
     if (!tree) return;
     if (_origRowPositions) {
       _origRowPositions.forEach(function (pos, row) {
@@ -3132,7 +3012,7 @@
     const input = document.getElementById("code-search-input");
     if (input) input.classList.remove("slash-active");
     // Restore the saved tree HTML so the original rows come back.
-    const tree = document.getElementById("code-tree");
+    const tree = null;
     if (tree && _slashState.savedTreeHTML !== null) {
       tree.innerHTML = _slashState.savedTreeHTML;
     }
@@ -3141,7 +3021,7 @@
   }
 
   function _renderSlashSuggestions(value) {
-    const tree = document.getElementById("code-tree");
+    const tree = null;
     if (!tree) return;
     const parsed = _parseSlash(value);
     // Clamp selection to valid range
@@ -3200,7 +3080,7 @@
   }
 
   function _renderZeroMatchCreateRow(query) {
-    const tree = document.getElementById("code-tree");
+    const tree = null;
     if (!tree) return;
     if (!query.trim()) return;
     // Don't add if there are visible matches OR we're in slash mode
@@ -3294,6 +3174,10 @@
       const sel = window.getSelection();
       if (sel && sel.toString().length > 0) return;
       if (!(e.target.closest && e.target.closest("#code-sidebar"))) return;
+      if (_denyCodebookEditing()) {
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       const row = e.target.closest(".ace-code-row, .ace-code-folder-row, .ace-ht-row");
       if (!row) {
@@ -3314,6 +3198,10 @@
     // key === "v"
     if (!_cutCode) return;
     if (!(e.target.closest && e.target.closest("#code-sidebar"))) return;
+    if (_denyCodebookEditing()) {
+      e.preventDefault();
+      return;
+    }
     e.preventDefault();
     // Paste while focus is in the filter input is already filtered above by
     // the INPUT guard, but if some other non-row sidebar element has focus
@@ -3370,7 +3258,7 @@
     if (_slashState.active) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        const tree = document.getElementById("code-tree");
+        const tree = null;
         const items = tree ? tree.querySelectorAll(".ace-slash-item") : [];
         if (items.length > 0) {
           _slashState.selectedIndex = Math.min(_slashState.selectedIndex + 1, items.length - 1);
@@ -3435,7 +3323,7 @@
     e.preventDefault();
 
     // Only create if no visible code rows; otherwise apply the first match.
-    const tree = document.getElementById("code-tree");
+    const tree = null;
     let count = 0;
     if (tree) {
       tree.querySelectorAll(".ace-code-row").forEach(function (r) {
@@ -3459,7 +3347,8 @@
 
   /** Collect all code row IDs from the tree and persist the order via API. */
   function _persistCodeOrder() {
-    const allRows = document.querySelectorAll("#code-tree .ace-code-row");
+    if (_denyCodebookEditing()) return;
+    const allRows = [];
     const ids = [];
     allRows.forEach(function (row) {
       let id = row.getAttribute("data-code-id");
@@ -3470,6 +3359,7 @@
   }
 
   function _persistScopeOrder(container, orderedIds) {
+    if (_denyCodebookEditing()) return;
     if (!container) return;
     const ids = Array.isArray(orderedIds) ? orderedIds : _directChildItemIds(container);
     const parentId = container.getAttribute("data-folder-children") || "";
@@ -3488,7 +3378,8 @@
    *  Used by the keyboard folder-reorder gesture. The /codes/reorder endpoint only
    *  rewrites kind='code' rows; folder reorders need this tree-aware sibling. */
   function _persistTreeOrder() {
-    const tree = document.getElementById("code-tree");
+    if (_denyCodebookEditing()) return;
+    const tree = null;
     if (!tree) return;
     const ids = [];
     Array.from(tree.children).forEach(function (node) {
@@ -4265,8 +4156,6 @@
     if (!el) return null;
     if (el.id === "text-panel" || el.closest("#text-panel")) return "text";
     if (el.id === "code-search-input") return "search";
-    const tree = document.getElementById("code-tree");
-    if (tree && tree.contains(el)) return "tree";
     const headlessTree = document.getElementById("ace-headless-tree-mount");
     if (headlessTree && headlessTree.contains(el)) return "tree";
     return null;
@@ -4295,19 +4184,7 @@
   /** Return all visible treeitems (group headers + code rows) in DOM order. */
   function _getTreeItems() {
     const controller = _getSidebarTreeController();
-    if (controller) return controller.getTreeItems();
-    const tree = document.getElementById("code-tree");
-    if (!tree) return [];
-    const items = tree.querySelectorAll('[role="treeitem"]');
-    const result = [];
-    items.forEach(function (item) {
-      // Skip items hidden by search filter
-      if (item.style.display === "none") return;
-      if (item.getAttribute("aria-hidden") === "true") return;
-      if (_isHiddenByCollapsedAncestor(item)) return;
-      result.push(item);
-    });
-    return result;
+    return controller ? controller.getTreeItems() : [];
   }
 
   /** Move roving tabindex to the given treeitem. */
@@ -4315,86 +4192,50 @@
     const controller = _getSidebarTreeController();
     if (controller) {
       controller.focusTreeItem(item);
-      return;
     }
-    if (!item) return;
-    const prev = _getActiveTreeItem();
-    if (prev) prev.setAttribute("tabindex", "-1");
-    item.setAttribute("tabindex", "0");
-    item.focus();
   }
 
   /** Get the currently focused treeitem (tabindex="0"). */
   function _getActiveTreeItem() {
     const controller = _getSidebarTreeController();
-    if (controller) return controller.getActiveTreeItem();
-    const tree = document.getElementById("code-tree");
-    return tree ? tree.querySelector('[role="treeitem"][tabindex="0"]') : null;
+    return controller ? controller.getActiveTreeItem() : null;
   }
 
   /** Check if a treeitem is a folder row. */
   function _isFolderRow(item) {
     const controller = _getSidebarTreeController();
-    if (controller) return controller.isFolderRow(item);
-    return item && item.classList.contains("ace-code-folder-row");
+    return controller ? controller.isFolderRow(item) : false;
   }
 
   function _containingGroupForItem(item) {
     const controller = _getSidebarTreeController();
-    if (controller) return controller.containingGroupForItem(item);
-    if (!item) return null;
-    if (item.parentElement && item.parentElement.getAttribute("role") === "group") {
-      return item.parentElement;
-    }
-    const block = item.closest(".ace-folder-block");
-    if (block && block.parentElement && block.parentElement.getAttribute("role") === "group") {
-      return block.parentElement;
-    }
-    return null;
+    return controller ? controller.containingGroupForItem(item) : null;
   }
 
   function _parentFolderRow(item) {
     const controller = _getSidebarTreeController();
-    if (controller) return controller.parentFolderRow(item);
-    const group = _containingGroupForItem(item);
-    const row = group ? group.previousElementSibling : null;
-    return _isFolderRow(row) ? row : null;
+    return controller ? controller.parentFolderRow(item) : null;
   }
 
   function _isHiddenByCollapsedAncestor(item) {
     const controller = _getSidebarTreeController();
-    if (controller) return controller.isHiddenByCollapsedAncestor(item);
-    let group = _containingGroupForItem(item);
-    while (group) {
-      const folderRow = group.previousElementSibling;
-      if (folderRow && folderRow.getAttribute("aria-expanded") === "false") return true;
-      const block = group.parentElement;
-      group = block && block.parentElement && block.parentElement.getAttribute("role") === "group"
-        ? block.parentElement
-        : null;
-    }
-    return false;
+    return controller ? controller.isHiddenByCollapsedAncestor(item) : false;
   }
 
   function _itemIdFromTreeElement(el) {
     const controller = _getSidebarTreeController();
-    if (controller) return controller.itemIdFromTreeElement(el);
-    if (!el || !el.getAttribute) return null;
-    if (el.classList.contains("ace-folder-block")) return el.getAttribute("data-folder-id");
-    return el.getAttribute("data-code-id") || el.getAttribute("data-folder-id");
+    return controller ? controller.itemIdFromTreeElement(el) : null;
   }
 
   function _directChildItemIds(container) {
     const controller = _getSidebarTreeController();
-    if (controller) return controller.directChildItemIds(container);
-    return Array.from(container.children)
-      .map(function (el) { return _itemIdFromTreeElement(el); })
-      .filter(Boolean);
+    return controller ? controller.directChildItemIds(container) : [];
   }
 
   /** Move a folder block (the wrapper carrying header + children group) up
    *  or down by one position relative to its sibling folder blocks. */
   function _moveFolderInDirection(folderRow, direction) {
+    if (_denyCodebookEditing()) return;
     const controller = _getSidebarTreeController();
     const controlledId = controller && typeof controller.itemIdFromTreeElement === "function"
       ? controller.itemIdFromTreeElement(folderRow)
@@ -4433,6 +4274,7 @@
 
   /** Move a codebook item into the scope of `folderRow` via PUT /api/codes/{id}/parent. */
   function _doMoveToFolderAbove(row, folderRow) {
+    if (_denyCodebookEditing()) return;
     const codeId = _itemIdFromTreeElement(row);
     const parentId = _itemIdFromTreeElement(folderRow);
     if (!codeId || !parentId) return;
@@ -4449,6 +4291,7 @@
 
   /** Move a codebook item out one level, or to root if it is already one level deep. */
   function _doMoveOutOfFolder(row) {
+    if (_denyCodebookEditing()) return;
     const codeId = _itemIdFromTreeElement(row);
     if (!codeId) return;
     const parentRow = _parentFolderRow(row);
@@ -4477,7 +4320,7 @@
     const controller = _getSidebarTreeController();
     const activeRoot = controller && typeof controller.rootElement === "function"
       ? controller.rootElement()
-      : document.getElementById("code-tree");
+      : null;
     if (!activeRoot || !activeRoot.contains(document.activeElement)) return;
     const active = document.activeElement;
     if (!active || active.getAttribute("role") !== "treeitem") return;
@@ -4490,6 +4333,7 @@
     // Alt+Shift+↑ — Move code up (or folder up if focused on a folder row)
     if (key === "ArrowUp" && alt && shift) {
       e.preventDefault();
+      if (_denyCodebookEditing()) return;
       if (!_isFolderRow(active)) {
         active.classList.add("ace-code-row--reordering");
         _moveCode(_itemIdFromTreeElement(active), -1);
@@ -4506,6 +4350,7 @@
     // Alt+Shift+↓ — Move code down (or folder down if focused on a folder row)
     if (key === "ArrowDown" && alt && shift) {
       e.preventDefault();
+      if (_denyCodebookEditing()) return;
       if (!_isFolderRow(active)) {
         active.classList.add("ace-code-row--reordering");
         _moveCode(_itemIdFromTreeElement(active), 1);
@@ -4525,6 +4370,7 @@
     // rename starts immediately.
     if (key === "ArrowRight" && alt && shift) {
       e.preventDefault();
+      if (_denyCodebookEditing()) return;
       if (_isFolderRow(active)) {
         const folderAbove = _folderRowAbove(active);
         if (folderAbove) _doMoveToFolderAbove(active, folderAbove);
@@ -4584,6 +4430,7 @@
     // creates a folder on its own; ⌥⇧→ is the explicit wrap gesture.
     if (key === "ArrowRight" && alt && !shift) {
       e.preventDefault();
+      if (_denyCodebookEditing()) return;
       const above = _folderRowAbove(active);
       if (!above) {
         if (_isFolderRow(active)) {
@@ -4604,6 +4451,7 @@
     // ⌥← — Move focused item out one folder level.
     if (key === "ArrowLeft" && alt && !shift) {
       e.preventDefault();
+      if (_denyCodebookEditing()) return;
       if (!_parentFolderRow(active)) {
         _announce("Already at root.");
         return;
@@ -4633,6 +4481,7 @@
     // `kind='folder'` is preserved by the model layer).
     if (key === "F2" && !alt && !shift) {
       e.preventDefault();
+      if (_denyCodebookEditing()) return;
       const itemId = _itemIdFromTreeElement(active);
       if (controller && typeof controller.startRenaming === "function" && itemId) {
         controller.startRenaming(itemId);
@@ -4654,6 +4503,7 @@
     // the safety net.
     if ((key === "Delete" || key === "Backspace") && !alt && !shift) {
       e.preventDefault();
+      if (_denyCodebookEditing()) return;
       const itemId = _itemIdFromTreeElement(active);
       if (itemId) _executeDelete(itemId);
       return;
@@ -4757,13 +4607,9 @@
     }
     let codeId = treeItem ? _itemIdFromTreeElement(treeItem) : "";
     if (!codeId) {
-      const active = document.activeElement;
-      treeItem = active && active.closest
-        ? active.closest("#code-tree [role='treeitem'][data-code-id]")
+      treeItem = controller && typeof controller.firstCodeItem === "function"
+        ? controller.firstCodeItem()
         : null;
-      if (!treeItem) {
-        treeItem = document.querySelector("#code-tree [role='treeitem'][data-code-id]");
-      }
       codeId = treeItem ? treeItem.getAttribute("data-code-id") : "";
     }
     if (!codeId) return;
@@ -4775,31 +4621,18 @@
   // --- Folder expand / collapse ---
   //
   // Folder rows are <div class="ace-code-folder-row" aria-expanded="\u2026"
-  // data-folder-id="\u2026">. CSS rotates the chevron and hides the sibling
-  // [role="group"] children container based on aria-expanded, so JS only
-  // needs to flip the attribute. _collapsedFolders mirrors the state in
-  // memory so it survives sidebar OOB swaps within a session.
-
   function _expandFolder(folderRow) {
     const controller = _getSidebarTreeController();
     if (controller) {
       controller.expandFolder(folderRow);
-      return;
     }
-    folderRow.setAttribute("aria-expanded", "true");
-    const id = folderRow.getAttribute("data-folder-id");
-    if (id) _collapsedFolders[id] = false;
   }
 
   function _collapseFolder(folderRow) {
     const controller = _getSidebarTreeController();
     if (controller) {
       controller.collapseFolder(folderRow);
-      return;
     }
-    folderRow.setAttribute("aria-expanded", "false");
-    const id = folderRow.getAttribute("data-folder-id");
-    if (id) _collapsedFolders[id] = true;
   }
 
   /* ================================================================
@@ -5370,7 +5203,7 @@
   function _peekSuppressed() {
     if (document.querySelector(".ace-context-menu")) return true;
     if (document.querySelector(".ace-code-row--reordering")) return true;
-    if (document.querySelector("#code-tree [contenteditable=\"true\"], #ace-headless-tree-mount .ace-ht-rename")) return true;
+    if (document.querySelector("#ace-headless-tree-mount .ace-ht-rename")) return true;
     return false;
   }
 
@@ -5452,7 +5285,7 @@
   }
 
   function _initCodePeek() {
-    const ROW_SEL = "#code-tree .ace-code-row, #code-tree .ace-code-folder-row, #ace-headless-tree-mount .ace-ht-row";
+    const ROW_SEL = "#ace-headless-tree-mount .ace-ht-row";
 
     document.addEventListener("mouseover", function (e) {
       if (!e.target.closest) return;
@@ -5480,9 +5313,9 @@
 
     document.addEventListener("focusout", function (e) {
       if (!e.target.closest) return;
-      if (!e.target.closest("#code-tree, #ace-headless-tree-mount")) return;
+      if (!e.target.closest("#ace-headless-tree-mount")) return;
       const to = e.relatedTarget;
-      if (!to || !to.closest || !to.closest("#code-tree, #ace-headless-tree-mount")) _peekHide();
+      if (!to || !to.closest || !to.closest("#ace-headless-tree-mount")) _peekHide();
     });
 
     document.addEventListener("keydown", function (e) {
@@ -5494,7 +5327,7 @@
     window.addEventListener("resize", _peekHide);
 
     document.addEventListener("scroll", function (e) {
-      if (e.target && (e.target.id === "code-tree" || e.target.id === "ace-headless-tree-mount")) _peekHide();
+      if (e.target && e.target.id === "ace-headless-tree-mount") _peekHide();
     }, true);
 
     document.body.addEventListener("htmx:beforeSwap", function (e) {

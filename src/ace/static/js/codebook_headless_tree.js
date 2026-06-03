@@ -1810,7 +1810,12 @@ var AceHeadlessTreePreview = (() => {
         }
         function clearCodebookActiveStateAfterFrame() {
           clearCodebookActiveState();
-          requestAnimationFrame(clearCodebookActiveState);
+          requestAnimationFrame(function() {
+            clearCodebookActiveState();
+            requestAnimationFrame(clearCodebookActiveState);
+          });
+          setTimeout(clearCodebookActiveState, 0);
+          setTimeout(clearCodebookActiveState, 50);
         }
         function itemData(id) {
           return items[id];
@@ -1853,7 +1858,7 @@ var AceHeadlessTreePreview = (() => {
           return labels[index] || "";
         }
         function codeRank(itemId) {
-          const codeIds = Object.values(items).filter((item) => item.kind === "code").sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)).map((item) => item.id);
+          const codeIds = visibleCodeItems().map((item) => item.getId());
           return codeIds.indexOf(itemId);
         }
         function itemMatchesSearch(id) {
@@ -1969,6 +1974,10 @@ var AceHeadlessTreePreview = (() => {
           }
         }
         async function persistDrop(id, previousParent, nextParent, order, restoreSnapshot) {
+          if (denyCodebookEditing()) {
+            restoreChildrenByParent(restoreSnapshot);
+            return;
+          }
           setStatus("Saving");
           try {
             if (previousParent === nextParent) {
@@ -2006,6 +2015,14 @@ var AceHeadlessTreePreview = (() => {
         }
         function currentIndex() {
           return window.__aceCurrentIndex || 0;
+        }
+        function codebookEditingDisabled() {
+          return !!document.getElementById("code-view");
+        }
+        function denyCodebookEditing() {
+          if (!codebookEditingDisabled()) return false;
+          setStatus("Back to source to edit the codebook");
+          return true;
         }
         function formParentId(parentId) {
           return parentId && parentId !== ROOT_ID ? parentId : "";
@@ -2158,6 +2175,7 @@ var AceHeadlessTreePreview = (() => {
           return element?.getAttribute?.("data-item-id") || null;
         }
         function createCode(name) {
+          if (denyCodebookEditing()) return;
           const next = name.trim();
           if (!next) return;
           const duplicate = findDuplicateName("code", next);
@@ -2180,6 +2198,7 @@ var AceHeadlessTreePreview = (() => {
           });
         }
         function createFolder(name) {
+          if (denyCodebookEditing()) return;
           const next = name.trim();
           if (!next) return;
           const duplicate = findDuplicateName("folder", next);
@@ -2260,6 +2279,7 @@ var AceHeadlessTreePreview = (() => {
           const defaultClick = itemProps.onClick;
           let renamePointerQueued = false;
           function queueRenamingFromPointer(event) {
+            if (denyCodebookEditing()) return true;
             if (event.target?.closest?.(".ace-ht-toggle, .ace-ht-chip, input, textarea, button, a")) return false;
             event.preventDefault();
             event.stopPropagation();
@@ -2282,6 +2302,7 @@ var AceHeadlessTreePreview = (() => {
             if ((event.key === "Delete" || event.key === "Backspace") && item.getId() !== ROOT_ID) {
               event.preventDefault();
               event.stopPropagation();
+              if (denyCodebookEditing()) return;
               deleteItem(item);
               return;
             }
@@ -2350,6 +2371,19 @@ var AceHeadlessTreePreview = (() => {
               removePointerAwayListener();
               persistRename(item, input.value);
               tree.completeRenaming();
+            }, commitRenameAway = function(focusTarget) {
+              if (renameCommitted) return;
+              renameCommitted = true;
+              removePointerAwayListener();
+              persistRename(item, input.value);
+              tree.completeRenaming();
+              suppressNextRefocus = true;
+              clearCodebookActiveStateAfterFrame();
+              queueMicrotask(function() {
+                if (focusTarget && typeof focusTarget.focus === "function" && focusTarget.isConnected) {
+                  focusTarget.focus({ preventScroll: true });
+                }
+              });
             }, cancelRename = function(focusTarget, allowSameRowFocus) {
               if (renameCommitted) return;
               renameCommitted = true;
@@ -2371,8 +2405,15 @@ var AceHeadlessTreePreview = (() => {
                 const active = document.activeElement;
                 if (active?.closest?.("#ace-headless-tree-mount .ace-ht-row")) active.blur();
               });
+            }, renameChanged = function() {
+              const next = input.value.trim();
+              return !!next && next !== item.getItemData().name;
             }, onRenamePointerAway = function(event) {
               if (row.contains(event.target)) return;
+              if (renameChanged()) {
+                commitRenameAway(event.target);
+                return;
+              }
               cancelRename(event.target, false);
             };
             const input = document.createElement("input");
@@ -2397,6 +2438,10 @@ var AceHeadlessTreePreview = (() => {
               }
             });
             input.addEventListener("blur", function(event) {
+              if (renameChanged()) {
+                commitRenameAway(event.relatedTarget);
+                return;
+              }
               cancelRename(event.relatedTarget, false);
             }, { once: true });
             pointerAwayArmed = true;
@@ -2524,6 +2569,7 @@ var AceHeadlessTreePreview = (() => {
             setDragImage: tinyDragImage,
             createForeignDragObject: nativeDragPayload,
             canDrag: function(draggedItems) {
+              if (codebookEditingDisabled()) return false;
               return draggedItems.every(function(item) {
                 return item.getId() !== ROOT_ID;
               });
@@ -2544,7 +2590,10 @@ var AceHeadlessTreePreview = (() => {
             },
             setDndState: scheduleDragStateRender,
             setAssistiveDndState: scheduleDragStateRender,
-            features: [
+            features: codebookEditingDisabled() ? [
+              syncDataLoaderFeature,
+              hotkeysCoreFeature
+            ] : [
               syncDataLoaderFeature,
               hotkeysCoreFeature,
               dragAndDropFeature,

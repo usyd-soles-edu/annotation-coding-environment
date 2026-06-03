@@ -12,7 +12,6 @@
    Codebook uses outline:none in coding.css; tracks has its own ring; excerpts
    had no focus rule. Same recipe everywhere on this page so the user always
    knows which column the cursor is in. */
-#code-view .ace-code-row:focus-visible,
 #code-view .cv-track-row:focus-visible,
 #code-view .cv-row:focus-visible {
   outline: 2px solid var(--ace-focus);
@@ -73,22 +72,21 @@
    The "current" row mirrors the coding-page focused-row inversion so the
    notion of "the selected code" reads identically across both views.
    Chips are hidden on this page (rule below), so no chip overrides needed. */
-#code-sidebar .ace-code-row.ace-code-row--current {
+#code-sidebar .ace-ht-row--code.ace-ht-row--current {
   background: #1a1d27;
   color: #fff;
   box-shadow: none;
 }
-#code-sidebar .ace-code-row.ace-code-row--current .ace-code-name {
+#code-sidebar .ace-ht-row--code.ace-ht-row--current .ace-ht-label {
   font-weight: 600;
   color: #fff;
 }
-#code-sidebar .ace-code-row.ace-code-row--current .ace-code-count {
+#code-sidebar .ace-ht-row--code.ace-ht-row--current .ace-ht-count {
   color: rgba(255, 255, 255, 0.7);
 }
 /* Keycap badges show the apply-code letter — not meaningful on this page */
-#code-sidebar .ace-code-chip { display: none; }
-/* Code rows use pointer cursor — clicking navigates */
-#code-sidebar .ace-code-row { cursor: pointer; }
+#code-sidebar .ace-code-chip,
+#code-sidebar .ace-ht-chip { display: none; }
 
 /* Gear / settings menu disabled on this view — the dropdown's actions
    (import/export/fullscreen) are codebook-wide and belong on /code. */

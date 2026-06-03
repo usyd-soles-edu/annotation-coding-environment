@@ -13,8 +13,8 @@ import pytest
 # Skip if no playwright
 pytest.importorskip("playwright")
 
-CODE_ROW = ".ace-code-row, .ace-ht-row--code"
-CHORD_ROW = ".ace-code-row[data-chord], .ace-ht-row--code[data-chord]"
+CODE_ROW = ".ace-ht-row--code"
+CHORD_ROW = ".ace-ht-row--code[data-chord]"
 
 
 def _free_port():
