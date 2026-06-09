@@ -67,10 +67,11 @@ We use semantic versioning. While the project is pre-release, versions look like
 To release:
 
 1. Add a new section at the top of `CHANGELOG.md` describing what changed
-2. Commit it: `git commit -am "docs: changelog for v0.2.0"`
-3. Tag it: `git tag v0.2.0`
-4. Push both: `git push && git push --tags`
-5. Create the GitHub release: `gh release create v0.2.0 --notes-from-tag`
+2. Check `.zenodo.json` is committed, has `version` set to the release number, and still contains the stable ACE `description`. Zenodo reads metadata from the tagged archive, so stale or uncommitted metadata changes will appear on the DOI record.
+3. Commit it: `git commit -am "docs: changelog for v0.2.0"`
+4. Tag it: `git tag v0.2.0`
+5. Push both: `git push && git push --tags`
+6. Create the GitHub release: `gh release create v0.2.0 --notes-from-tag`
 
 ### Writing the changelog
 
