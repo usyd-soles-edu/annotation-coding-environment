@@ -7,7 +7,7 @@
     return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
   };
 
-  // node_modules/@headless-tree/core/dist/index.mjs
+  // tmp/headless-tree-build/node_modules/@headless-tree/core/dist/index.mjs
   function functionalUpdate(updater, input) {
     return typeof updater === "function" ? updater(input) : updater;
   }
@@ -22,7 +22,7 @@
   }
   var __defProp, __defProps, __getOwnPropDescs, __getOwnPropSymbols, __hasOwnProp, __propIsEnum, __defNormalProp, __spreadValues, __spreadProps, __async, memo, poll, prefix, throwError, logWarning, treeFeature, buildStaticInstance, verifyFeatures, exhaustiveSort, compareFeatures, sortFeatures, createTree, resolveKeyCode, specialKeys, modifierKeyCodes, testHotkeyMatch, findHotkeyMatch, hotkeysCoreController, hotkeysCoreFeature, undefErrorMessage, promiseErrorMessage, unpromise, syncDataLoaderFeature, isOrderedDragTarget, canDrop, getItemDropCategory, getInsertionIndex, getTargetPlacement, getDragCode, getNthParent, getReparentTarget, getDragTarget, handleAutoOpenFolder, defaultCanDropForeignDragObject, dragAndDropFeature, getNextDragTarget, getNextValidDragTarget, updateScroll, initiateDrag, moveDragPosition, keyboardDragAndDropFeature, searchFeature, renamingFeature, removeItemsFromParents, insertItemsAtTarget, createOnDropHandler;
   var init_dist = __esm({
-    "node_modules/@headless-tree/core/dist/index.mjs"() {
+    "tmp/headless-tree-build/node_modules/@headless-tree/core/dist/index.mjs"() {
       __defProp = Object.defineProperty;
       __defProps = Object.defineProperties;
       __getOwnPropDescs = Object.getOwnPropertyDescriptors;
