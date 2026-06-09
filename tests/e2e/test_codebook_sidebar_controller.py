@@ -6,6 +6,107 @@ from playwright.sync_api import expect, sync_playwright
 from .conftest import browser_params
 
 
+def _headless_row_style(page, selector: str) -> dict[str, str]:
+    return page.locator(selector).evaluate(
+        """
+        (row) => {
+          const label = row.querySelector(".ace-ht-label");
+          const rowStyle = getComputedStyle(row);
+          const labelStyle = getComputedStyle(label);
+          return {
+            backgroundColor: rowStyle.backgroundColor,
+            color: rowStyle.color,
+            boxShadow: rowStyle.boxShadow,
+            labelColor: labelStyle.color,
+            labelFontWeight: labelStyle.fontWeight,
+          };
+        }
+        """
+    )
+
+
+def _focused_headless_codebook_row(page) -> dict[str, str]:
+    return page.locator(
+        '#ace-headless-tree-mount [role="treeitem"][tabindex="0"]'
+    ).evaluate(
+        """
+        (row) => {
+          const label = row.querySelector(".ace-ht-label");
+          const style = getComputedStyle(row);
+          return {
+            label: label ? label.textContent.trim() : "",
+            outlineStyle: style.outlineStyle,
+          };
+        }
+        """
+    )
+
+
+def _wait_for_focused_headless_label(page, label: str) -> None:
+    page.wait_for_function(
+        """
+        (label) => document.querySelector(
+          '#ace-headless-tree-mount [role="treeitem"][tabindex="0"] .ace-ht-label'
+        )?.textContent.trim() === label
+        """,
+        arg=label,
+        timeout=2000,
+    )
+
+
+def _apply_annotation(page, code_id: str, start: int, end: int, text: str) -> None:
+    page.evaluate(
+        """
+        async ({ codeId, start, end, text }) => {
+          await window.htmx.ajax("POST", "/api/code/apply", {
+            target: "#text-panel",
+            swap: "outerHTML",
+            values: {
+              code_id: codeId,
+              start_offset: start,
+              end_offset: end,
+              selected_text: text,
+              current_index: window.__aceCurrentIndex || 0,
+            },
+          });
+        }
+        """,
+        {"codeId": code_id, "start": start, "end": end, "text": text},
+    )
+
+
+def _coded_text_row_style(page, selector: str) -> dict[str, str]:
+    return page.locator(selector).evaluate(
+        """
+        (row) => {
+          const idx = row.querySelector(".idx");
+          const text = row.querySelector(".txt, .ct");
+          const rowStyle = getComputedStyle(row);
+          const idxStyle = getComputedStyle(idx);
+          const textStyle = getComputedStyle(text);
+          return {
+            backgroundColor: rowStyle.backgroundColor,
+            color: rowStyle.color,
+            boxShadow: rowStyle.boxShadow,
+            idxColor: idxStyle.color,
+            textColor: textStyle.color,
+          };
+        }
+        """
+    )
+
+
+def _record_apply_requests(page) -> list[str]:
+    requests: list[str] = []
+
+    def record(route):
+        requests.append(route.request.url)
+        route.continue_()
+
+    page.route("**/api/code/apply**", record)
+    return requests
+
+
 @pytest.mark.parametrize("browser_name", browser_params())
 def test_coding_and_coded_text_views_load_headless_sidebar_controller(
     ace_server, browser_name
@@ -37,7 +138,227 @@ def test_coding_and_coded_text_views_load_headless_sidebar_controller(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_coded_text_view_codebook_is_read_only(ace_server, browser_name):
+def test_main_codebook_arrow_keys_move_one_row_without_extra_outline(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount [role='treeitem']")
+
+            page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Alpha",
+            ).click()
+            assert _focused_headless_codebook_row(page)["label"] == "Alpha"
+
+            page.keyboard.press("ArrowDown")
+            _wait_for_focused_headless_label(page, "Bravo")
+            focused = _focused_headless_codebook_row(page)
+            assert focused["label"] == "Bravo"
+            assert focused["outlineStyle"] == "none"
+
+            page.keyboard.press("ArrowDown")
+            _wait_for_focused_headless_label(page, "Charlie")
+            assert _focused_headless_codebook_row(page)["label"] == "Charlie"
+
+            page.keyboard.press("ArrowUp")
+            _wait_for_focused_headless_label(page, "Bravo")
+            assert _focused_headless_codebook_row(page)["label"] == "Bravo"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_coded_text_view_current_code_row_is_quieter_than_keyboard_focus(
+    ace_server, browser_name
+):
+    """The loaded code and keyboard cursor should not look like two selections."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount [role='treeitem']")
+
+            coding_row = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Bravo",
+            ).first
+            code_id = coding_row.get_attribute("data-code-id")
+            assert code_id
+            coding_row.click()
+            assert page.evaluate("document.body.dataset.activeZone") == "codebook"
+            coding_selector = (
+                f'#ace-headless-tree-mount .ace-ht-row--code[data-code-id="{code_id}"]'
+            )
+            assert page.locator(
+                '#ace-headless-tree-mount [role="treeitem"][tabindex="0"]'
+            ).count() == 1
+            assert page.locator(
+                '#ace-headless-tree-mount [role="treeitem"][aria-selected]'
+            ).count() == 0
+            assert page.locator(
+                '#ace-headless-tree-mount [role="treeitem"][aria-current]'
+            ).count() == 0
+            page.wait_for_function(
+                """
+                (selector) => getComputedStyle(document.querySelector(selector))
+                  .backgroundColor === "rgb(241, 241, 238)"
+                """,
+                arg=coding_selector,
+                timeout=2000,
+            )
+            coding_style = _headless_row_style(page, coding_selector)
+
+            page.goto(f"{ace_server}/code/{code_id}/view")
+            view_selector = (
+                '#code-sidebar .ace-ht-row--code.ace-ht-row--current'
+                f'[aria-current="page"][data-code-id="{code_id}"]'
+            )
+            page.wait_for_selector(view_selector)
+
+            assert page.locator(
+                '#code-sidebar .ace-ht-row--code[aria-current="page"]'
+            ).count() == 1
+            assert page.locator(
+                "#code-sidebar .ace-ht-row--folder[aria-current]"
+            ).count() == 0
+            assert page.locator(
+                '#code-sidebar [role="treeitem"][aria-selected]'
+            ).count() == 0
+            view_style = _headless_row_style(page, view_selector)
+            assert view_style["backgroundColor"] == "rgba(0, 0, 0, 0)"
+            assert view_style["boxShadow"] == "none"
+            assert view_style["labelFontWeight"] == coding_style["labelFontWeight"]
+
+            page.locator(view_selector).click()
+            current_clicked_style = _headless_row_style(
+                page,
+                '#code-sidebar .ace-ht-row--code[tabindex="0"]',
+            )
+            assert current_clicked_style["backgroundColor"] == coding_style["backgroundColor"]
+            assert current_clicked_style["boxShadow"] == coding_style["boxShadow"]
+
+            page.locator(
+                "#code-sidebar .ace-ht-row--code",
+                has_text="Charlie",
+            ).click()
+            focused_style = _headless_row_style(
+                page,
+                '#code-sidebar .ace-ht-row--code[tabindex="0"]',
+            )
+            assert focused_style["backgroundColor"] == coding_style["backgroundColor"]
+            assert focused_style["boxShadow"] == coding_style["boxShadow"]
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_coded_text_view_arrow_navigation_does_not_crossfade_codebook(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount [role='treeitem']")
+            code_id = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Alpha",
+            ).first.get_attribute("data-code-id")
+            assert code_id
+
+            page.goto(f"{ace_server}/code/{code_id}/view")
+            page.wait_for_selector("#code-sidebar .ace-ht-row--code")
+            page.evaluate(
+                """
+                () => {
+                  window.__aceViewTransitionCount = 0;
+                  document.startViewTransition = (callback) => {
+                    window.__aceViewTransitionCount += 1;
+                    callback();
+                    return {
+                      ready: Promise.resolve(),
+                      finished: Promise.resolve(),
+                      updateCallbackDone: Promise.resolve(),
+                    };
+                  };
+                }
+                """
+            )
+
+            page.locator(
+                "#code-sidebar .ace-ht-row--code",
+                has_text="Alpha",
+            ).click()
+            page.keyboard.press("ArrowDown")
+            page.wait_for_function(
+                """
+                () => document.querySelector(
+                  '#code-sidebar .ace-ht-row--code[tabindex="0"] .ace-ht-label'
+                )?.textContent.trim() === 'Bravo'
+                """
+            )
+            page.wait_for_function(
+                """
+                () => document.querySelector(
+                  '#code-sidebar .ace-ht-row--code[aria-current="page"] .ace-ht-label'
+                )?.textContent.trim() === 'Bravo'
+                """
+            )
+            assert page.evaluate("window.__aceViewTransitionCount") == 0
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_coded_text_view_selected_rows_keep_text_readable(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount [role='treeitem']")
+            code_id = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Alpha",
+            ).first.get_attribute("data-code-id")
+            assert code_id
+
+            _apply_annotation(page, code_id, 0, 15, "First sentence.")
+            _apply_annotation(page, code_id, 16, 32, "Second sentence.")
+
+            page.goto(f"{ace_server}/code/{code_id}/view")
+            page.wait_for_selector(".cv-track-row")
+            page.wait_for_selector(".cv-row")
+
+            page.locator(".cv-track-row").first.click()
+            page.wait_for_selector(".cv-track-row.selected")
+            track_style = _coded_text_row_style(page, ".cv-track-row.selected")
+            assert track_style["backgroundColor"] == "rgb(241, 241, 238)"
+            assert track_style["color"] == "rgb(0, 0, 0)"
+            assert track_style["idxColor"] == "rgb(0, 0, 0)"
+            assert track_style["textColor"] == "rgb(0, 0, 0)"
+
+            page.locator(".cv-track-row .tick").first.click()
+            page.wait_for_selector(".cv-row.selected")
+            excerpt_style = _coded_text_row_style(page, ".cv-row.selected")
+            assert excerpt_style["backgroundColor"] == "rgb(241, 241, 238)"
+            assert excerpt_style["color"] == "rgb(0, 0, 0)"
+            assert excerpt_style["idxColor"] == "rgb(0, 0, 0)"
+            assert excerpt_style["textColor"] == "rgb(0, 0, 0)"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_coded_text_view_codebook_supports_editing_without_text_apply(
+    ace_server, browser_name
+):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
         try:
@@ -55,42 +376,67 @@ def test_coded_text_view_codebook_is_read_only(ace_server, browser_name):
             first_code_id = visible_code_row.get_attribute("data-code-id")
             assert first_code_id
 
+            apply_requests = _record_apply_requests(page)
+
             visible_code_row.locator(".ace-ht-label").dblclick()
-            page.wait_for_timeout(200)
-            expect(page.locator("[contenteditable='true']")).to_have_count(0)
+            page.wait_for_selector(".ace-ht-rename")
+            rename = page.locator(".ace-ht-rename")
+            rename.fill("Alpha View Rename")
+            rename.press("Enter")
 
-            visible_code_row.click()
-            page.keyboard.press("Delete")
-            page.wait_for_timeout(200)
-
-            assert page.evaluate(
+            page.wait_for_function(
                 """
                 async ({ itemId }) => {
                   const payload = await fetch("/api/codes/tree").then((r) => r.json());
-                  return !!payload.items[itemId];
+                  return payload.items[itemId]?.name === "Alpha View Rename";
                 }
                 """,
-                {"itemId": first_code_id},
+                arg={"itemId": first_code_id},
             )
 
-            visible_code_row.click(button="right")
-            expect(page.locator(".ace-context-menu-item", has_text="Rename")).to_have_count(0)
-            expect(page.locator(".ace-context-menu-item", has_text="Delete")).to_have_count(0)
-
-            page.locator("#code-search-input").fill("Read only folder")
+            page.locator("#code-search-input").fill("View Editable Folder")
             page.keyboard.press("Shift+Enter")
-            page.wait_for_timeout(200)
-
-            assert page.evaluate(
+            page.wait_for_function(
                 """
                 async () => {
                   const payload = await fetch("/api/codes/tree").then((r) => r.json());
-                  return !Object.values(payload.items).some(
-                    (item) => item.kind === "folder" && item.name === "Read only folder"
+                  return Object.values(payload.items).some(
+                    (item) => item.kind === "folder" && item.name === "View Editable Folder"
                   );
                 }
                 """
             )
+
+            page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--folder",
+                has_text="View Editable Folder",
+            ).click()
+            page.keyboard.press("Delete")
+
+            page.wait_for_function(
+                """
+                async () => {
+                  const payload = await fetch("/api/codes/tree").then((r) => r.json());
+                  return !Object.values(payload.items).some(
+                    (item) => item.kind === "folder" && item.name === "View Editable Folder"
+                  );
+                }
+                """
+            )
+
+            page.keyboard.press("1")
+            page.evaluate(
+                """
+                (codeId) => {
+                  document.dispatchEvent(new CustomEvent("ace:apply-code", {
+                    detail: { codeId, codeName: "Alpha View Rename" },
+                  }));
+                }
+                """,
+                first_code_id,
+            )
+            page.wait_for_timeout(200)
+            assert apply_requests == []
         finally:
             browser.close()
 

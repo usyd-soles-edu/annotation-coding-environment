@@ -19,7 +19,7 @@ from ace.models.annotation import (
     get_code_view_data,
 )
 from ace.models.assignment import add_assignment, get_assignments_for_coder
-from ace.models.codebook import list_codes, list_codes_with_tree
+from ace.models.codebook import COLOUR_PALETTE, list_codes, list_codes_with_tree
 from ace.models.project import get_project
 from ace.models.source import get_source_content, list_sources
 from ace.models.source_note import get_note, source_ids_with_notes
@@ -236,6 +236,7 @@ def _coding_context(
         "is_flagged": is_flagged,
         "source_text": source_text,
         "codes": codes_list,
+        "colour_palette": [hex_val for hex_val, _label in COLOUR_PALETTE],
         "codes_by_id": codes_by_id,
         "annotations": annotations_list,
         "annotation_counts": annotation_counts,
@@ -345,6 +346,6 @@ async def code_view_page(request: Request, code_id: str):
             "code_counts_by_id": code_counts_by_id,
             "project_file_stem": project_file_stem,
             "version": __version__,
-            "codebook_readonly": True,
+            "codebook_browse_mode": True,
         },
     )

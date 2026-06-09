@@ -48,7 +48,18 @@
   }
 
   function _codebookEditingDisabled() {
-    return !!document.getElementById("code-view");
+    return document.querySelector("#ace-headless-tree-mount[data-codebook-readonly='1']") !== null;
+  }
+
+  function _codeApplicationDisabled() {
+    return !!document.getElementById("code-view") || !document.getElementById("text-panel");
+  }
+
+  function _codebookMutationSwapOptions() {
+    if (document.getElementById("text-panel")) {
+      return { target: "#text-panel", swap: "outerHTML" };
+    }
+    return { target: "#code-sidebar", swap: "none" };
   }
 
   function _denyCodebookEditing() {
@@ -233,6 +244,17 @@
     if (!tree) return;
     const rows = tree.querySelectorAll(".ace-ht-row--code[data-code-id]");
     _currentKeyMap = [];
+    if (_codeApplicationDisabled()) {
+      rows.forEach(function (row) {
+        row.removeAttribute("aria-keyshortcuts");
+        const keycap = row.querySelector(".ace-ht-chip");
+        if (keycap) {
+          keycap.textContent = "";
+          keycap.removeAttribute("title");
+        }
+      });
+      return;
+    }
     let labelIdx = 0; // Counter that only increments for non-chord rows
     rows.forEach(function (row) {
       // Also skip rows hidden by search filter
@@ -287,15 +309,26 @@
   let _chordMode = null;        // null | "awaiting"
   let _chordBuffer = "";
 
+  function _setChordCodebookFilter(active) {
+    const controller = window.__aceHeadlessTreeController ||
+      window.AceHeadlessTreePreview?.getController?.();
+    if (controller && typeof controller.setChordFilter === "function") {
+      controller.setChordFilter(!!active);
+    }
+  }
+
   function _enterChordMode() {
     _chordMode = "awaiting";
     _chordBuffer = "";
     document.body.dataset.chordMode = "awaiting";
+    _setChordCodebookFilter(true);
+    _setStatus("Two-key shortcut: ;__ · type two letters", "ok-sticky");
   }
 
   function _exitChordMode() {
     _chordMode = null;
     _chordBuffer = "";
+    _setChordCodebookFilter(false);
     delete document.body.dataset.chordMode;
     delete document.body.dataset.chordBuffer;
     document.querySelectorAll(".ace-chord-match").forEach(function (el) {
@@ -306,17 +339,22 @@
   function _onChordBufferChange() {
     if (_chordBuffer.length === 1) {
       document.body.dataset.chordBuffer = _chordBuffer;
+      let matches = 0;
       const tree = _keymapRoot();
       if (tree) {
         tree.querySelectorAll(".ace-ht-chip--chord").forEach(function (cap) {
           const row = cap.closest(".ace-ht-row--code");
           const chord = row && row.dataset.chord;
-          cap.classList.toggle(
-            "ace-chord-match",
-            !!(chord && chord.startsWith(_chordBuffer))
-          );
+          const isMatch = !!(chord && chord.startsWith(_chordBuffer));
+          if (isMatch) matches++;
+          cap.classList.toggle("ace-chord-match", isMatch);
         });
       }
+      _setStatus(
+        "Two-key shortcut: ;" + _chordBuffer + "_ · " +
+          matches + " " + (matches === 1 ? "match" : "matches"),
+        "ok-sticky"
+      );
     }
   }
 
@@ -326,10 +364,15 @@
       const row = tree.querySelector(`.ace-ht-row--code[data-chord="${chord}"]`);
       if (row) {
         const codeId = row.getAttribute("data-code-id");
-        if (codeId) _applyCode(codeId);
+        if (codeId) {
+          _applyCode(codeId, { shortcut: ";" + chord });
+          _exitChordMode();
+          return;
+        }
       }
     }
     _exitChordMode();
+    _setStatus("No code for ;" + chord, "err");
   }
 
   document.addEventListener("keydown", function (evt) {
@@ -390,8 +433,9 @@
   // Apply/delete use htmx.ajax() directly instead of hidden trigger buttons
   // to avoid issues with hx-sync queuing and param injection timing.
 
-  function _applyCodeToSentence(codeId) {
-    if (!Number.isFinite(window.__aceFocusIndex) || window.__aceFocusIndex < 0) return;
+  function _applyCodeToSentence(codeId, afterApply) {
+    if (_codeApplicationDisabled()) return false;
+    if (!Number.isFinite(window.__aceFocusIndex) || window.__aceFocusIndex < 0) return false;
 
     htmx.ajax("POST", "/api/code/apply-sentence", {
       target: "#text-panel",
@@ -401,15 +445,20 @@
         sentence_index: window.__aceFocusIndex,
         current_index: window.__aceCurrentIndex,
       },
-    }).then(_restoreFocus);
+    }).then(function () {
+      _restoreFocus();
+      if (typeof afterApply === "function") afterApply();
+    });
 
     window.__aceLastCodeId = codeId;
     _flashCodeRow(codeId);
+    return true;
   }
 
-  function _applyCodeToSelection(codeId) {
+  function _applyCodeToSelection(codeId, afterApply) {
+    if (_codeApplicationDisabled()) return false;
     const sel = window.__aceLastSelection;
-    if (!sel) return;
+    if (!sel) return false;
 
     htmx.ajax("POST", "/api/code/apply", {
       target: "#text-panel",
@@ -421,12 +470,16 @@
         selected_text: sel.text,
         current_index: window.__aceCurrentIndex,
       },
-    }).then(_restoreFocus);
+    }).then(function () {
+      _restoreFocus();
+      if (typeof afterApply === "function") afterApply();
+    });
 
     window.__aceLastCodeId = codeId;
     window.__aceLastSelection = null;
     window.getSelection().removeAllRanges();
     _flashCodeRow(codeId);
+    return true;
   }
 
   function _deleteSentenceAnnotation() {
@@ -660,16 +713,11 @@
       if (pos >= 0) _updateKeycaps();
       if (pos >= 0 && pos < _currentKeyMap.length) {
         e.preventDefault();
-        let codeId = _currentKeyMap[pos];
-        if (window.__aceLastSelection) {
-          _applyCodeToSelection(codeId);
-        } else if (window.__aceFocusIndex >= 0) {
-          _applyCodeToSentence(codeId);
-        } else {
-          // Auto-focus first sentence if none focused
+        const codeId = _currentKeyMap[pos];
+        if (!window.__aceLastSelection && window.__aceFocusIndex < 0) {
           _focusSentence(0);
-          _applyCodeToSentence(codeId);
         }
+        _applyCode(codeId, { shortcut: _keylabel(pos) });
       }
     }
   });
@@ -725,6 +773,7 @@
       _shortcutRow("↑ / ↓", "Navigate sentences") +
       _shortcutRow("Shift + ← / →", "Previous / next source") +
       _shortcutRow("1 – 9, 0, a–y (not q x z n)", "Apply code") +
+      _shortcutRow("; then two letters", "Apply a two-key shortcut") +
       _shortcutRow("Q", "Repeat last code") +
       _shortcutRow("X", "Remove code from sentence") +
       _shortcutRow("Z", "Undo") +
@@ -1857,8 +1906,6 @@
     }
   }
 
-  const _COLOUR_PALETTE = ["#A91818","#557FE6","#6DA918","#E655D4","#18A991","#E6A455","#3C18A9","#5BE655","#A91848","#55B0E6","#9DA918","#C855E6","#18A960","#E67355","#1824A9","#8CE655","#A91879","#55E1E6","#A98418","#9755E6","#18A930","#E65567","#1855A9","#BCE655","#A918A9","#55E6BB","#A95418","#6755E6","#30A918","#E65598","#1885A9","#E6E055","#7818A9","#55E68B","#A92318","#5574E6"];
-
   let _activeColourPopover = null;
 
   function _closeColourPopover() {
@@ -1873,21 +1920,28 @@
   function _openColourPopover(codeId) {
     if (_denyCodebookEditing()) return;
     _closeAllPopovers();
-    let row = document.querySelector(`.ace-code-row[data-code-id="${codeId}"]`);
+    let row = _findCodebookItemRow(codeId);
     if (!row) return;
     const rect = row.getBoundingClientRect();
 
     const popover = document.createElement("div");
     popover.className = "ace-colour-popover";
 
-    _COLOUR_PALETTE.forEach(function (hex) {
+    const palette = Array.isArray(window.__aceColourPalette) ? window.__aceColourPalette : [];
+    palette.forEach(function (hex) {
+      if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
       const swatch = document.createElement("button");
       swatch.className = "ace-colour-swatch";
       swatch.style.background = hex;
       swatch.addEventListener("click", function () {
         _closeAllPopovers();
-        _codeAction("PUT", `/api/codes/${codeId}`,
-          `colour=${encodeURIComponent(hex)}&current_index=${window.__aceCurrentIndex}`);
+        htmx.ajax("PUT", `/api/codes/${codeId}`, {
+          ..._codebookMutationSwapOptions(),
+          values: {
+            colour: hex,
+            current_index: window.__aceCurrentIndex || 0,
+          },
+        });
       });
       popover.appendChild(swatch);
     });
@@ -2064,8 +2118,7 @@
     // current_index via Query, so a body-borne value would be ignored.
     const idx = encodeURIComponent(window.__aceCurrentIndex);
     htmx.ajax("DELETE", `/api/codes/${codeId}?current_index=${idx}`, {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
     });
   }
 
@@ -2127,8 +2180,7 @@
         },
         onMoveParent: function (itemId, newParentId, targetOrderIds) {
           htmx.ajax("PUT", "/api/codes/" + itemId + "/parent", {
-            target: "#text-panel",
-            swap: "outerHTML",
+            ..._codebookMutationSwapOptions(),
             values: {
               parent_id: newParentId,
               target_order_ids: JSON.stringify(targetOrderIds || []),
@@ -2201,8 +2253,7 @@
     if (_denyCodebookEditing()) return;
     if (!codeId || !folderId) return;
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: { parent_id: folderId, current_index: window.__aceCurrentIndex || 0 },
     });
   }
@@ -2212,8 +2263,7 @@
     if (_denyCodebookEditing()) return;
     if (!codeId) return;
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: { parent_id: "", current_index: window.__aceCurrentIndex || 0 },
     });
   }
@@ -2224,8 +2274,7 @@
     if (!_cutCode || !targetId || targetId === _cutCode) return;
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: {
         code_id: cutId,
         target_id: targetId,
@@ -2243,8 +2292,7 @@
     if (!_cutCode) return;
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: {
         code_id: cutId,
         target_id: folderId || "",
@@ -2260,8 +2308,7 @@
     if (_denyCodebookEditing()) return;
     if (!codeId) return;
     htmx.ajax("POST", `/api/codes/${codeId}/convert-to-folder`, {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: { current_index: window.__aceCurrentIndex || 0 },
     });
   }
@@ -2535,6 +2582,7 @@
 
   /** Unified apply helper used by keycap click, search Enter, and tree Enter. */
   function _applyCode(codeId, opts) {
+    if (_codeApplicationDisabled()) return false;
     opts = opts || {};
     let codeName = opts.codeName || "";
     let row = _findCodebookItemRow(codeId);
@@ -2542,22 +2590,26 @@
       codeName = _codebookRowLabel(row) || codeName;
     }
     const isSelection = !!window.__aceLastSelection;
-    if (isSelection) {
-      _applyCodeToSelection(codeId);
-    } else if (window.__aceFocusIndex >= 0) {
-      _applyCodeToSentence(codeId);
-    } else {
-      return;
-    }
+    let afterApply = null;
     if (codeName) {
       const target = isSelection ? "selection" : "sentence " + (window.__aceFocusIndex + 1);
-      _announce(`'${codeName}' applied to ${target}`);
+      const shortcut = opts.shortcut ? opts.shortcut + " · " : "";
+      const message = "Applied " + shortcut + codeName + " to " + target;
+      afterApply = function () { _setStatus(message, "ok"); };
+    }
+    if (isSelection) {
+      return _applyCodeToSelection(codeId, afterApply);
+    } else if (window.__aceFocusIndex >= 0) {
+      return _applyCodeToSentence(codeId, afterApply);
+    } else {
+      return false;
     }
   }
 
   document.addEventListener("ace:apply-code", function (event) {
     const detail = event.detail || {};
     if (!detail.codeId) return;
+    if (_codeApplicationDisabled()) return;
     _clearSearchFilter();
     _applyCode(detail.codeId, { codeName: detail.codeName || "" });
   });
@@ -2569,8 +2621,7 @@
     const name = (detail.name || "").trim();
     if (!itemId || !name) return;
     htmx.ajax("PUT", `/api/codes/${itemId}`, {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: {
         name: name,
         current_index: window.__aceCurrentIndex || 0,
@@ -2894,8 +2945,7 @@
     }
     const input = document.getElementById("code-search-input");
     htmx.ajax("POST", "/api/codes/folder", {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: { name: name, current_index: window.__aceCurrentIndex },
     }).then(function () {
       // Clear filter input + state so the just-rendered new folder isn't
@@ -3227,8 +3277,7 @@
     }
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: {
         code_id: cutId,
         target_id: targetId,
@@ -3242,6 +3291,8 @@
 
   document.addEventListener("keydown", function (e) {
     if (e.target.id !== "code-search-input") return;
+    const controller = _getSidebarTreeController();
+    if (controller && controller.kind === "headless") return;
     const input = e.target;
 
     // ⌘+Enter (or Ctrl+Enter on non-mac) creates a code from the input text,
@@ -3364,8 +3415,7 @@
     const ids = Array.isArray(orderedIds) ? orderedIds : _directChildItemIds(container);
     const parentId = container.getAttribute("data-folder-children") || "";
     htmx.ajax("POST", "/api/codes/reorder-in-scope", {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: {
         code_ids: JSON.stringify(ids),
         parent_id: parentId,
@@ -3399,8 +3449,7 @@
       if (cid) ids.push(cid);
     });
     htmx.ajax("POST", "/api/codes/reorder-tree", {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: {
         tree_ids: JSON.stringify(ids),
         current_index: window.__aceCurrentIndex || 0,
@@ -4283,8 +4332,7 @@
       return;
     }
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: { parent_id: parentId, current_index: window.__aceCurrentIndex || 0 },
     });
   }
@@ -4298,8 +4346,7 @@
     const grandparentRow = parentRow ? _parentFolderRow(parentRow) : null;
     const newParentId = grandparentRow ? _itemIdFromTreeElement(grandparentRow) : "";
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
-      target: "#text-panel",
-      swap: "outerHTML",
+      ..._codebookMutationSwapOptions(),
       values: { parent_id: newParentId || "", current_index: window.__aceCurrentIndex || 0 },
     });
   }
@@ -4397,8 +4444,7 @@
       }
       const aboveCodeId = _itemIdFromTreeElement(above);
       htmx.ajax("POST", `/api/codes/${codeId}/indent-promote`, {
-        target: "#text-panel",
-        swap: "outerHTML",
+        ..._codebookMutationSwapOptions(),
         values: {
           above_code_id: aboveCodeId,
           folder_name: "New folder",
@@ -4511,6 +4557,16 @@
 
     const items = _getTreeItems();
     const idx = items.indexOf(active);
+    const plainNavigationKey = !alt && !shift && !e.ctrlKey && !e.metaKey
+      && (key === "ArrowDown"
+          || key === "ArrowUp"
+          || key === "ArrowLeft"
+          || key === "ArrowRight"
+          || key === "Home"
+          || key === "End");
+    if (plainNavigationKey && active.classList.contains("ace-ht-row")) {
+      return;
+    }
 
     // ↓ — Next visible treeitem
     if (key === "ArrowDown" && !alt && !shift) {

@@ -488,7 +488,7 @@
   column-gap: 8px;
   align-items: center;
   height: 24px;
-  /* padding-left = stripe-left (8) + stripe-width (2) + 12px gutter = 22, plus indent. */
+  /* padding-left = stripe-left (8) + stripe-width (4) + 10px gutter = 22, plus indent. */
   padding: 0 14px 0 calc(22px + var(--indent));
   font-size: var(--ace-font-size-2xs);
   color: var(--ace-text);
@@ -510,7 +510,7 @@
   left: calc(8px + var(--indent));
   top: 5px;
   bottom: 5px;
-  width: 2px;
+  width: 4px;
   background: var(--row-colour, transparent);
   border-radius: 1px;
   transition: width 120ms;
@@ -521,7 +521,7 @@
 }
 
 .ace-code-row:hover::before {
-  width: 3px;
+  width: 5px;
 }
 
 .ace-folder-block:has(> [role="group"] [role="treeitem"][tabindex="0"]) > .ace-code-folder-row {
@@ -791,10 +791,20 @@
   opacity: 1;
 }
 
+/* Shared headless codebook keyboard-cursor state. */
 body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] {
   background: #f1f1ee;
   color: var(--ace-text);
   box-shadow: inset 3px 0 0 var(--ace-focus);
+}
+
+/* In the coded-text view, aria-current marks the loaded code. Keep it quieter
+   than the keyboard cursor so arrowing through the codebook never looks like
+   two selected rows. */
+#code-view #code-sidebar .ace-ht-row--code.ace-ht-row--current:not([tabindex="0"]) {
+  background: transparent;
+  color: var(--ace-text);
+  box-shadow: none;
 }
 
 .ace-ht-toggle {
@@ -816,7 +826,7 @@ body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] {
 }
 
 .ace-ht-row--code .ace-ht-label {
-  border-left: 2px solid var(--row-colour, transparent);
+  border-left: 4px solid var(--row-colour, transparent);
   padding-left: 8px;
 }
 
@@ -866,7 +876,9 @@ body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] {
 }
 
 body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-count,
-body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-chip {
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-chip,
+#code-view #code-sidebar .ace-ht-row--code.ace-ht-row--current:not([tabindex="0"]) .ace-ht-count,
+#code-view #code-sidebar .ace-ht-row--code.ace-ht-row--current:not([tabindex="0"]) .ace-ht-chip {
   color: var(--ace-text);
 }
 
@@ -874,12 +886,14 @@ body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-chip {
   background: #e8e8e4;
 }
 
-body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"]::before {
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"]::before,
+#code-view #code-sidebar .ace-ht-row--code.ace-ht-row--current:not([tabindex="0"])::before {
   border-left-color: var(--ace-focus);
   opacity: 1;
 }
 
-body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-label {
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-label,
+#code-view #code-sidebar .ace-ht-row--code.ace-ht-row--current .ace-ht-label {
   font-weight: var(--ace-weight-semibold);
 }
 
@@ -1401,9 +1415,9 @@ rect.ace-code-preview {
   content: "";
   position: absolute;
   left: 8px;
-  top: 9px;
-  bottom: 9px;
-  width: 2px;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
   background: var(--row-colour);
 }
 
@@ -1419,7 +1433,7 @@ rect.ace-code-preview {
 .ace-applied-code-row:hover::before,
 .ace-applied-code-row:focus-visible::before,
 .ace-applied-code-row.is-code-preview::before {
-  width: 3px;
+  width: 5px;
 }
 
 .ace-applied-code-row:focus-visible {
@@ -1638,7 +1652,7 @@ rect.ace-code-preview {
   box-shadow: var(--ace-shadow);
   padding: 4px;
   display: grid;
-  grid-template-columns: repeat(6, 28px);
+  grid-template-columns: repeat(4, 28px);
   gap: 2px;
   border-radius: var(--ace-radius);
 }
@@ -2391,7 +2405,9 @@ body[data-active-zone="codebook"]:has(#text-panel) .ace-code-folder-row[tabindex
 .ace-code-folder-row:focus,
 .ace-code-folder-row:focus-visible,
 .ace-code-row:focus,
-.ace-code-row:focus-visible {
+.ace-code-row:focus-visible,
+.ace-ht-row:focus,
+.ace-ht-row:focus-visible {
   outline: none;
 }
 

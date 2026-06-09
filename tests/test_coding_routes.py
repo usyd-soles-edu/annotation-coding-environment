@@ -432,6 +432,7 @@ def test_undo_after_annotate(client_with_codes):
         data={"current_index": 0},
     )
     assert resp.status_code == 200
+    assert 'id="code-sidebar"' not in resp.text
 
     # Verify annotation is now soft-deleted
     conn = sqlite3.connect(db_path)
@@ -1528,6 +1529,7 @@ def test_create_folder_route(client_with_codes):
         data={"name": "Themes", "current_index": 0},
     )
     assert r.status_code == 200
+    assert r.headers["HX-Reswap"] == "none"
     # Folder row exists in the DB with kind='folder'
     fid = _latest_id_by_name(db_path, "Themes", "folder")
     assert fid
@@ -1537,12 +1539,14 @@ def test_set_parent_to_folder(client_with_codes):
     client, _coder_id, _a, _b, db_path = client_with_codes
     folder_id = _create_folder(client, "Themes", db_path)
     code_id = _add_test_code(client, "Identity", db_path)
+    before_colours = _code_colours(db_path, [code_id])
 
     r = client.put(
         f"/api/codes/{code_id}/parent",
         data={"parent_id": folder_id, "current_index": 0},
     )
     assert r.status_code == 200
+    assert r.headers["HX-Reswap"] == "none"
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -1551,6 +1555,7 @@ def test_set_parent_to_folder(client_with_codes):
     ).fetchone()
     conn.close()
     assert row["parent_id"] == folder_id
+    assert _code_colours(db_path, [code_id]) == before_colours
 
 
 def test_set_folder_parent_to_folder(client_with_codes):
@@ -1593,12 +1598,14 @@ def test_set_parent_to_root(client_with_codes):
     client, _coder_id, _a, _b, db_path = client_with_codes
     folder_id = _create_folder(client, "Themes", db_path)
     code_id = _add_test_code(client, "Identity", db_path, parent_id=folder_id)
+    before_colours = _code_colours(db_path, [code_id])
 
     r = client.put(
         f"/api/codes/{code_id}/parent",
         data={"parent_id": "", "current_index": 0},
     )
     assert r.status_code == 200
+    assert r.headers["HX-Reswap"] == "none"
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -1607,6 +1614,7 @@ def test_set_parent_to_root(client_with_codes):
     ).fetchone()
     conn.close()
     assert row["parent_id"] is None
+    assert _code_colours(db_path, [code_id]) == before_colours
 
 
 def test_set_parent_to_code_rejected(client_with_codes):
@@ -1759,6 +1767,18 @@ def _sort_orders_in_folder(db_path: str, folder_id: str) -> dict[str, int]:
     return {r["id"]: r["sort_order"] for r in rows}
 
 
+def _code_colours(db_path: str, code_ids: list[str]) -> dict[str, str]:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    placeholders = ",".join("?" * len(code_ids))
+    rows = conn.execute(
+        f"SELECT id, colour FROM codebook_code WHERE id IN ({placeholders})",
+        code_ids,
+    ).fetchall()
+    conn.close()
+    return {r["id"]: r["colour"] for r in rows}
+
+
 def test_reorder_in_scope_updates_sort_order_within_root(client_with_codes):
     """POST /api/codes/reorder-in-scope rewrites sort_order for the listed
     ids in the order they're passed (root scope = empty parent_id)."""
@@ -1780,6 +1800,24 @@ def test_reorder_in_scope_updates_sort_order_within_root(client_with_codes):
     assert orders[cc] == 0
     assert orders[a] == 1
     assert orders[b] == 2
+
+
+def test_reorder_in_scope_preserves_code_colours(client_with_codes):
+    client, _coder_id, a, b, db_path = client_with_codes
+    cc = _add_test_code(client, "Charlie", db_path)
+    before = _code_colours(db_path, [a, b, cc])
+
+    r = client.post(
+        "/api/codes/reorder-in-scope",
+        data={
+            "code_ids": json.dumps([cc, b, a]),
+            "parent_id": "",
+            "current_index": 0,
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    assert _code_colours(db_path, [a, b, cc]) == before
 
 
 def test_reorder_in_scope_returns_text_panel_and_sidebar(client_with_codes):
@@ -2227,6 +2265,7 @@ def test_set_parent_route_respects_target_order(client_with_codes):
         moving_folder = add_folder(conn, "Moving folder")
     finally:
         conn.close()
+    before_colours = _code_colours(db_path, [first, second])
 
     response = client.put(
         f"/api/codes/{moving_folder}/parent",
@@ -2237,6 +2276,7 @@ def test_set_parent_route_respects_target_order(client_with_codes):
         },
     )
     assert response.status_code == 200
+    assert response.headers["HX-Reswap"] == "none"
 
     conn = open_project(db_path)
     try:
@@ -2249,6 +2289,7 @@ def test_set_parent_route_respects_target_order(client_with_codes):
     finally:
         conn.close()
     assert [row["id"] for row in rows] == [first, moving_folder, second]
+    assert _code_colours(db_path, [first, second]) == before_colours
 
     response = client.post("/api/undo", data={"current_index": 0})
     assert response.status_code == 200

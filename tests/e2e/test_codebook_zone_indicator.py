@@ -220,6 +220,47 @@ def test_headless_code_double_click_rename_accepts_typing(ace_server, browser_na
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_code_rename_delete_edits_selected_text(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-ht-row--code .ace-ht-label")
+
+            item_id = page.locator(".ace-ht-row--code").first.get_attribute("data-item-id")
+            assert item_id
+            page.dblclick(".ace-ht-row--code .ace-ht-label")
+            rename = page.locator(".ace-ht-rename")
+            rename.wait_for()
+            rename.evaluate(
+                """
+                (input) => {
+                  input.value = "Alpha middle code";
+                  input.setSelectionRange(6, 12);
+                }
+                """
+            )
+            page.keyboard.press("Delete")
+
+            assert rename.input_value() == "Alpha  code"
+            assert page.locator(f".ace-ht-row[data-item-id='{item_id}']").count() == 1
+
+            page.keyboard.press("Enter")
+            page.wait_for_function(
+                """
+                async ({ itemId }) => {
+                  const payload = await fetch("/api/codes/tree").then((r) => r.json());
+                  return payload.items[itemId]?.name === "Alpha  code";
+                }
+                """,
+                arg={"itemId": item_id},
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_headless_folder_double_click_rename_accepts_typing(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
@@ -243,6 +284,48 @@ def test_headless_folder_double_click_rename_accepts_typing(ace_server, browser_
                 "() => Array.from(document.querySelectorAll('.ace-ht-row--folder .ace-ht-label'))"
                 ".some(el => el.textContent.trim() === 'Renamed Folder')",
                 timeout=3000,
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_folder_rename_backspace_edits_selected_text(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            _create_folder(page, "Folder One")
+            page.wait_for_selector(".ace-ht-row--folder .ace-ht-label")
+
+            item_id = page.locator(".ace-ht-row--folder").first.get_attribute("data-item-id")
+            assert item_id
+            page.dblclick(".ace-ht-row--folder .ace-ht-label")
+            rename = page.locator(".ace-ht-rename")
+            rename.wait_for()
+            rename.evaluate(
+                """
+                (input) => {
+                  input.value = "Folder middle name";
+                  input.setSelectionRange(7, 13);
+                }
+                """
+            )
+            page.keyboard.press("Backspace")
+
+            assert rename.input_value() == "Folder  name"
+            assert page.locator(f".ace-ht-row[data-item-id='{item_id}']").count() == 1
+
+            page.keyboard.press("Enter")
+            page.wait_for_function(
+                """
+                async ({ itemId }) => {
+                  const payload = await fetch("/api/codes/tree").then((r) => r.json());
+                  return payload.items[itemId]?.name === "Folder  name";
+                }
+                """,
+                arg={"itemId": item_id},
             )
         finally:
             browser.close()

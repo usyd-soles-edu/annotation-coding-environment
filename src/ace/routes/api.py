@@ -1192,7 +1192,12 @@ def _build_undo_response(
     Used by both `/api/undo` and `/api/redo` after the manager has run the
     inverse mutation. `result` is the dict returned from
     `UndoManager.undo(conn)` / `redo(conn)`:
-        {"description": str, "source_id": str | None, "flash_annotation_id": str | None}
+        {
+            "description": str,
+            "source_id": str | None,
+            "flash_annotation_id": str | None,
+            "codebook_changed": bool,
+        }
     """
     from ace.models.assignment import get_assignments_for_coder
 
@@ -1219,7 +1224,13 @@ def _build_undo_response(
                 {"ace-navigate": {"index": target_index, "total": len(assignments)}}
             )
 
-    content = _render_full_coding_oob(request, conn, coder_id, target_index)
+    content = _render_full_coding_oob(
+        request,
+        conn,
+        coder_id,
+        target_index,
+        include_sidebar=result.get("codebook_changed", True),
+    )
     # _oob_status returns an HTMLResponse — extract its body to concat as a string.
     # It already emits an _oob_announce internally, so no separate announce call here.
     status_html = _oob_status(description, "ok").body.decode()
@@ -1728,7 +1739,7 @@ async def create_folder_route(
         _get_undo_manager(request).record_create_folder(folder_id)
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
         content += _oob_announce(f"Created folder {name}")
-        return HTMLResponse(content)
+        return HTMLResponse(content, headers={"HX-Reswap": "none"})
 
 
 def _scope_ordering(conn, scope_parent_id: str | None) -> list[tuple[str, int]]:
@@ -1815,7 +1826,7 @@ async def set_code_parent_route(
             new_dest_ordering=new_dest_ordering,
         )
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
+        return HTMLResponse(content, headers={"HX-Reswap": "none"})
 
 
 @router.post("/codes/{code_id}/indent-promote")
@@ -1959,7 +1970,7 @@ async def cut_paste_route(
             prev_dest_ordering=prev_dest_ordering,
         )
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
+        return HTMLResponse(content, headers={"HX-Reswap": "none"})
 
 
 @router.post("/codes/reorder-in-scope")
@@ -2028,7 +2039,7 @@ async def reorder_in_scope_route(
         if prev != new:
             _get_undo_manager(request).record_code_reorder(prev, new)
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
+        return HTMLResponse(content, headers={"HX-Reswap": "none"})
 
 
 @router.post("/codes/reorder-tree")
@@ -2093,7 +2104,7 @@ async def reorder_tree_route(
         if prev != new:
             _get_undo_manager(request).record_code_reorder(prev, new)
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
+        return HTMLResponse(content, headers={"HX-Reswap": "none"})
 
 
 @router.post("/codes/reorder")
@@ -2136,7 +2147,7 @@ async def reorder_codes_route(
         if prev != new:
             _get_undo_manager(request).record_code_reorder(prev, new)
         content = _render_code_sidebar(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
+        return HTMLResponse(content, headers={"HX-Reswap": "none"})
 
 
 # ---------------------------------------------------------------------------

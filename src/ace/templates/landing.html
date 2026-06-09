@@ -16,12 +16,16 @@
     <div id="resume-link" class="ace-home-resume" hidden></div>
 
     <!-- Actions -->
-    <div class="ace-home-actions">
-      <button id="new-project-link" class="ace-home-action-primary" type="button">
-        New project
+    <div class="ace-home-actions" aria-label="Project actions">
+      <button id="new-project-link" class="ace-home-action ace-home-action-primary"
+              type="button" aria-keyshortcuts="n" title="New project">
+        <span class="ace-home-keycap" aria-hidden="true">n</span>
+        <span class="ace-home-action-label">New project</span>
       </button>
-      <button id="open-existing-btn" class="ace-home-action-secondary" type="button">
-        Open existing
+      <button id="open-existing-btn" class="ace-home-action ace-home-action-secondary"
+              type="button" aria-keyshortcuts="o" title="Open existing project">
+        <span class="ace-home-keycap" aria-hidden="true">o</span>
+        <span class="ace-home-action-label">Open existing</span>
       </button>
     </div>
 
@@ -79,6 +83,7 @@
 
   var newProjectBtn = document.getElementById("new-project-link");
   var openExistingBtn = document.getElementById("open-existing-btn");
+  var openExistingLabel = openExistingBtn.querySelector(".ace-home-action-label");
   var form = document.getElementById("new-project-form");
   var nameInput = document.getElementById("new-project-input");
   var folderInput = document.getElementById("new-project-folder");
@@ -95,6 +100,30 @@
     message.dataset.kind = kind || "";
     var live = document.getElementById(kind === "err" ? "ace-live-region-assertive" : "ace-live-region");
     if (live) live.textContent = text || "";
+  }
+
+  function isTypingTarget(target) {
+    return !!target && !!target.closest &&
+      !!target.closest("input, textarea, select, [contenteditable='true']");
+  }
+
+  function landingNavItems() {
+    return Array.from(document.querySelectorAll(
+      "#resume-link:not([hidden]) a, #new-project-link, #open-existing-btn, .ace-home-tool-link"
+    )).filter(function(el) {
+      return !el.disabled && el.offsetParent !== null;
+    });
+  }
+
+  function moveLandingFocus(delta) {
+    var items = landingNavItems();
+    if (!items.length) return;
+    var active = document.activeElement;
+    var index = items.indexOf(active);
+    var nextIndex = index === -1
+      ? (delta > 0 ? 0 : items.length - 1)
+      : (index + delta + items.length) % items.length;
+    items[nextIndex].focus({ preventScroll: true });
   }
 
   function projectName() {
@@ -232,13 +261,22 @@
 
   // --- Open existing ---
   function openExisting() {
+    if (openExistingBtn.disabled) return;
     setMessage("", "");
+    openExistingBtn.disabled = true;
+    openExistingBtn.setAttribute("aria-busy", "true");
+    openExistingLabel.textContent = "Opening...";
     pickAceFilePath()
       .then(function(path) {
         if (path) openProject(path);
       })
       .catch(function() {
         setMessage("Could not open the file picker. Try again.", "err");
+      })
+      .finally(function() {
+        openExistingBtn.disabled = false;
+        openExistingBtn.removeAttribute("aria-busy");
+        openExistingLabel.textContent = "Open existing";
       });
   }
 
@@ -298,7 +336,7 @@
     var filename = parts.pop();
     var path = list[0].path;
     el.innerHTML = '<a href="#">' + escapeHtml(filename) + '</a>' +
-      '<button class="ace-home-resume-close" title="Dismiss">\u00d7</button>';
+      '<button class="ace-home-resume-close" type="button" title="Dismiss recent project" aria-label="Dismiss recent project">\u00d7</button>';
     el.querySelector("a").addEventListener("click", function(event) {
       event.preventDefault();
       openProject(path);
@@ -308,6 +346,23 @@
   }
 
   openExistingBtn.addEventListener("click", openExisting);
+  document.addEventListener("keydown", function(event) {
+    if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (isTypingTarget(event.target)) return;
+    if (!form.hidden && form.contains(event.target)) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      moveLandingFocus(event.key === "ArrowDown" ? 1 : -1);
+      return;
+    }
+    if (event.key.toLowerCase() === "n") {
+      event.preventDefault();
+      showNewProjectForm();
+    } else if (event.key.toLowerCase() === "o") {
+      event.preventDefault();
+      openExisting();
+    }
+  });
 
   function getResponseHeader(xhr, name) {
     if (!xhr) return "";

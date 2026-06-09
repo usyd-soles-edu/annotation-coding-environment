@@ -21,6 +21,13 @@ _PARADOX_AGREE = 0.85
 _PARADOX_ALPHA = 0.60
 _PARADOX_AC1 = 0.70
 
+_CODE_COLOURS = {
+    "reliable": "green",
+    "tentative": "amber",
+    "unreliable": "red",
+    "insufficient": "grey",
+}
+
 
 @dataclass
 class CodeVerdict:
@@ -32,10 +39,18 @@ class CodeVerdict:
 
 
 @dataclass
+class VerdictCodeList:
+    names: list[str]
+    colour: str  # "amber" or "red"
+    indices: list[int]
+    use_indices: bool
+
+
+@dataclass
 class OverallVerdict:
     colour: str  # "green", "amber", "red", "grey"
     title: str
-    paragraphs: list[str]
+    paragraphs: list[str | VerdictCodeList]
 
 
 def _fmt(val: float | None) -> str:
@@ -81,75 +96,89 @@ def _is_paradox(m: CodeMetrics) -> bool:
     )
 
 
-def classify_code(m: CodeMetrics, *, pairwise: bool = False) -> CodeVerdict:
-    """Classify metrics into a verdict.
-
-    When *pairwise* is True, guidance text refers to the coder pair
-    rather than a code definition.
-    """
-    # Insufficient data path
+def _status_for_metrics(m: CodeMetrics) -> str:
     if m.n_positions < _MIN_POSITIONS or m.gwets_ac1 is None:
-        return CodeVerdict(
-            status="insufficient",
-            colour="grey",
-            paradox=False,
-            guidance="Not enough coded data to assess."
+        return "insufficient"
+    if m.gwets_ac1 >= _RELIABLE:
+        return "reliable"
+    if m.gwets_ac1 >= _TENTATIVE:
+        return "tentative"
+    return "unreliable"
+
+
+def _paradox_guidance(m: CodeMetrics, *, pairwise: bool) -> str:
+    paradox_intro = (
+        "This is a known statistical phenomenon called the prevalence "
+        "paradox (Feinstein & Cicchetti, 1990), where alpha and kappa "
+        "underestimate agreement when a code is applied to only a small "
+        "fraction of the text. "
+    )
+    evidence = (
+        f"AC1 ({_fmt(m.gwets_ac1)}) and % Agreement ({_pct(m.percent_agreement)}) "
+        "both indicate strong agreement."
+    )
+    if pairwise:
+        return f"Alpha looks low, but this is a statistical artefact. {paradox_intro}{evidence}"
+    return (
+        "Alpha looks low for this code, but this is a statistical artefact. "
+        f"{paradox_intro}{evidence} No action needed \u2014 focus revision efforts "
+        "on other codes."
+    )
+
+
+def _guidance_for_code(
+    status: str,
+    m: CodeMetrics,
+    *,
+    paradox: bool,
+    pairwise: bool,
+) -> str:
+    if status == "insufficient":
+        return (
+            "Not enough coded data to assess."
             if pairwise
-            else "Not enough coded data to assess this code.",
-            metadata_line=_meta_line(m, pairwise=pairwise),
+            else "Not enough coded data to assess this code."
         )
-
-    ac1 = m.gwets_ac1
-    paradox = _is_paradox(m)
-
-    if ac1 >= _RELIABLE:
-        status = "reliable"
-        colour = "green"
+    if status == "reliable":
         if paradox:
-            _paradox_intro = (
-                "This is a known statistical phenomenon called the prevalence "
-                "paradox (Feinstein & Cicchetti, 1990), where alpha and kappa "
-                "underestimate agreement when a code is applied to only a small "
-                "fraction of the text. "
-            )
-            guidance = (
-                f"Alpha looks low, but this is a statistical artefact. "
-                f"{_paradox_intro}"
-                f"AC1 ({_fmt(ac1)}) and % Agreement ({_pct(m.percent_agreement)}) both "
-                f"indicate strong agreement."
-            ) if pairwise else (
-                f"Alpha looks low for this code, but this is a statistical artefact. "
-                f"{_paradox_intro}"
-                f"AC1 ({_fmt(ac1)}) and % Agreement ({_pct(m.percent_agreement)}) both "
-                f"indicate strong agreement. No action needed \u2014 focus revision "
-                f"efforts on other codes."
-            )
-        else:
-            guidance = (
-                "This pair agrees strongly across all codes."
-                if pairwise
-                else "Agreement is strong. This code can be used with confidence."
-            )
-    elif ac1 >= _TENTATIVE:
-        status = "tentative"
-        colour = "amber"
-        guidance = (
+            return _paradox_guidance(m, pairwise=pairwise)
+        return (
+            "This pair agrees strongly across all codes."
+            if pairwise
+            else "Agreement is strong. This code can be used with confidence."
+        )
+    if status == "tentative":
+        return (
             "This pair shows moderate agreement. A calibration session between "
             "these two coders may help align their interpretations."
             if pairwise
             else "Agreement is moderate but not yet strong. Discuss borderline cases with "
             "your team \u2014 the code definition may need tighter boundaries."
         )
-    else:
-        status = "unreliable"
-        colour = "red"
-        guidance = (
-            "This pair disagrees substantially. Review specific examples where "
-            "they diverged and discuss the differences."
-            if pairwise
-            else "Coders disagree on when to apply this code. Review the code definition "
-            "with your team, discuss concrete examples, and re-code a sample."
-        )
+    return (
+        "This pair disagrees substantially. Review specific examples where "
+        "they diverged and discuss the differences."
+        if pairwise
+        else "Coders disagree on when to apply this code. Review the code definition "
+        "with your team, discuss concrete examples, and re-code a sample."
+    )
+
+
+def classify_code(m: CodeMetrics, *, pairwise: bool = False) -> CodeVerdict:
+    """Classify metrics into a verdict.
+
+    When *pairwise* is True, guidance text refers to the coder pair
+    rather than a code definition.
+    """
+    status = _status_for_metrics(m)
+    colour = _CODE_COLOURS[status]
+    paradox = status == "reliable" and _is_paradox(m)
+    guidance = _guidance_for_code(
+        status,
+        m,
+        paradox=paradox,
+        pairwise=pairwise,
+    )
 
     return CodeVerdict(
         status=status,
@@ -163,32 +192,43 @@ def classify_code(m: CodeMetrics, *, pairwise: bool = False) -> CodeVerdict:
 _MAX_INLINE_CODES = 6
 
 
-def _code_list_html(
+def _code_list(
     names: list[str],
     colour: str,
     code_index: dict[str, int],
-) -> str:
-    """Format problematic code names for the verdict card.
-
-    ≤ _MAX_INLINE_CODES: bulleted HTML list with bold coloured names.
-    > _MAX_INLINE_CODES: compact index reference ("codes #1, #3, #5 in Table 1").
-    """
-    hex_map = {"red": "#c62828", "amber": "#e65100"}
-    hex_colour = hex_map.get(colour, "#000")
-
+) -> VerdictCodeList:
+    indices: list[int] = []
     if len(names) > _MAX_INLINE_CODES:
         indices = sorted(code_index[n] for n in names if n in code_index)
-        idx_str = ", ".join(f"#{i}" for i in indices)
-        return (
-            f'<span style="color: {hex_colour}; font-weight: 600;">'
-            f"{idx_str}</span> in Table 1"
-        )
-
-    items = "".join(
-        f'<li><strong style="color: {hex_colour};">{n}</strong></li>'
-        for n in names
+    return VerdictCodeList(
+        names=names,
+        colour=colour,
+        indices=indices,
+        use_indices=bool(indices),
     )
-    return f'<ul class="ace-verdict-list">{items}</ul>'
+
+
+def _card_colour_for_ac1(ac1: float) -> str:
+    if ac1 >= _RELIABLE:
+        return "green"
+    if ac1 >= _TENTATIVE:
+        return "amber"
+    return "red"
+
+
+def _verdict(
+    colour: str,
+    title: str,
+    *paragraphs: str | VerdictCodeList,
+) -> OverallVerdict:
+    return OverallVerdict(colour=colour, title=title, paragraphs=list(paragraphs))
+
+
+def _names_with_colour(
+    code_verdicts: dict[str, CodeVerdict],
+    colour: str,
+) -> list[str]:
+    return [name for name, verdict in code_verdicts.items() if verdict.colour == colour]
 
 
 def classify_overall(
@@ -208,91 +248,74 @@ def classify_overall(
 
     # Grey: no overall AC1 available
     if overall_ac1 is None:
-        return OverallVerdict(
-            colour="grey",
-            title="Not enough data",
-            paragraphs=[
-                "There is not enough coded data to assess agreement. Ensure both coders "
-                "have annotated at least two shared sources with the same codebook, "
-                "then try again."
-            ],
+        return _verdict(
+            "grey",
+            "Not enough data",
+            "There is not enough coded data to assess agreement. Ensure both coders "
+            "have annotated at least two shared sources with the same codebook, "
+            "then try again.",
         )
 
-    # Determine card colour from overall AC1
-    if overall_ac1 >= _RELIABLE:
-        card_colour = "green"
-    elif overall_ac1 >= _TENTATIVE:
-        card_colour = "amber"
-    else:
-        card_colour = "red"
-
-    # Gather names by status
-    amber_names = [
-        name for name, v in code_verdicts.items() if v.colour == "amber"
-    ]
-    red_names = [
-        name for name, v in code_verdicts.items() if v.colour == "red"
-    ]
+    card_colour = _card_colour_for_ac1(overall_ac1)
+    amber_names = _names_with_colour(code_verdicts, "amber")
+    red_names = _names_with_colour(code_verdicts, "red")
 
     if card_colour == "green":
         if not amber_names and not red_names:
-            return OverallVerdict(
-                colour="green",
-                title="Strong agreement",
-                paragraphs=[
-                    "Agreement is strong across all codes. Your codebook is working "
-                    "well and you can divide the remaining coding work between coders."
-                ],
+            return _verdict(
+                "green",
+                "Strong agreement",
+                "Agreement is strong across all codes. Your codebook is working "
+                "well and you can divide the remaining coding work between coders.",
             )
-        else:
-            code_list = _code_list_html(amber_names, "amber", code_index)
-            return OverallVerdict(
-                colour="green",
-                title="Strong agreement",
-                paragraphs=[
-                    "Agreement is strong overall. Most codes show strong agreement, "
-                    "but the following fall in the tentative range. Review their "
-                    "definitions and boundary cases with your team.",
-                    code_list,
-                ],
+        if red_names:
+            code_list = _code_list(red_names, "red", code_index)
+            return _verdict(
+                "green",
+                "Strong agreement",
+                "Agreement is strong overall, but the following codes are flagged "
+                "in red. Review them before using their coded data in analysis.",
+                code_list,
             )
+        code_list = _code_list(amber_names, "amber", code_index)
+        return _verdict(
+            "green",
+            "Strong agreement",
+            "Agreement is strong overall. Most codes show strong agreement, "
+            "but the following fall in the tentative range. Review their "
+            "definitions and boundary cases with your team.",
+            code_list,
+        )
 
     if card_colour == "amber":
         if not red_names:
-            code_list = _code_list_html(amber_names, "amber", code_index)
-            return OverallVerdict(
-                colour="amber",
-                title="Tentative agreement",
-                paragraphs=[
-                    "Most codes show strong agreement, but some fall in the tentative "
-                    "range. Review the definitions and boundary cases for the following "
-                    "with your team before dividing the remaining work.",
-                    code_list,
-                ],
+            code_list = _code_list(amber_names, "amber", code_index)
+            return _verdict(
+                "amber",
+                "Tentative agreement",
+                "Most codes show strong agreement, but some fall in the tentative "
+                "range. Review the definitions and boundary cases for the following "
+                "with your team before dividing the remaining work.",
+                code_list,
             )
-        else:
-            code_list = _code_list_html(red_names, "red", code_index)
-            return OverallVerdict(
-                colour="amber",
-                title="Tentative agreement",
-                paragraphs=[
-                    "Overall agreement is moderate. Codes in the tentative range can "
-                    "support preliminary findings, but those flagged in red should be "
-                    "revised before their data are used in analysis. Focus your next "
-                    "calibration session on:",
-                    code_list,
-                ],
-            )
+        code_list = _code_list(red_names, "red", code_index)
+        return _verdict(
+            "amber",
+            "Tentative agreement",
+            "Overall agreement is moderate. Codes in the tentative range can "
+            "support preliminary findings, but those flagged in red should be "
+            "revised before their data are used in analysis. Focus your next "
+            "calibration session on:",
+            code_list,
+        )
 
     # card_colour == "red"
-    return OverallVerdict(
-        colour="red",
-        title="Low agreement",
-        paragraphs=[
-            "Agreement is low across most codes. The codebook needs revision before "
-            "the data can be used for analysis.",
-            "We recommend: (1) meet to discuss where and why you disagreed on specific "
-            "examples, (2) revise definitions based on that discussion, "
-            "(3) independently code 2\u20133 shared sources, then re-run this check.",
-        ],
+    return _verdict(
+        "red",
+        "Low agreement",
+        "Agreement is low across most codes. The codebook needs revision before "
+        "the data can be used for analysis.",
+        "We recommend: (1) meet to discuss where and why you disagreed on specific "
+        "examples, (2) revise definitions based on that discussion, "
+        "(3) independently code 2\u20133 shared sources, then re-run this check.",
     )

@@ -20,7 +20,14 @@ from playwright.sync_api import sync_playwright
 from .conftest import browser_params
 
 
-_EXPECTED_CODE_ITEMS = ["Convert to folder", "Cut", "Paste here", "Rename", "Delete"]
+_EXPECTED_CODE_ITEMS = [
+    "Convert to folder",
+    "Cut",
+    "Paste here",
+    "Rename",
+    "Change colour",
+    "Delete",
+]
 CODE_ROW = ".ace-ht-row--code"
 CODE_NAME = ".ace-ht-label"
 FOLDER_ROW = ".ace-ht-row--folder"
@@ -85,6 +92,53 @@ def test_context_menu_convert_code_to_folder(ace_server, browser_name):
                 "      .every(r => r.querySelector(codeName)?.textContent.trim() !== label)",
                 [code_name, CODE_ROW, CODE_NAME],
             )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_context_menu_change_colour_updates_headless_code_row(ace_server, browser_name):
+    """Change colour opens from a headless row and applies the selected swatch."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(CODE_ROW)
+
+            row = page.locator(CODE_ROW).first
+            code_id = row.get_attribute("data-code-id")
+            assert code_id
+            before = row.evaluate("el => el.style.getPropertyValue('--row-colour').trim()")
+
+            row.click(button="right")
+            page.wait_for_selector(".ace-context-menu", timeout=2000)
+            page.locator(
+                ".ace-context-menu .ace-context-menu-item",
+                has_text="Change colour",
+            ).click()
+            page.wait_for_selector(".ace-colour-popover", timeout=2000)
+
+            swatch = page.locator(".ace-colour-popover .ace-colour-swatch").nth(1)
+            target_colour = swatch.evaluate("el => getComputedStyle(el).backgroundColor")
+            swatch.click()
+
+            page.wait_for_function(
+                """
+                async ({ codeId, before }) => {
+                  const payload = await fetch("/api/codes/tree").then((r) => r.json());
+                  const colour = payload.items[codeId]?.colour || "";
+                  const row = document.querySelector(
+                    `.ace-ht-row--code[data-code-id="${codeId}"]`
+                  );
+                  const stripe = row?.style.getPropertyValue("--row-colour").trim() || "";
+                  return colour && colour !== before && stripe.toLowerCase() === colour.toLowerCase();
+                }
+                """,
+                arg={"codeId": code_id, "before": before},
+                timeout=3000,
+            )
+            assert target_colour
         finally:
             browser.close()
 

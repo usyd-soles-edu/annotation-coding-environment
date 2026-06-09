@@ -59,7 +59,7 @@ def assign_chord(name: str, taken: set[str]) -> str:
     3. If 1 word: try first 2 letters.
     4. On collision: walk consonants of word 2, then word 1, then alphabet.
     5. If first letter is non-ASCII or words list is empty: alphabetical fallback.
-    6. All 26 alphabetical fallbacks for the same first letter exhausted: RuntimeError.
+    6. All 26 fallbacks for the same first letter exhausted: global alphabetical fallback.
     """
     words = _meaningful_words(name)
 
@@ -101,5 +101,5 @@ def assign_chord(name: str, taken: set[str]) -> str:
         if (chord := _try_chord(first + letter, taken)):
             return chord
 
-    # All `first*` chords taken
-    raise RuntimeError(f"Chord space exhausted: all 26 chords for prefix '{first}' are taken")
+    # All `first*` chords taken; fall back to the first free global pair.
+    return _alphabetical_pair(taken)

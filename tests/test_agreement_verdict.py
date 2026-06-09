@@ -1,11 +1,13 @@
 """Tests for agreement_verdict module."""
 
 import pytest
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from ace.services.agreement_types import AgreementResult, CodeMetrics
 from ace.services.agreement_verdict import (
     CodeVerdict,
     OverallVerdict,
+    VerdictCodeList,
     classify_code,
     classify_overall,
 )
@@ -56,6 +58,10 @@ def _make_result(
     )
     code_verdicts = {name: classify_code(m) for name, m in per_code.items()}
     return result, code_verdicts
+
+
+def _code_lists(verdict: OverallVerdict) -> list[VerdictCodeList]:
+    return [part for part in verdict.paragraphs if isinstance(part, VerdictCodeList)]
 
 
 # --- classify_code tests ---
@@ -127,23 +133,104 @@ def test_overall_green_with_amber():
     result, verdicts = _make_result(0.82, {"Code A": 0.85, "Code B": 0.70})
     ov = classify_overall(result, verdicts)
     assert ov.colour == "green"
-    # amber code name should appear in one of the paragraphs
-    assert any("Code B" in p for p in ov.paragraphs)
+    assert _code_lists(ov) == [
+        VerdictCodeList(names=["Code B"], colour="amber", indices=[], use_indices=False)
+    ]
+
+
+def test_overall_green_with_red_names_red_code():
+    result, verdicts = _make_result(0.82, {"Code A": 0.85, "Code B": 0.40})
+    ov = classify_overall(result, verdicts)
+    assert ov.colour == "green"
+    assert _code_lists(ov) == [
+        VerdictCodeList(names=["Code B"], colour="red", indices=[], use_indices=False)
+    ]
+    assert any("red" in p.lower() for p in ov.paragraphs if isinstance(p, str))
+
+
+def test_overall_many_problem_codes_use_table_indices():
+    names = [f"Code {i}" for i in range(1, 8)]
+    result, verdicts = _make_result(
+        0.82,
+        {name: 0.70 for name in names},
+    )
+    ov = classify_overall(
+        result,
+        verdicts,
+        code_index={name: index for index, name in enumerate(names, start=1)},
+    )
+    assert _code_lists(ov) == [
+        VerdictCodeList(
+            names=names,
+            colour="amber",
+            indices=[1, 2, 3, 4, 5, 6, 7],
+            use_indices=True,
+        )
+    ]
+
+
+def test_overall_code_names_are_structured_not_html():
+    raw_name = '<script>alert("x")</script>'
+    result, verdicts = _make_result(0.65, {"Code A": 0.85, raw_name: 0.40})
+    ov = classify_overall(result, verdicts)
+    assert _code_lists(ov) == [
+        VerdictCodeList(names=[raw_name], colour="red", indices=[], use_indices=False)
+    ]
+    assert not any("<script" in p for p in ov.paragraphs if isinstance(p, str))
+
+
+def test_template_escapes_verdict_code_names():
+    raw_name = '<script>alert("x")</script>'
+    result, verdicts = _make_result(0.65, {"Code A": 0.85, raw_name: 0.40})
+    verdict = classify_overall(result, verdicts)
+    env = Environment(
+        loader=FileSystemLoader("src/ace/templates"),
+        autoescape=select_autoescape(["html"]),
+    )
+    template = env.get_template("agreement_results.html")
+
+    html = template.render(
+        n_coders=2,
+        n_sources=1,
+        total_sources=1,
+        n_codes=1,
+        total_codes=1,
+        warnings=[],
+        verdict=verdict,
+        code_groups=[],
+        overall=result.overall,
+        overall_verdict=classify_code(result.overall),
+        pairwise_sorted=[],
+        kappa_header="Cohen \u03ba",
+        fmt=lambda val, decimals=2, is_pct=False: "\u2013" if val is None else f"{val:.2f}",
+        table_per_code=1,
+        table_pairwise=None,
+        table_full=2,
+    )
+
+    assert raw_name not in html
+    assert "&lt;script&gt;" in html
+    assert ("&quot;x&quot;" in html) or ("&#34;x&#34;" in html)
 
 
 def test_overall_amber_no_reds():
     result, verdicts = _make_result(0.65, {"Code A": 0.85, "Code B": 0.70})
     ov = classify_overall(result, verdicts)
     assert ov.colour == "amber"
-    assert not any("red" in p.lower() and "flagged" in p.lower() for p in ov.paragraphs)
+    assert not any(
+        "red" in p.lower() and "flagged" in p.lower()
+        for p in ov.paragraphs
+        if isinstance(p, str)
+    )
 
 
 def test_overall_amber_with_reds():
     result, verdicts = _make_result(0.65, {"Code A": 0.85, "Code B": 0.70, "Code C": 0.40})
     ov = classify_overall(result, verdicts)
     assert ov.colour == "amber"
-    # red code name should appear in one of the paragraphs
-    assert any("Code C" in p for p in ov.paragraphs)
+    assert _code_lists(ov) == [
+        VerdictCodeList(names=["Code C"], colour="red", indices=[], use_indices=False)
+    ]
 
 
 def test_overall_red():

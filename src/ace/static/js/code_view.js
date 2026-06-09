@@ -708,7 +708,7 @@
 
   // --- Codebook sidebar wiring ---
   // The shared codebook partial is rendered here as well. Mark the currently-
-  // viewed code and intercept clicks on rows to navigate instead of apply.
+  // viewed code; activation loads excerpts while editing stays shared with /code.
   (function initSidebar() {
     const currentId = data.code.id;
     setCurrentSidebarCode(currentId);
@@ -718,72 +718,25 @@
       observer.observe(root, { childList: true, subtree: true });
     }
 
-    // Capture-phase click handler so bridge.js's row handlers don't also act.
     document.addEventListener("click", (evt) => {
       const row = codebookCodeRowFromTarget(evt.target);
       if (!row) return;
-      // Ignore clicks inside the right-click menu or on the code chip (there
-      // shouldn't be any — chips are display:none here — but be defensive).
-      if (evt.target.closest(".ace-code-menu") || evt.target.closest(".ace-code-chip")) return;
+      if (evt.target.closest(
+        ".ace-context-menu, .ace-codebook-dropdown, .ace-ht-rename, .ace-ht-toggle, .ace-ht-chip, input, textarea, button, a"
+      )) return;
       const id = codeIdFromCodebookRow(row);
       if (!id) return;
-      evt.preventDefault();
-      evt.stopImmediatePropagation();
+      selectCodebookRowById(id);
       if (id === data.code.id) return;   // already here, no-op
       loadCode(id, { pushHistory: true });
-    }, true);
+    });
 
-    // Replace the codebook-edit context menu with a read-only info popover.
-    // Editing actions (rename / colour / move / delete) belong on /code.
-    document.addEventListener("contextmenu", (evt) => {
-      if (!codebookCodeRowFromTarget(evt.target)) return;
-      evt.preventDefault();
-      evt.stopImmediatePropagation();
-      _showInfoMenu(evt.clientX, evt.clientY);
-    }, true);
-
-    function _showInfoMenu(x, y) {
-      document.querySelectorAll(".cv-info-menu").forEach((el) => el.remove());
-      const menu = document.createElement("div");
-      menu.className = "cv-info-menu";
-      menu.setAttribute("role", "dialog");
-      menu.setAttribute("aria-label", "Coded text view — info");
-      menu.innerHTML = `
-        <div class="cv-info-menu-title">Coded text view</div>
-        <div class="cv-info-menu-body">
-          Code editing is disabled here.<br>
-          Open the <a href="/code">source view</a> to rename, recolour,
-          reorder, or delete codes.
-        </div>`;
-      menu.style.left = x + "px";
-      menu.style.top = y + "px";
-      document.body.appendChild(menu);
-
-      // Clamp to viewport so edge right-clicks don't overflow
-      const rect = menu.getBoundingClientRect();
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      if (x + rect.width > vw - 4) menu.style.left = (vw - rect.width - 8) + "px";
-      if (y + rect.height > vh - 4) menu.style.top = (vh - rect.height - 8) + "px";
-
-      const dismiss = (e) => {
-        if (e && e.target && menu.contains(e.target)) return;
-        menu.remove();
-        document.removeEventListener("click", dismiss, true);
-        document.removeEventListener("contextmenu", dismiss, true);
-        document.removeEventListener("keydown", keyDismiss, true);
-      };
-      const keyDismiss = (e) => {
-        if (e.key === "Escape") { dismiss(); e.preventDefault(); }
-      };
-      // Delay registration so the triggering contextmenu event doesn't
-      // immediately dismiss the popover it just created.
-      setTimeout(() => {
-        document.addEventListener("click", dismiss, true);
-        document.addEventListener("contextmenu", dismiss, true);
-        document.addEventListener("keydown", keyDismiss, true);
-      }, 0);
-    }
+    document.addEventListener("ace:view-code", (evt) => {
+      const codeId = evt.detail && evt.detail.codeId;
+      if (!codeId) return;
+      selectCodebookRowById(codeId);
+      if (codeId !== data.code.id) loadCode(codeId, { pushHistory: true });
+    });
   })();
 
   // --- Sidebar resize — shared ace-sidebar-width localStorage with /code ---
@@ -877,6 +830,13 @@
     targetRow.scrollIntoView({ block: "nearest" });
   }
 
+  function selectCodebookRowById(codeId) {
+    const row = sidebarCodeRows().find((candidate) => codeIdFromCodebookRow(candidate) === codeId);
+    if (!row) return;
+    moveCodebookCursor(row);
+    rememberedCursor.codebook = codeId;
+  }
+
   const navAbort = { ctl: null };
 
   async function loadCode(codeId, opts) {
@@ -910,7 +870,8 @@
       window.location.href = `/code/${codeId}/view`;
       return;
     }
-    if (typeof document.startViewTransition === "function") {
+    const useViewTransition = opts.viewTransition !== false;
+    if (useViewTransition && typeof document.startViewTransition === "function") {
       document.startViewTransition(() => renderForData(json));
     } else {
       renderForData(json);
@@ -962,7 +923,7 @@
     if (!targetRow) return;
     const codeId = codeIdFromCodebookRow(targetRow);
     if (!codeId || codeId === data.code.id) return;
-    loadCode(codeId, { pushHistory: false });
+    loadCode(codeId, { pushHistory: false, viewTransition: false });
   }
 
   // Document-level `/` → focus codebook search.
@@ -1088,13 +1049,8 @@
     }
   }, true); // capture phase — matches existing code_view.js convention
 
-  // Keydown on the code tree: ↑/↓/Home/End/Enter on code rows.
-  // stopImmediatePropagation on every handled key so bridge.js's tree keydown
-  // (bridge.js:2704, shared across /code and /view) never also fires — it
-  // would double-advance the cursor and its Enter-applies-code path + F2
-  // rename + Delete / Alt-arrow editing commands don't belong on /view.
-  // F2, Delete, Backspace, and Alt+Arrow are explicitly suppressed because
-  // bridge.js binds them as code-editing actions.
+  // Keydown on the code tree: arrows browse excerpts; editing keys fall through
+  // to the shared codebook controller.
   if (treeEl) {
     treeEl.addEventListener("focusin", (evt) => {
       const row = evt.target.closest && evt.target.closest(CODEBOOK_CODE_ROW_SELECTOR);
@@ -1110,19 +1066,6 @@
       const isCodeRow = isCodebookCodeRow(target);
 
       const plainKey = !evt.ctrlKey && !evt.metaKey && !evt.altKey && !evt.shiftKey;
-
-      // Suppress bridge.js's read/write editing shortcuts on EVERY treeitem
-      // (group headers as well as code rows). Group-header reorder via
-      // Alt+Shift+arrows and rename via F2 belong on /code, not here.
-      if (plainKey && (evt.key === "F2" || evt.key === "Delete" || evt.key === "Backspace")) {
-        claim(evt);
-        return;
-      }
-      if (evt.altKey && (evt.key === "ArrowLeft" || evt.key === "ArrowRight"
-          || evt.key === "ArrowUp" || evt.key === "ArrowDown")) {
-        claim(evt);
-        return;
-      }
 
       // Navigation + activation are code-row-only. Group headers keep
       // their bridge.js Enter handler for collapse/expand.

@@ -24,6 +24,7 @@ import {
   let suppressNextRefocus = false;
   let searchRaw = "";
   let searchText = "";
+  let chordFilterActive = false;
   const TRANSPARENT_GIF = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
   const RESERVED_SINGLE_KEYS = new Set(["q", "x", "z", "n", "v"]);
 
@@ -107,10 +108,22 @@ import {
     return childrenOf(id).some(itemMatchesSearch);
   }
 
+  function itemMatchesChordFilter(id) {
+    if (!chordFilterActive) return true;
+    const item = itemData(id);
+    if (!item) return false;
+    if (item.kind === "code") return !!item.chord;
+    return childrenOf(id).some(itemMatchesChordFilter);
+  }
+
   function visibleTreeItems() {
     const current = tree.getItems();
-    if (!searchText) return current;
-    return current.filter((item) => itemMatchesSearch(item.getId()));
+    if (!searchText && !chordFilterActive) return current;
+    return current.filter(function (item) {
+      const id = item.getId();
+      if (chordFilterActive) return itemMatchesChordFilter(id);
+      return itemMatchesSearch(id);
+    });
   }
 
   function visibleCodeItems() {
@@ -277,7 +290,11 @@ import {
   }
 
   function codebookEditingDisabled() {
-    return !!document.getElementById("code-view");
+    return document.querySelector("#ace-headless-tree-mount[data-codebook-readonly='1']") !== null;
+  }
+
+  function codeApplicationDisabled() {
+    return !!document.getElementById("code-view") || !document.getElementById("text-panel");
   }
 
   function denyCodebookEditing() {
@@ -295,8 +312,8 @@ import {
       throw new Error("HTMX is unavailable");
     }
     return window.htmx.ajax(method, url, {
-      target: "#text-panel",
-      swap: "outerHTML",
+      target: document.getElementById("text-panel") ? "#text-panel" : "#code-sidebar",
+      swap: document.getElementById("text-panel") ? "outerHTML" : "none",
       values,
     });
   }
@@ -341,6 +358,7 @@ import {
         element.addEventListener(eventName, value);
         return;
       }
+      if (key === "aria-selected") return;
       element.setAttribute(key, String(value));
     });
   }
@@ -401,6 +419,15 @@ import {
   function applyCode(item) {
     const data = item.getItemData();
     if (data.kind !== "code") return;
+    if (codeApplicationDisabled()) {
+      document.dispatchEvent(new CustomEvent("ace:view-code", {
+        detail: {
+          codeId: item.getId(),
+          codeName: data.name || "",
+        },
+      }));
+      return;
+    }
     document.dispatchEvent(new CustomEvent("ace:apply-code", {
       detail: {
         codeId: item.getId(),
@@ -520,6 +547,7 @@ import {
 
   function createSearchRow() {
     const name = searchRaw.trim();
+    if (chordFilterActive) return null;
     if (!name || name.startsWith("/") || firstVisibleCodeItem()) return null;
     const row = document.createElement("div");
     row.className = "ace-ht-create-row";
@@ -729,13 +757,12 @@ import {
         cancelRename(event.target, false);
       }
       input.addEventListener("keydown", function (event) {
+        event.stopPropagation();
         if (event.key === "Enter") {
           event.preventDefault();
-          event.stopPropagation();
           commitRename();
         } else if (event.key === "Escape") {
           event.preventDefault();
-          event.stopPropagation();
           cancelRename(item.getElement?.(), true);
         }
       });
@@ -771,15 +798,17 @@ import {
 
       const chip = document.createElement("span");
       chip.className = data.chord ? "ace-ht-chip ace-ht-chip--chord" : "ace-ht-chip";
-      const label = data.chord || keyLabel(codeRank(item.getId()));
-      chip.textContent = label;
       chip.setAttribute("aria-hidden", "true");
-      chip.setAttribute(
-        "title",
-        data.chord
-          ? `Press ; then ${data.chord} or Enter to apply ${data.name}`
-          : (label ? `Press ${label} or Enter to apply ${data.name}` : `Apply ${data.name}`)
-      );
+      if (!codeApplicationDisabled()) {
+        const label = data.chord || keyLabel(codeRank(item.getId()));
+        chip.textContent = label;
+        chip.setAttribute(
+          "title",
+          data.chord
+            ? `Press ; then ${data.chord} or Enter to apply ${data.name}`
+            : (label ? `Press ${label} or Enter to apply ${data.name}` : `Apply ${data.name}`)
+        );
+      }
       chip.addEventListener("click", function (event) {
         event.preventDefault();
         event.stopPropagation();
@@ -896,10 +925,7 @@ import {
       setRenamingValue: function () {},
       setDndState: scheduleDragStateRender,
       setAssistiveDndState: scheduleDragStateRender,
-      features: codebookEditingDisabled() ? [
-        syncDataLoaderFeature,
-        hotkeysCoreFeature,
-      ] : [
+      features: [
         syncDataLoaderFeature,
         hotkeysCoreFeature,
         dragAndDropFeature,
@@ -1027,6 +1053,13 @@ import {
       return active?.getAttribute("data-kind") === "code" ? active : null;
     }
 
+    function setChordFilter(active) {
+      const next = !!active;
+      if (chordFilterActive === next) return;
+      chordFilterActive = next;
+      scheduleRender();
+    }
+
     const api = {
       kind: "headless",
       refresh,
@@ -1054,6 +1087,7 @@ import {
       startRenaming,
       firstCodeItem,
       activeCodeItem,
+      setChordFilter,
     };
 
     return api;
@@ -1150,6 +1184,9 @@ import {
       event.stopImmediatePropagation();
       item.setFocused();
       scheduleRender();
+      queueMicrotask(function () {
+        item.getElement()?.focus({ preventScroll: true });
+      });
       return;
     }
 

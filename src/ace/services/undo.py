@@ -42,6 +42,20 @@ OpType = Literal[
     "code_convert_to_folder",
 ]
 
+CODEBOOK_OPS = frozenset({
+    "code_add",
+    "code_delete",
+    "code_rename",
+    "code_recolour",
+    "code_reorder",
+    "codebook_import",
+    "code_create_folder",
+    "code_move_parent",
+    "code_indent_promote_to_folder",
+    "code_delete_folder_cascade",
+    "code_convert_to_folder",
+})
+
 
 @dataclass
 class UndoEntry:
@@ -256,6 +270,7 @@ class UndoManager:
             "description": f"{prefix}: {description}",
             "source_id": entry.source_id,
             "flash_annotation_id": flash_id,
+            "codebook_changed": entry.op in CODEBOOK_OPS,
         }
 
     def undo(self, conn) -> dict | None:

@@ -112,6 +112,11 @@ def test_single_key_still_applies(server):
             "() => document.querySelectorAll('.ace-applied-code-row').length > 0",
             timeout=2000,
         )
+        page.wait_for_function(
+            "() => document.querySelector('#ace-text-event-pill')?.textContent"
+            "      .includes('Applied 1 · Code 00')",
+            timeout=2000,
+        )
         after = page.locator(".ace-applied-code-row").count()
 
         assert after > before, "expected at least one code chip to be added"
@@ -133,8 +138,25 @@ def test_chord_mode_apply_pd(server):
         # Body should reflect chord mode
         mode = page.evaluate("() => document.body.dataset.chordMode")
         assert mode == "awaiting"
+        page.wait_for_function(
+            "() => document.querySelector('#ace-text-event-pill')?.textContent"
+            "      .includes('Two-key shortcut: ;__')",
+            timeout=2000,
+        )
+        page.wait_for_function(
+            "() => {"
+            " const rows = Array.from(document.querySelectorAll('.ace-ht-row--code'));"
+            " return rows.length === 3 && rows.every(row => row.dataset.chord);"
+            "}",
+            timeout=2000,
+        )
 
         page.keyboard.press("p")
+        page.wait_for_function(
+            "() => document.querySelector('#ace-text-event-pill')?.textContent"
+            "      .includes('Two-key shortcut: ;p_')",
+            timeout=2000,
+        )
         page.keyboard.press("d")
         # Wait for the SPECIFIC chord we applied — earlier tests in the module
         # may have left an unrelated code row on the same source.
@@ -143,10 +165,19 @@ def test_chord_mode_apply_pd(server):
             "      .some(el => el.textContent.includes('Privacy'))",
             timeout=2000,
         )
+        page.wait_for_function(
+            "() => document.querySelector('#ace-text-event-pill')?.textContent"
+            "      .includes('Applied ;pd · Privacy of data')",
+            timeout=2000,
+        )
 
         # Mode should have exited
         mode_after = page.evaluate("() => document.body.dataset.chordMode")
         assert mode_after in (None, "", "default")
+        page.wait_for_function(
+            "() => document.querySelectorAll('.ace-ht-row--code').length > 3",
+            timeout=2000,
+        )
         browser.close()
 
 
@@ -165,13 +196,51 @@ def test_chord_mode_escape_no_apply(server):
 
         page.keyboard.press("Semicolon")
         assert page.evaluate("() => document.body.dataset.chordMode") == "awaiting"
+        page.wait_for_function(
+            "() => Array.from(document.querySelectorAll('.ace-ht-row--code'))"
+            "      .every(row => row.dataset.chord)",
+            timeout=2000,
+        )
         page.keyboard.press("Escape")
         page.wait_for_timeout(200)
 
         mode_after = page.evaluate("() => document.body.dataset.chordMode")
         assert mode_after in (None, "", "default")
+        page.wait_for_function(
+            "() => document.querySelectorAll('.ace-ht-row--code').length > 3",
+            timeout=2000,
+        )
         after = page.locator(".ace-applied-code-row").count()
         assert before == after, "no applied-code row should be added on Esc"
+        browser.close()
+
+
+def test_chord_mode_invalid_chord_reports_error(server):
+    """Press ; then z then z → exits mode and reports the missing chord."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch()
+        page = browser.new_page()
+        page.goto(f"{server}/code")
+        page.wait_for_selector(CODE_ROW)
+
+        _focus_first_sentence(page)
+        before = page.locator(".ace-applied-code-row").count()
+
+        page.keyboard.press("Semicolon")
+        page.keyboard.press("z")
+        page.keyboard.press("z")
+        page.wait_for_function(
+            "() => document.querySelector('#ace-text-event-pill')?.textContent"
+            "      .includes('No code for ;zz')",
+            timeout=2000,
+        )
+
+        mode_after = page.evaluate("() => document.body.dataset.chordMode")
+        assert mode_after in (None, "", "default")
+        after = page.locator(".ace-applied-code-row").count()
+        assert before == after, "invalid chord should not add an applied-code row"
         browser.close()
 
 

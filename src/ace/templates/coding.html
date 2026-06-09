@@ -195,7 +195,7 @@ rect.ace-flash-{{ code["id"] }} {
         {% else %}
         <p class="ace-text-empty">No source content.</p>
         {% endif %}
-        <div class="ace-legend" aria-hidden="true"><span class="k">&uarr;&darr;</span> sentences &middot; <span class="k">&#8679;&larr;&#8679;&rarr;</span> sources &middot; <span class="k">Q</span> repeat &middot; <span class="k">Z</span> undo &middot; <span class="k">&#8679;Z</span> redo &middot; <span class="k">X</span> delete &middot; <span class="k">N</span> note &middot; <span class="k">/</span> filter &middot; <span class="k">Tab</span> codebook</div>
+        <div class="ace-legend" aria-hidden="true"><span class="k">&uarr;&darr;</span> sentences &middot; <span class="k">&#8679;&larr;&#8679;&rarr;</span> sources &middot; <span class="k">;</span><span class="k">__</span> two-key code &middot; <span class="k">Q</span> repeat &middot; <span class="k">Z</span> undo &middot; <span class="k">&#8679;Z</span> redo &middot; <span class="k">X</span> delete &middot; <span class="k">N</span> note &middot; <span class="k">/</span> filter &middot; <span class="k">Tab</span> codebook</div>
         </main>
         {% endblock %}
       </div>
@@ -338,6 +338,7 @@ rect.ace-flash-{{ code["id"] }} {
   window.__aceTotalSources = {{ total_sources }};
   window.__aceFocusIndex = -1;
   window.__aceCodes = {{ codes | tojson }};
+  window.__aceColourPalette = {{ colour_palette | tojson }};
   window.__aceLastCodeId = null;
   // Save current index for resume on return
   localStorage.setItem("ace-last-index", {{ current_index }});

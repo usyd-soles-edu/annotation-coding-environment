@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 from playwright.sync_api import sync_playwright
 
+from ace.db.connection import create_project
 from .conftest import browser_params
 
 
@@ -22,6 +23,130 @@ def test_landing_tab_order_skips_hidden_project_form(ace_server, browser_name):
             assert page.evaluate("document.activeElement.id") == "new-project-link"
             _press_forward_tab(page, browser_name)
             assert page.evaluate("document.activeElement.id") == "open-existing-btn"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_landing_keyboard_shortcuts_open_primary_actions(
+    ace_server, tmp_path, browser_name
+):
+    project = tmp_path / "Keyboard Existing.ace"
+    conn = create_project(str(project), "Keyboard Existing")
+    conn.close()
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-file",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body='{"path": "%s"}' % str(project).replace('\\', '\\\\'),
+                ),
+            )
+
+            page.goto(f"{ace_server}/")
+            page.keyboard.press("n")
+            assert page.locator("#new-project-form").is_visible()
+            assert page.evaluate("document.activeElement.id") == "new-project-input"
+
+            page.keyboard.press("Escape")
+            assert not page.locator("#new-project-form").is_visible()
+            page.keyboard.press("o")
+            page.wait_for_url("**/import", timeout=5000)
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_landing_arrow_keys_cycle_visible_actions_without_recent(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/")
+
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "new-project-link"
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "open-existing-btn"
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate(
+                "() => document.activeElement.classList.contains('ace-home-tool-link')"
+            )
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "new-project-link"
+
+            page.keyboard.press("Enter")
+            assert page.locator("#new-project-form").is_visible()
+            assert page.evaluate("document.activeElement.id") == "new-project-input"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_landing_arrow_keys_include_recent_project(
+    ace_server, tmp_path, browser_name
+):
+    project = tmp_path / "Recent Keyboard.ace"
+    conn = create_project(str(project), "Recent Keyboard")
+    conn.close()
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/")
+            page.evaluate(
+                """
+                (path) => localStorage.setItem(
+                  "ace-recent-files",
+                  JSON.stringify([{ path, openedAt: 1 }])
+                )
+                """,
+                str(project),
+            )
+            page.reload()
+
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate(
+                "() => document.activeElement.closest('#resume-link') !== null"
+            )
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "new-project-link"
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "open-existing-btn"
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate(
+                "() => document.activeElement.classList.contains('ace-home-tool-link')"
+            )
+
+            page.keyboard.press("ArrowUp")
+            assert page.evaluate("document.activeElement.id") == "open-existing-btn"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_landing_shortcuts_do_not_hijack_open_project_form_controls(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/")
+            page.keyboard.press("n")
+            assert page.locator("#new-project-form").is_visible()
+
+            page.locator("#choose-project-folder-btn").focus()
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "choose-project-folder-btn"
         finally:
             browser.close()
 

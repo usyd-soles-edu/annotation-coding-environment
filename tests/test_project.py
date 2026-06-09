@@ -37,6 +37,16 @@ def test_landing_project_form_is_hidden_and_keyboard_named(client):
     assert resp.status_code == 200
     assert '<button id="new-project-link"' in resp.text
     assert "<button" in resp.text and "Open existing" in resp.text
+    assert 'id="open-existing-btn"' in resp.text
+    assert 'id="open-existing-btn" class="ace-home-action ace-home-action-secondary"' in resp.text
+    assert 'id="open-existing-btn" class="ace-home-action ace-home-action-secondary"\n              type="button" aria-keyshortcuts="o"' in resp.text
+    assert 'id="open-existing-btn"' in resp.text and "disabled" not in resp.text.split('id="open-existing-btn"', 1)[1].split(">", 1)[0]
+    assert '<span class="ace-home-action-label">Open existing</span>' in resp.text
+    assert '<span class="ace-home-keycap" aria-hidden="true">o</span>' in resp.text
+    assert 'id="new-project-link" class="ace-home-action ace-home-action-primary"' in resp.text
+    assert 'aria-keyshortcuts="n"' in resp.text
+    assert '<span class="ace-home-action-label">New project</span>' in resp.text
+    assert '<span class="ace-home-keycap" aria-hidden="true">n</span>' in resp.text
     assert 'id="new-project-form"' in resp.text
     assert "hidden" in resp.text
     assert 'id="new-project-input"' in resp.text

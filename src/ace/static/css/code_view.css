@@ -6,6 +6,10 @@
   --ace-bg-tint: #fafafa;
   --ace-border-hair: #eeeeee;
   --ace-text-faint: #9e9e9e;
+  --cv-state-bg: #f1f1ee;
+  --cv-state-bg-strong: #e8e8e4;
+  --cv-state-text: var(--ace-text);
+  --cv-state-ring: var(--ace-focus);
 }
 
 /* Unified keyboard-focus indicator across all three navigable columns.
@@ -16,7 +20,8 @@
 #code-view .cv-row:focus-visible {
   outline: 2px solid var(--ace-focus);
   outline-offset: -2px;
-  background: var(--ace-bg-muted);
+  background: var(--cv-state-bg);
+  color: var(--cv-state-text);
   position: relative;
   z-index: 1;
 }
@@ -67,63 +72,12 @@
   width: 3px;
   background: var(--ace-focus);
 }
-/* Sidebar itself is styled by coding.css (.ace-sidebar). We just mark the
-   currently-viewed code row and hide elements that aren't meaningful here.
-   The "current" row mirrors the coding-page focused-row inversion so the
-   notion of "the selected code" reads identically across both views.
-   Chips are hidden on this page (rule below), so no chip overrides needed. */
-#code-sidebar .ace-ht-row--code.ace-ht-row--current {
-  background: #1a1d27;
-  color: #fff;
-  box-shadow: none;
-}
-#code-sidebar .ace-ht-row--code.ace-ht-row--current .ace-ht-label {
-  font-weight: 600;
-  color: #fff;
-}
-#code-sidebar .ace-ht-row--code.ace-ht-row--current .ace-ht-count {
-  color: rgba(255, 255, 255, 0.7);
-}
-/* Keycap badges show the apply-code letter — not meaningful on this page */
+/* Sidebar itself is styled by coding.css. The viewed code row opts into the
+   shared headless codebook state via .ace-ht-row--current. */
+/* Apply-code keycap badges are hidden on this page. */
 #code-sidebar .ace-code-chip,
 #code-sidebar .ace-ht-chip { display: none; }
-
-/* Gear / settings menu disabled on this view — the dropdown's actions
-   (import/export/fullscreen) are codebook-wide and belong on /code. */
-#code-sidebar .ace-codebook-menu-btn {
-  opacity: 0.35;
-  cursor: not-allowed;
-  pointer-events: none;
-}
-/* Right-click on a code row shows a small info popover (not the edit menu).
-   The popover is rendered by code_view.js. */
 #code-sidebar .ace-code-row { -webkit-user-select: none; user-select: none; }
-
-.cv-info-menu {
-  position: fixed;
-  z-index: 1000;
-  background: var(--ace-bg);
-  border: 1px solid var(--ace-border);
-  border-radius: 4px;
-  padding: 10px 12px;
-  font-size: 12px;
-  line-height: 1.5;
-  max-width: 260px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.14);
-}
-.cv-info-menu-title {
-  font-weight: 600;
-  margin-bottom: 4px;
-  color: var(--ace-text);
-}
-.cv-info-menu-body {
-  color: var(--ace-text-muted);
-}
-.cv-info-menu-body a {
-  color: var(--ace-text);
-  text-decoration: underline;
-}
-.cv-info-menu-body a:hover { color: var(--ace-focus); }
 
 .cv-main {
   display: flex;
@@ -224,13 +178,15 @@
 }
 .cv-track-row:hover { background: var(--ace-bg-muted); }
 .cv-track-row.selected {
-  background: var(--code-bg);
-  box-shadow: inset 4px 0 0 var(--code-colour);
+  background: var(--cv-state-bg);
+  color: var(--cv-state-text);
+  box-shadow: inset 3px 0 0 var(--code-colour);
 }
 .cv-track-row.hovered {
-  outline: 2px solid var(--ace-text);
+  outline: 2px solid var(--cv-state-ring);
   outline-offset: -1px;
-  background: var(--ace-bg-tint);
+  background: var(--cv-state-bg);
+  color: var(--cv-state-text);
   position: relative;
   z-index: 2;
 }
@@ -243,7 +199,15 @@
   line-height: 22px;
   text-align: center;
 }
-.cv-track-row.selected .idx { color: var(--ace-text); font-weight: 700; }
+.cv-track-row.selected .idx,
+.cv-track-row.selected .ct,
+.cv-track-row.hovered .idx,
+.cv-track-row.hovered .ct,
+#code-view .cv-track-row:focus-visible .idx,
+#code-view .cv-track-row:focus-visible .ct {
+  color: var(--cv-state-text);
+}
+.cv-track-row.selected .idx { font-weight: 700; }
 .cv-track-row .ct {
   font-family: var(--ace-font-mono);
   font-size: 10px;
@@ -291,7 +255,7 @@
   right: -3px;
 }
 .cv-track-row .track .tick.selected {
-  outline: 1.5px solid var(--ace-text);
+  outline: 2px solid var(--cv-state-ring);
   outline-offset: 0;
   z-index: 3;
 }
@@ -415,10 +379,15 @@
   align-items: start;
 }
 .cv-row:last-child { border-bottom: 0; }
-.cv-row:hover { background: var(--code-bg); }
+.cv-row:hover { background: var(--ace-bg-muted); }
 .cv-row.selected {
-  background: var(--code-bg);
-  box-shadow: inset 2px 0 0 var(--code-colour);
+  background: var(--cv-state-bg);
+  color: var(--cv-state-text);
+  box-shadow: inset 3px 0 0 var(--code-colour);
+}
+.cv-row.selected .idx,
+#code-view .cv-row:focus-visible .idx {
+  color: var(--cv-state-text);
 }
 .cv-row .idx {
   font-family: var(--ace-font-mono);

@@ -34,7 +34,20 @@
 <div class="ace-verdict ace-verdict-{{ verdict.colour }}">
   <div class="ace-verdict-title">{{ verdict.title }}</div>
   {% for p in verdict.paragraphs %}
-  <p>{{ p|safe }}</p>
+    {% if p is string %}
+  <p>{{ p }}</p>
+    {% else %}
+      {% set code_colour = '#c62828' if p.colour == 'red' else '#e65100' if p.colour == 'amber' else '#000' %}
+      {% if p.use_indices %}
+  <p><span style="color: {{ code_colour }}; font-weight: 600;">{% for index in p.indices %}#{{ index }}{% if not loop.last %}, {% endif %}{% endfor %}</span> in Table 1</p>
+      {% else %}
+  <ul class="ace-verdict-list">
+        {% for name in p.names %}
+    <li><strong style="color: {{ code_colour }};">{{ name }}</strong></li>
+        {% endfor %}
+  </ul>
+      {% endif %}
+    {% endif %}
   {% endfor %}
 </div>
 

@@ -420,6 +420,44 @@ def test_headless_tree_candidate_filters_from_search_input(ace_server, browser_n
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_tree_search_arrows_navigate_filtered_codes(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_function(
+                "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
+            )
+
+            page.locator("#text-panel").focus()
+            page.keyboard.press("/")
+            expect(page.locator("#code-search-input")).to_be_focused()
+            page.keyboard.type("a")
+            page.keyboard.press("ArrowDown")
+            page.wait_for_function(
+                """
+                () => document.activeElement?.matches(".ace-ht-row--code") &&
+                      document.activeElement?.textContent.includes("Alpha")
+                """
+            )
+            page.keyboard.press("ArrowDown")
+            page.wait_for_function(
+                """
+                () => document.activeElement?.matches(".ace-ht-row--code") &&
+                      document.activeElement?.textContent.includes("Bravo")
+                """
+            )
+            page.keyboard.press("Enter")
+
+            expect(
+                page.locator(".ace-applied-code-row", has_text="Bravo")
+            ).to_be_visible()
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_headless_tree_candidate_tab_cycles_into_tree(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
@@ -514,11 +552,22 @@ def test_headless_tree_candidate_bridge_reorder_shortcut_persists(ace_server, br
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
+            before_colours = page.evaluate(
+                """
+                () => Object.fromEntries(
+                  Array.from(document.querySelectorAll(".ace-ht-row--code")).map((row) => [
+                    row.querySelector(".ace-ht-label")?.textContent.trim(),
+                    row.style.getPropertyValue("--row-colour").trim(),
+                  ])
+                )
+                """
+            )
 
             page.locator(
                 "#ace-headless-tree-mount .ace-ht-row--code",
                 has_text="Charlie",
             ).click()
+            page.evaluate("window.__aceTextPanelBeforeReorder = document.getElementById('text-panel')")
             page.keyboard.press("Alt+Shift+ArrowUp")
 
             page.wait_for_function(
@@ -532,6 +581,31 @@ def test_headless_tree_candidate_bridge_reorder_shortcut_persists(ace_server, br
                 }
                 """
             )
+            page.wait_for_function(
+                """
+                () => {
+                  const labels = Array.from(
+                    document.querySelectorAll("#ace-headless-tree-mount .ace-ht-row--code .ace-ht-label")
+                  ).map((node) => node.textContent.trim());
+                  return JSON.stringify(labels.slice(0, 3)) === JSON.stringify(["Alpha", "Charlie", "Bravo"]);
+                }
+                """
+            )
+            assert page.evaluate(
+                "window.__aceTextPanelBeforeReorder === document.getElementById('text-panel')"
+            )
+            after_colours = page.evaluate(
+                """
+                () => Object.fromEntries(
+                  Array.from(document.querySelectorAll(".ace-ht-row--code")).map((row) => [
+                    row.querySelector(".ace-ht-label")?.textContent.trim(),
+                    row.style.getPropertyValue("--row-colour").trim(),
+                  ])
+                )
+                """
+            )
+            for name in ["Alpha", "Bravo", "Charlie"]:
+                assert after_colours[name] == before_colours[name]
         finally:
             browser.close()
 

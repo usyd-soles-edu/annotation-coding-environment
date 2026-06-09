@@ -1,4 +1,4 @@
-var AceHeadlessTreePreview = (() => {
+(() => {
   var __getOwnPropNames = Object.getOwnPropertyNames;
   var __esm = (fn, res) => function __init() {
     return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
@@ -7,7 +7,7 @@ var AceHeadlessTreePreview = (() => {
     return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
   };
 
-  // tmp/headless-tree-build/node_modules/@headless-tree/core/dist/index.mjs
+  // node_modules/@headless-tree/core/dist/index.mjs
   function functionalUpdate(updater, input) {
     return typeof updater === "function" ? updater(input) : updater;
   }
@@ -22,7 +22,7 @@ var AceHeadlessTreePreview = (() => {
   }
   var __defProp, __defProps, __getOwnPropDescs, __getOwnPropSymbols, __hasOwnProp, __propIsEnum, __defNormalProp, __spreadValues, __spreadProps, __async, memo, poll, prefix, throwError, logWarning, treeFeature, buildStaticInstance, verifyFeatures, exhaustiveSort, compareFeatures, sortFeatures, createTree, resolveKeyCode, specialKeys, modifierKeyCodes, testHotkeyMatch, findHotkeyMatch, hotkeysCoreController, hotkeysCoreFeature, undefErrorMessage, promiseErrorMessage, unpromise, syncDataLoaderFeature, isOrderedDragTarget, canDrop, getItemDropCategory, getInsertionIndex, getTargetPlacement, getDragCode, getNthParent, getReparentTarget, getDragTarget, handleAutoOpenFolder, defaultCanDropForeignDragObject, dragAndDropFeature, getNextDragTarget, getNextValidDragTarget, updateScroll, initiateDrag, moveDragPosition, keyboardDragAndDropFeature, searchFeature, renamingFeature, removeItemsFromParents, insertItemsAtTarget, createOnDropHandler;
   var init_dist = __esm({
-    "tmp/headless-tree-build/node_modules/@headless-tree/core/dist/index.mjs"() {
+    "node_modules/@headless-tree/core/dist/index.mjs"() {
       __defProp = Object.defineProperty;
       __defProps = Object.defineProperties;
       __getOwnPropDescs = Object.getOwnPropertyDescriptors;
@@ -1799,6 +1799,7 @@ var AceHeadlessTreePreview = (() => {
         let suppressNextRefocus = false;
         let searchRaw = "";
         let searchText = "";
+        let chordFilterActive = false;
         const TRANSPARENT_GIF = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
         const RESERVED_SINGLE_KEYS = /* @__PURE__ */ new Set(["q", "x", "z", "n", "v"]);
         function clearCodebookActiveState() {
@@ -1868,10 +1869,21 @@ var AceHeadlessTreePreview = (() => {
           if ((item.name || "").toLowerCase().includes(searchText)) return true;
           return childrenOf(id).some(itemMatchesSearch);
         }
+        function itemMatchesChordFilter(id) {
+          if (!chordFilterActive) return true;
+          const item = itemData(id);
+          if (!item) return false;
+          if (item.kind === "code") return !!item.chord;
+          return childrenOf(id).some(itemMatchesChordFilter);
+        }
         function visibleTreeItems() {
           const current = tree.getItems();
-          if (!searchText) return current;
-          return current.filter((item) => itemMatchesSearch(item.getId()));
+          if (!searchText && !chordFilterActive) return current;
+          return current.filter(function(item) {
+            const id = item.getId();
+            if (chordFilterActive) return itemMatchesChordFilter(id);
+            return itemMatchesSearch(id);
+          });
         }
         function visibleCodeItems() {
           return visibleTreeItems().filter(function(item) {
@@ -2017,7 +2029,10 @@ var AceHeadlessTreePreview = (() => {
           return window.__aceCurrentIndex || 0;
         }
         function codebookEditingDisabled() {
-          return !!document.getElementById("code-view");
+          return document.querySelector("#ace-headless-tree-mount[data-codebook-readonly='1']") !== null;
+        }
+        function codeApplicationDisabled() {
+          return !!document.getElementById("code-view") || !document.getElementById("text-panel");
         }
         function denyCodebookEditing() {
           if (!codebookEditingDisabled()) return false;
@@ -2032,8 +2047,8 @@ var AceHeadlessTreePreview = (() => {
             throw new Error("HTMX is unavailable");
           }
           return window.htmx.ajax(method, url, {
-            target: "#text-panel",
-            swap: "outerHTML",
+            target: document.getElementById("text-panel") ? "#text-panel" : "#code-sidebar",
+            swap: document.getElementById("text-panel") ? "outerHTML" : "none",
             values
           });
         }
@@ -2076,6 +2091,7 @@ var AceHeadlessTreePreview = (() => {
               element.addEventListener(eventName, value);
               return;
             }
+            if (key === "aria-selected") return;
             element.setAttribute(key, String(value));
           });
         }
@@ -2130,6 +2146,15 @@ var AceHeadlessTreePreview = (() => {
         function applyCode(item) {
           const data = item.getItemData();
           if (data.kind !== "code") return;
+          if (codeApplicationDisabled()) {
+            document.dispatchEvent(new CustomEvent("ace:view-code", {
+              detail: {
+                codeId: item.getId(),
+                codeName: data.name || ""
+              }
+            }));
+            return;
+          }
           document.dispatchEvent(new CustomEvent("ace:apply-code", {
             detail: {
               codeId: item.getId(),
@@ -2239,6 +2264,7 @@ var AceHeadlessTreePreview = (() => {
         }
         function createSearchRow() {
           const name = searchRaw.trim();
+          if (chordFilterActive) return null;
           if (!name || name.startsWith("/") || firstVisibleCodeItem()) return null;
           const row = document.createElement("div");
           row.className = "ace-ht-create-row";
@@ -2307,16 +2333,16 @@ var AceHeadlessTreePreview = (() => {
               return;
             }
             if (typeof defaultKeyDown === "function") defaultKeyDown(event);
-            };
-            itemProps.onClick = function(event) {
-              if (event.target?.closest?.(".ace-ht-rename, input, textarea")) {
-                event.stopPropagation();
-                return;
-              }
-              if (event.detail >= 2 && queueRenamingFromPointer(event)) return;
-              if (data.kind === "folder" && !event.target?.closest?.(".ace-ht-toggle")) {
-                event.preventDefault();
-                event.stopPropagation();
+          };
+          itemProps.onClick = function(event) {
+            if (event.target?.closest?.(".ace-ht-rename, input, textarea")) {
+              event.stopPropagation();
+              return;
+            }
+            if (event.detail >= 2 && queueRenamingFromPointer(event)) return;
+            if (data.kind === "folder" && !event.target?.closest?.(".ace-ht-toggle")) {
+              event.preventDefault();
+              event.stopPropagation();
               item.setFocused();
               return;
             }
@@ -2427,13 +2453,12 @@ var AceHeadlessTreePreview = (() => {
             let renameCommitted = false;
             let pointerAwayArmed = false;
             input.addEventListener("keydown", function(event) {
+              event.stopPropagation();
               if (event.key === "Enter") {
                 event.preventDefault();
-                event.stopPropagation();
                 commitRename();
               } else if (event.key === "Escape") {
                 event.preventDefault();
-                event.stopPropagation();
                 cancelRename(item.getElement?.(), true);
               }
             });
@@ -2466,13 +2491,15 @@ var AceHeadlessTreePreview = (() => {
             row.append(count);
             const chip = document.createElement("span");
             chip.className = data.chord ? "ace-ht-chip ace-ht-chip--chord" : "ace-ht-chip";
-            const label2 = data.chord || keyLabel(codeRank(item.getId()));
-            chip.textContent = label2;
             chip.setAttribute("aria-hidden", "true");
-            chip.setAttribute(
-              "title",
-              data.chord ? `Press ; then ${data.chord} or Enter to apply ${data.name}` : label2 ? `Press ${label2} or Enter to apply ${data.name}` : `Apply ${data.name}`
-            );
+            if (!codeApplicationDisabled()) {
+              const label2 = data.chord || keyLabel(codeRank(item.getId()));
+              chip.textContent = label2;
+              chip.setAttribute(
+                "title",
+                data.chord ? `Press ; then ${data.chord} or Enter to apply ${data.name}` : label2 ? `Press ${label2} or Enter to apply ${data.name}` : `Apply ${data.name}`
+              );
+            }
             chip.addEventListener("click", function(event) {
               event.preventDefault();
               event.stopPropagation();
@@ -2590,10 +2617,7 @@ var AceHeadlessTreePreview = (() => {
             },
             setDndState: scheduleDragStateRender,
             setAssistiveDndState: scheduleDragStateRender,
-            features: codebookEditingDisabled() ? [
-              syncDataLoaderFeature,
-              hotkeysCoreFeature
-            ] : [
+            features: [
               syncDataLoaderFeature,
               hotkeysCoreFeature,
               dragAndDropFeature,
@@ -2704,6 +2728,12 @@ var AceHeadlessTreePreview = (() => {
             const active = getActiveTreeItem();
             return active?.getAttribute("data-kind") === "code" ? active : null;
           }
+          function setChordFilter(active) {
+            const next = !!active;
+            if (chordFilterActive === next) return;
+            chordFilterActive = next;
+            scheduleRender();
+          }
           const api = {
             kind: "headless",
             refresh,
@@ -2735,7 +2765,8 @@ var AceHeadlessTreePreview = (() => {
             moveItemInDirection,
             startRenaming,
             firstCodeItem,
-            activeCodeItem
+            activeCodeItem,
+            setChordFilter
           };
           return api;
         }
@@ -2832,6 +2863,9 @@ var AceHeadlessTreePreview = (() => {
             event.stopImmediatePropagation();
             item.setFocused();
             scheduleRender();
+            queueMicrotask(function() {
+              item.getElement()?.focus({ preventScroll: true });
+            });
             return;
           }
           if (event.key !== "Enter") return;
@@ -2875,5 +2909,5 @@ var AceHeadlessTreePreview = (() => {
       })();
     }
   });
-  return require_codebook_headless_tree_source();
+  require_codebook_headless_tree_source();
 })();

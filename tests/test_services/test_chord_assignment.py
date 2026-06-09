@@ -37,10 +37,14 @@ class TestCollisions:
 
 
 class TestExhaustion:
-    def test_raises_when_prefix_exhausted(self):
+    def test_global_fallback_when_prefix_exhausted(self):
         # All 26 'p*' chords taken
         taken = {"p" + c for c in "abcdefghijklmnopqrstuvwxyz"}
-        with pytest.raises(RuntimeError, match="prefix 'p'"):
+        assert assign_chord("Privacy", taken) == "aa"
+
+    def test_raises_when_all_pairs_exhausted(self):
+        taken = {a + b for a in "abcdefghijklmnopqrstuvwxyz" for b in "abcdefghijklmnopqrstuvwxyz"}
+        with pytest.raises(RuntimeError, match="all 676"):
             assign_chord("Privacy", taken)
 
 

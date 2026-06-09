@@ -5,6 +5,7 @@
                      child_count/parent_id; see list_codes_with_tree),
                     code_counts_by_id (for the per-row count cell). #}
 {% set read_only = codebook_readonly|default(false) %}
+{% set browse_mode = codebook_browse_mode|default(false) %}
 <div class="ace-sidebar-strip" role="banner">
   <a href="/" class="ace-sidebar-strip-mark" title="ACE v{{ version }}">ACE</a>
   <div class="ace-sidebar-strip-actions">
@@ -107,7 +108,12 @@
            aria-keyshortcuts="/">
   </div>
   <div class="ace-sidebar-search-hint-line" aria-hidden="true">
-    {% if read_only %}
+    {% if browse_mode %}
+    <span class="ace-search-hint-group"><kbd>&#8593;</kbd><kbd>&#8595;</kbd> browse</span>
+    <span class="ace-search-hint-group"><kbd>&#8629;</kbd> view</span>
+    <span class="ace-search-hint-group"><kbd>F2</kbd> rename</span>
+    <span class="ace-search-hint-group"><kbd>del</kbd> delete</span>
+    {% elif read_only %}
     <span class="ace-search-hint-group"><kbd>&#8593;</kbd><kbd>&#8595;</kbd> browse</span>
     <span class="ace-search-hint-group"><kbd>&#8629;</kbd> view</span>
     {% else %}
@@ -130,9 +136,10 @@
   <div id="ace-headless-tree-mount"
        class="ace-headless-tree-mount"
        data-headless-tree-mount
+       data-codebook-readonly="{{ '1' if read_only else '0' }}"
        role="tree"
        aria-label="Code list"
-       aria-keyshortcuts="{{ 'Enter' if read_only else 'Enter F2 Delete' }}"></div>
+       aria-keyshortcuts="{{ 'Enter F2 Delete' if browse_mode else ('Enter' if read_only else 'Enter F2 Delete') }}"></div>
   {% if not tree_codes and not read_only %}
   <div class="ace-sidebar-empty">
     <p>No codes yet.</p>
