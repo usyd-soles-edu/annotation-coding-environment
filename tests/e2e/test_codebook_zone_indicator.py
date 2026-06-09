@@ -84,8 +84,9 @@ def _seed_reordered_folder_hotkeys(page):
             target_order_ids: JSON.stringify([bravo]),
             current_index: String(window.__aceCurrentIndex || 0),
           });
-          await request("POST", "/api/codes/reorder-tree", {
-            tree_ids: JSON.stringify([upper, lower, charlie]),
+          await request("POST", "/api/codes/reorder-in-scope", {
+            code_ids: JSON.stringify([upper, lower, charlie]),
+            parent_id: "",
             current_index: String(window.__aceCurrentIndex || 0),
           });
         }

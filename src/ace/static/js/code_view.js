@@ -802,9 +802,8 @@
   } catch (_) {}
 
   // --- Codebook keyboard navigation -------------------------------------
-  // T4: `/` → focus search; ↑/↓/Home/End on code rows (roving tabindex,
-  // skipping collapsed-group contents); Enter → navigate; search ↓/↑/Esc.
-  // T7 will extend the document-level keydown listener here with `?`.
+  // `/` focuses search; ↑/↓/Home/End on code rows move the roving tabindex;
+  // Enter navigates; search handles ↓/↑/Esc.
 
   const treeEl = codebookTreeElement();
   const codeSearchInput = document.getElementById("code-search-input");
@@ -928,7 +927,6 @@
 
   // Document-level `/` → focus codebook search.
   // Registered at capture phase, matching the existing code_view.js convention.
-  // T7: Shift+← / Shift+→ (global), V (polite no-op), q/x/z (reserved no-op).
   document.addEventListener("keydown", (evt) => {
     if (evt.key === "/") {
       if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
@@ -1015,8 +1013,8 @@
       return;
     }
 
-    // V → exit back to coding. stopImmediatePropagation (via claim) is REQUIRED
-    // because bridge.js has its own V handler at document level (bridge.js:2919)
+    // V → exit back to coding. stopImmediatePropagation (via claim) is required
+    // because bridge.js has its own V handler at document level
     // that navigates to /code/<id>/view; without claim it would re-enter this
     // page instead of exiting.
     if ((evt.key === "v" || evt.key === "V")

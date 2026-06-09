@@ -75,9 +75,7 @@
 /* Sidebar itself is styled by coding.css. The viewed code row opts into the
    shared headless codebook state via .ace-ht-row--current. */
 /* Apply-code keycap badges are hidden on this page. */
-#code-sidebar .ace-code-chip,
 #code-sidebar .ace-ht-chip { display: none; }
-#code-sidebar .ace-code-row { -webkit-user-select: none; user-select: none; }
 
 .cv-main {
   display: flex;

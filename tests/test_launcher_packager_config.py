@@ -11,6 +11,7 @@ except ModuleNotFoundError:  # Python < 3.11
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGER_TOML = ROOT / "desktop" / "launcher" / "Packager.toml"
+LAUNCHER_CARGO_TOML = ROOT / "desktop" / "launcher" / "Cargo.toml"
 
 
 def _load() -> dict:
@@ -33,7 +34,9 @@ def test_identifier():
 
 def test_version_matches_launcher():
     cfg = _load()
-    assert cfg["version"] == "0.16.0"
+    launcher = tomllib.loads(LAUNCHER_CARGO_TOML.read_text(encoding="utf-8"))
+    assert cfg["version"] == launcher["package"]["version"]
+
 
 def test_formats_restrict_to_macos_and_windows_outputs():
     cfg = _load()

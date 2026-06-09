@@ -243,23 +243,6 @@ def reorder_codes(conn: sqlite3.Connection, code_ids: list[str]) -> None:
     conn.commit()
 
 
-def reorder_tree(conn: sqlite3.Connection, ids: list[str]) -> None:
-    """Reorder a flat list of mixed code+folder ids by sort_order.
-
-    Used by the keyboard folder-reorder gesture (⌥⇧↑/↓), which moves
-    folder rows and code rows together. The existing `reorder_codes`
-    helper rewrites only a flat code list; this variant updates regardless
-    of `kind` so a unified visual order survives subsequent OOB sidebar swaps.
-    """
-    for i, item_id in enumerate(ids):
-        conn.execute(
-            "UPDATE codebook_code SET sort_order = ? "
-            "WHERE id = ? AND deleted_at IS NULL",
-            (i, item_id),
-        )
-    conn.commit()
-
-
 def _move_code_to_parent_no_commit(
     conn: sqlite3.Connection,
     code_id: str,

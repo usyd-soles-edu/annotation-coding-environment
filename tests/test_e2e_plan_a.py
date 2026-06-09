@@ -17,7 +17,7 @@ def client():
 
 
 def test_full_flow_create_and_import(client, tmp_path):
-    """Create a project, upload CSV, commit import, verify sources in DB."""
+    """Create a project, import CSV, commit import, verify sources in DB."""
     project_path = str(tmp_path / "e2e.ace")
 
     # 1. Create project
@@ -27,11 +27,10 @@ def test_full_flow_create_and_import(client, tmp_path):
     assert "/import" in redirect
     assert Path(project_path).exists()
 
-    # 2. Upload CSV
+    # 2. Import CSV
     csv_path = tmp_path / "data.csv"
     csv_path.write_text("id,text,extra\nA,First document,meta1\nB,Second document,meta2\nC,Third document,meta3\n")
-    with open(csv_path, "rb") as f:
-        resp = client.post("/api/import/upload", files={"file": ("data.csv", f, "text/csv")})
+    resp = client.post("/api/import/file", data={"path": str(csv_path)})
     assert resp.status_code == 200
     assert "id" in resp.text
     assert "text" in resp.text

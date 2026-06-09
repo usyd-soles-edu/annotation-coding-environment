@@ -57,36 +57,6 @@ def test_import_page_spreadsheet_choice_uses_native_picker(client_with_project):
     assert 'id="import-file-input"' not in resp.text
 
 
-def test_upload_csv_shows_preview(client_with_project):
-    """Upload CSV returns preview table with column selection."""
-    client, tmp_path = client_with_project
-
-    csv_path = tmp_path / "sample.csv"
-    csv_path.write_text(
-        "participant_id,reflection,age\n"
-        "P001,I enjoyed the group work.,22\n"
-        "P002,The lectures were fast.,25\n"
-    )
-
-    with open(csv_path, "rb") as f:
-        resp = client.post(
-            "/api/import/upload",
-            files={"file": ("sample.csv", f, "text/csv")},
-        )
-
-    assert resp.status_code == 200
-    assert "ace-import-mapping" in resp.text
-    assert "P001" in resp.text
-    assert "participant_id" in resp.text
-    assert '<h1 class="ace-wizard-title" tabindex="-1">Choose source labels and coding text</h1>' in resp.text
-    assert "1. Source label" in resp.text
-    assert "2. Text to code" in resp.text
-    assert "Preview source" in resp.text
-    assert "ace-role-btn" not in resp.text
-    assert 'name="id_column_choice"' in resp.text
-    assert "data-import-text-col" in resp.text
-
-
 def test_import_file_path_shows_three_column_mapping(client_with_project):
     client, tmp_path = client_with_project
     csv_path = tmp_path / "sample.csv"
@@ -118,12 +88,7 @@ def test_import_commit(client_with_project):
     csv_path = tmp_path / "data.csv"
     csv_path.write_text("id,text,group\nA1,hello,ctrl\nA2,world,exp\n")
 
-    # Upload first to set the temp path
-    with open(csv_path, "rb") as f:
-        client.post(
-            "/api/import/upload",
-            files={"file": ("data.csv", f, "text/csv")},
-        )
+    client.post("/api/import/file", data={"path": str(csv_path)})
 
     # Commit the import
     resp = client.post(
@@ -146,11 +111,7 @@ def test_import_commit_requires_text_column(client_with_project):
     csv_path = tmp_path / "data.csv"
     csv_path.write_text("id,text\nA1,hello\n", encoding="utf-8")
 
-    with open(csv_path, "rb") as f:
-        client.post(
-            "/api/import/upload",
-            files={"file": ("data.csv", f, "text/csv")},
-        )
+    client.post("/api/import/file", data={"path": str(csv_path)})
 
     resp = client.post(
         "/api/import/commit",
@@ -176,11 +137,7 @@ def test_import_commit_multiple_text_columns_creates_one_source_per_row(client_w
         "A2,Reflection two,Feedback two,exp\n"
     )
 
-    with open(csv_path, "rb") as f:
-        client.post(
-            "/api/import/upload",
-            files={"file": ("data.csv", f, "text/csv")},
-        )
+    client.post("/api/import/file", data={"path": str(csv_path)})
 
     resp = client.post(
         "/api/import/commit",

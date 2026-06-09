@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from urllib.parse import quote, unquote, urlparse
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request, UploadFile, File
+from fastapi import APIRouter, Form, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 router = APIRouter(prefix="/api")
@@ -490,9 +490,6 @@ async def project_open(request: Request, path: str = Form(...)):
 # Import routes
 # ---------------------------------------------------------------------------
 
-_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
-
-
 def _native_selection_path(value: str) -> Path:
     """Accept native picker paths returned as POSIX paths or file:// URIs."""
     parsed = urlparse(value)
@@ -502,29 +499,6 @@ def _native_selection_path(value: str) -> Path:
             path = path[1:]
         return Path(path)
     return Path(value)
-
-
-@router.post("/import/upload")
-async def import_upload(request: Request, file: UploadFile = File(...)):
-    """Accept a CSV/Excel upload, parse it, return a preview table fragment."""
-
-    # Read the uploaded file into a temp file
-    data = await file.read()
-    if len(data) > _MAX_UPLOAD_BYTES:
-        return _oob_status("File exceeds 50 MB limit")
-
-    suffix = Path(file.filename or "upload.csv").suffix
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    try:
-        tmp.write(data)
-        tmp.close()
-    except Exception as e:
-        Path(tmp.name).unlink(missing_ok=True)
-        return _oob_status(f"Could not parse file: {e}")
-
-    return _parse_tabular_for_mapping(
-        request, Path(tmp.name), cleanup=True, filename=file.filename or "upload"
-    )
 
 
 @router.post("/import/file")
@@ -1307,37 +1281,6 @@ async def redo_route(
 # ---------------------------------------------------------------------------
 
 
-@router.post("/code/navigate")
-async def navigate_route(
-    request: Request,
-    current_index: int = Form(default=0),
-    target_index: int = Form(default=0),
-):
-    """Navigate between sources."""
-    from ace.models.assignment import get_assignments_for_coder
-
-    coder_id = _require_coder(request)
-
-    with _project_db(request) as conn:
-        assignments = get_assignments_for_coder(conn, coder_id)
-        if not assignments:
-            return HTMLResponse("", status_code=400)
-
-        total = len(assignments)
-
-        # Clamp target
-        if target_index < 0:
-            target_index = 0
-        if target_index >= total:
-            target_index = total - 1
-
-        content = _render_full_coding_oob(
-            request, conn, coder_id, target_index, include_sidebar=False,
-        )
-        trigger = json.dumps({"ace-navigate": {"index": target_index, "total": total}})
-        return HTMLResponse(content, headers={"HX-Trigger": trigger})
-
-
 @router.post("/code/flag")
 async def flag_route(
     request: Request,
@@ -2036,71 +1979,6 @@ async def reorder_in_scope_route(
             ).fetchall()
         ]
         # Skip recording on no-ops so one drag doesn't burn two undo presses.
-        if prev != new:
-            _get_undo_manager(request).record_code_reorder(prev, new)
-        content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content, headers={"HX-Reswap": "none"})
-
-
-@router.post("/codes/reorder-tree")
-async def reorder_tree_route(
-    request: Request,
-    tree_ids: str = Form(...),
-    current_index: int = Form(default=0),
-):
-    """Reorder a unified flat list of code + folder ids.
-
-    The keyboard folder-reorder gesture (⌥⇧↑/↓) moves folder rows
-    relative to other folders. The existing `/codes/reorder` route only
-    UPDATEs `kind = 'code'` rows, so folder reorders never persisted —
-    a subsequent OOB sidebar swap snapped the folder back to its prior
-    position. This route walks the tree top-to-bottom and rewrites
-    `sort_order` for every id regardless of kind, which is what the
-    visual order needs to round-trip through the next render.
-
-    Records an undo entry covering every id in the reorder so Z reverts
-    a folder shuffle just like a code drag.
-    """
-    coder_id = _require_coder(request)
-    try:
-        ids = json.loads(tree_ids)
-    except (json.JSONDecodeError, TypeError):
-        return _oob_status("Invalid tree_ids format.")
-    if not isinstance(ids, list) or not all(isinstance(x, str) for x in ids):
-        return _oob_status("Invalid tree_ids format.")
-
-    from ace.models.codebook import reorder_tree
-
-    with _project_db(request) as conn:
-        # Snapshot prev/new (id, sort_order) for every id in the tree
-        # reorder. _apply_reorder is kind-agnostic so the same handler
-        # works for the folder + code mix that this route persists.
-        if ids:
-            placeholders = ",".join("?" * len(ids))
-            prev = [
-                (r["id"], r["sort_order"])
-                for r in conn.execute(
-                    f"SELECT id, sort_order FROM codebook_code "
-                    f"WHERE id IN ({placeholders}) AND deleted_at IS NULL "
-                    f"ORDER BY id",
-                    ids,
-                ).fetchall()
-            ]
-        else:
-            prev = []
-        reorder_tree(conn, ids)
-        if ids:
-            new = [
-                (r["id"], r["sort_order"])
-                for r in conn.execute(
-                    f"SELECT id, sort_order FROM codebook_code "
-                    f"WHERE id IN ({placeholders}) AND deleted_at IS NULL "
-                    f"ORDER BY id",
-                    ids,
-                ).fetchall()
-            ]
-        else:
-            new = []
         if prev != new:
             _get_undo_manager(request).record_code_reorder(prev, new)
         content = _render_full_coding_oob(request, conn, coder_id, current_index)

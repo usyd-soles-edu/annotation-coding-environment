@@ -95,21 +95,6 @@ def import_text_files(
     return count
 
 
-def get_random_preview(
-    folder: str | Path,
-    max_chars: int = 500,
-) -> tuple[str, str] | None:
-    """Pick a random text file from folder and return (filename, snippet).
-
-    Returns None if no text files exist.
-    """
-    _, previews = get_random_previews(folder, limit=1, max_chars=max_chars)
-    if not previews:
-        return None
-    preview = previews[0]
-    return preview["filename"], preview["snippet"]
-
-
 def get_random_previews(
     folder: str | Path,
     limit: int = 5,
