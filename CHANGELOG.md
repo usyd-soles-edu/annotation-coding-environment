@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.2
+
+### Changes
+
+- **Release metadata** — corrected the Zenodo release metadata so DOI records carry the stable ACE description and the current release version.
+- **Codebook maintenance** — removed the old headless-tree spike harness now that the production codebook tree is covered by app-level tests.
+- **Brand assets** — refreshed the packaged brand assets.
+
+### Fixes
+
+- **Internal cleanup** — removed stale audit and import paths that were no longer used by the app.
+
 ## 1.1.1
 
 ### Changes
