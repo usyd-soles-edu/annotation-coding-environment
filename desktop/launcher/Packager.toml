@@ -4,7 +4,7 @@
 name = "ace-launcher"
 product-name = "ACE"
 identifier = "au.edu.sydney.ace-coder"
-version = "1.1.0"
+version = "1.1.1"
 description = "Annotation Coding Environment"
 homepage = "https://github.com/usyd-soles-edu/annotation-coding-environment"
 publisher = "University of Sydney"
