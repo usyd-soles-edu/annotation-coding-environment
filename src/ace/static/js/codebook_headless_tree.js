@@ -2366,7 +2366,6 @@
           const path = pathNamesFor(item.getId());
           row.dataset.level = String(level);
           row.dataset.path = path.join(" / ");
-          row.title = path.length > 1 ? `${data.kind === "folder" ? "Folder" : "Code"} path: ${path.join(" / ")}` : `${data.kind === "folder" ? "Folder" : "Code"} level ${level}`;
           row.style.setProperty("--ht-indent", `${Math.max(0, level - 1) * 14}px`);
           if (data.colour) row.style.setProperty("--row-colour", data.colour);
           if (item.isDragTargetAbove?.()) row.dataset.dropTarget = "above";

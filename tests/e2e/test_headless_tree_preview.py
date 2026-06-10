@@ -140,6 +140,67 @@ def test_headless_tree_preview_renders_nested_codebook_data(ace_server, browser_
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_tree_definition_uses_single_expanding_peek(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount")
+            definition = (
+                "Participants describe barriers to accessing a service, including time, "
+                "cost, transport, uncertainty about eligibility, or discomfort asking for help. "
+            ) * 3
+            page.evaluate(
+                """
+                async (definition) => {
+                  const codes = [{
+                    name: "Dictionary access",
+                    colour: "#123456",
+                    group_name: "",
+                    definition,
+                  }];
+                  const response = await fetch("/api/codes/import", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: new URLSearchParams({
+                      codes_json: JSON.stringify(codes),
+                      current_index: String(window.__aceCurrentIndex || 0),
+                    }),
+                  });
+                  if (!response.ok) throw new Error(`import failed: ${response.status}`);
+                  await response.text();
+                }
+                """,
+                definition,
+            )
+
+            page.goto(f"{ace_server}/code")
+            row = page.locator(
+                '#ace-headless-tree-mount .ace-ht-row--code:has-text("Dictionary access")'
+            ).first
+            expect(row).to_have_attribute("data-definition", definition)
+            assert row.get_attribute("title") is None
+
+            row.scroll_into_view_if_needed()
+            box = row.bounding_box()
+            assert box is not None
+            page.mouse.move(box["x"] + 20, box["y"] + box["height"] / 2)
+
+            peek = page.locator(".ace-code-peek.ace-code-peek--visible")
+            expect(peek).to_have_count(1)
+            expect(page.locator("#ace-code-definition-popover")).to_have_count(0)
+            expect(peek).to_contain_text("Dictionary access")
+            expect(peek).to_contain_text("Participants describe barriers")
+            overflow_y = peek.locator(".ace-code-peek-definition").evaluate(
+                "(node) => getComputedStyle(node).overflowY"
+            )
+            assert overflow_y == "visible"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_headless_tree_preview_marks_folder_levels_and_paths(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()

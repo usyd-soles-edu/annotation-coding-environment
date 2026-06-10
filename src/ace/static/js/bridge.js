@@ -4227,78 +4227,6 @@
    * 18. Codebook menu
    * ================================================================ */
 
-  let _codeDefinitionPopover = null;
-  let _codeDefinitionAnchor = null;
-
-  function _ensureCodeDefinitionPopover() {
-    if (_codeDefinitionPopover) return _codeDefinitionPopover;
-    const popover = document.createElement("div");
-    popover.id = "ace-code-definition-popover";
-    popover.className = "ace-code-definition-popover";
-    popover.setAttribute("role", "tooltip");
-    popover.hidden = true;
-    popover.innerHTML = '<div class="ace-code-definition-title"></div><div class="ace-code-definition-body"></div>';
-    document.body.appendChild(popover);
-    _codeDefinitionPopover = popover;
-    return popover;
-  }
-
-  function _positionCodeDefinitionPopover(row, popover) {
-    const rect = row.getBoundingClientRect();
-    popover.hidden = false;
-    const popRect = popover.getBoundingClientRect();
-    let left = rect.right + 10;
-    if (left + popRect.width > window.innerWidth - 12) {
-      left = Math.max(12, rect.left - popRect.width - 10);
-    }
-    let top = rect.top + Math.min(0, rect.height - popRect.height) / 2;
-    top = Math.max(12, Math.min(top, window.innerHeight - popRect.height - 12));
-    popover.style.left = left + "px";
-    popover.style.top = top + "px";
-  }
-
-  function _showCodeDefinition(row) {
-    if (!row || row.dataset.kind !== "code" || !row.dataset.definition) return;
-    const popover = _ensureCodeDefinitionPopover();
-    const title = popover.querySelector(".ace-code-definition-title");
-    const body = popover.querySelector(".ace-code-definition-body");
-    if (title) title.textContent = row.querySelector(".ace-ht-label")?.textContent?.trim() || "Code definition";
-    if (body) body.textContent = row.dataset.definition;
-    if (_codeDefinitionAnchor) _codeDefinitionAnchor.removeAttribute("aria-describedby");
-    _codeDefinitionAnchor = row;
-    row.setAttribute("aria-describedby", popover.id);
-    _positionCodeDefinitionPopover(row, popover);
-  }
-
-  function _hideCodeDefinition(row) {
-    if (row && _codeDefinitionAnchor && row !== _codeDefinitionAnchor) return;
-    if (_codeDefinitionAnchor) _codeDefinitionAnchor.removeAttribute("aria-describedby");
-    _codeDefinitionAnchor = null;
-    if (_codeDefinitionPopover) _codeDefinitionPopover.hidden = true;
-  }
-
-  document.addEventListener("mouseover", function (event) {
-    const row = event.target.closest?.(".ace-ht-row--code[data-definition]");
-    if (row) _showCodeDefinition(row);
-  });
-  document.addEventListener("focusin", function (event) {
-    const row = event.target.closest?.(".ace-ht-row--code[data-definition]");
-    if (row) _showCodeDefinition(row);
-  });
-  document.addEventListener("mouseout", function (event) {
-    const row = event.target.closest?.(".ace-ht-row--code[data-definition]");
-    if (!row || row.contains(event.relatedTarget)) return;
-    _hideCodeDefinition(row);
-  });
-  document.addEventListener("focusout", function (event) {
-    const row = event.target.closest?.(".ace-ht-row--code[data-definition]");
-    if (!row) return;
-    setTimeout(function () {
-      if (!row.contains(document.activeElement)) _hideCodeDefinition(row);
-    }, 0);
-  });
-  window.addEventListener("scroll", function () { _hideCodeDefinition(); }, true);
-
   // Codebook menu: toggle, import, export, shortcuts
   document.addEventListener("click", function (e) {
     const dropdown = document.getElementById("codebook-dropdown");
@@ -4708,8 +4636,8 @@
   });
 
   /* ================================================================
-   * 19b. Long-name hover peek — side popover for truncated code /
-   *      folder names in the codebook sidebar. Portal-style: the peek
+   * 19b. Codebook hover peek — side popover for truncated names and
+   *      imported code definitions in the codebook sidebar. Portal-style: the peek
    *      element lives at body level so the sidebar's overflow:hidden
    *      can't clip it. Event delegation means it survives every OOB
    *      sidebar swap without re-binding.
@@ -4746,9 +4674,11 @@
     const isFolder = _isFolderRow(row);
     const labelEl = row.querySelector(".ace-folder-label, .ace-code-name, .ace-ht-label");
     if (!labelEl) return null;
-    if (labelEl.scrollWidth <= labelEl.clientWidth) return null;
+    const definition = !isFolder ? (row.dataset.definition || "").trim() : "";
+    const isTruncated = labelEl.scrollWidth > labelEl.clientWidth;
+    if (!isTruncated && !definition) return null;
 
-    const fullName = labelEl.textContent;
+    const fullName = labelEl.textContent.trim();
     const parts = [];
     let stripe = "";
 
@@ -4768,7 +4698,7 @@
         }
       }
     }
-    return { fullName, stripe, metaHtml: parts.join("") };
+    return { fullName, stripe, metaHtml: parts.join(""), definition };
   }
 
   function _peekShow(row) {
@@ -4780,6 +4710,9 @@
     el.style.setProperty("--ace-code-peek-stripe", content.stripe || "var(--ace-border)");
     el.innerHTML =
       `<p class="ace-code-peek-name">${_escapeHtml(content.fullName)}</p>` +
+      (content.definition
+        ? `<div class="ace-code-peek-definition">${_escapeHtml(content.definition)}</div>`
+        : "") +
       (content.metaHtml ? `<div class="ace-code-peek-meta">${content.metaHtml}</div>` : "");
 
     el.classList.add("ace-code-peek--visible");
