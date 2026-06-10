@@ -166,10 +166,120 @@ def test_coding_page_empty_codebook_shows_first_actions(client_with_sources_no_c
     """A project with sources but no codes exposes first-action buttons."""
     resp = client_with_sources_no_codes.get("/code")
     assert resp.status_code == 200
+    assert "ace-headless-tree-preview--empty" in resp.text
     assert 'id="create-first-code-btn"' in resp.text
     assert 'id="empty-import-codebook-btn"' in resp.text
     assert "Create first code" in resp.text
     assert "Import codebook CSV" in resp.text
+    assert "<kbd>/code</kbd>" in resp.text
+
+
+def test_codebook_import_preview_uses_compact_mapping_dialog(
+    client_with_sources_no_codes, tmp_path
+):
+    csv_path = tmp_path / "codebook.csv"
+    csv_path.write_text(
+        "Code Label,Theme,Dictionary Definition\n"
+        "Access,Equity,Barriers to using a service\n"
+    )
+
+    resp = client_with_sources_no_codes.post(
+        "/api/codes/import/preview-path",
+        data={"path": str(csv_path), "current_index": 0},
+    )
+
+    assert resp.status_code == 200
+    assert "ace-codebook-import-dialog" in resp.text
+    assert 'id="codebook-map-name"' in resp.text
+    assert 'value="Code Label" selected' in resp.text
+    assert 'id="codebook-map-group"' in resp.text
+    assert 'value="Theme" selected' in resp.text
+    assert 'id="codebook-map-definition"' in resp.text
+    assert 'value="Dictionary Definition" selected' in resp.text
+    assert "Sidebar preview" in resp.text
+    assert "Barriers to using a service" in resp.text
+
+
+def test_codebook_import_preview_map_returns_definition_payload(
+    client_with_sources_no_codes, tmp_path
+):
+    csv_path = tmp_path / "codebook.csv"
+    csv_path.write_text(
+        "Code Label,Theme,Dictionary Definition\n"
+        "Access,Equity,Barriers to using a service\n"
+    )
+
+    resp = client_with_sources_no_codes.post(
+        "/api/codes/import/preview-map",
+        data={
+            "path": str(csv_path),
+            "name_column": "Code Label",
+            "group_column": "Theme",
+            "definition_column": "Dictionary Definition",
+        },
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["new_count"] == 1
+    assert "Barriers to using a service" in payload["preview_html"]
+    codes = json.loads(payload["codes_json"])
+    assert codes[0]["definition"] == "Barriers to using a service"
+    assert codes[0]["group_name"] == "Equity"
+
+
+def test_codebook_import_preview_map_respects_no_definition_selection(
+    client_with_sources_no_codes, tmp_path
+):
+    csv_path = tmp_path / "codebook.csv"
+    csv_path.write_text(
+        "Code Label,Theme,Dictionary Definition\n"
+        "Access,Equity,Barriers to using a service\n"
+    )
+
+    resp = client_with_sources_no_codes.post(
+        "/api/codes/import/preview-map",
+        data={
+            "path": str(csv_path),
+            "name_column": "Code Label",
+            "group_column": "Theme",
+            "definition_column": "",
+        },
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "Barriers to using a service" not in payload["preview_html"]
+    codes = json.loads(payload["codes_json"])
+    assert codes[0]["definition"] is None
+
+
+def test_codebook_import_route_stores_definition(client_with_sources_no_codes):
+    from ace.db.connection import open_project
+
+    codes_json = json.dumps([
+        {
+            "name": "Access",
+            "colour": "#123456",
+            "group_name": "Equity",
+            "definition": "Barriers to using a service",
+        }
+    ])
+
+    resp = client_with_sources_no_codes.post(
+        "/api/codes/import",
+        data={"codes_json": codes_json, "current_index": 0},
+    )
+
+    assert resp.status_code == 200
+    conn = open_project(client_with_sources_no_codes.app.state.project_path)
+    try:
+        row = conn.execute(
+            "SELECT definition FROM codebook_code WHERE name = 'Access'"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row["definition"] == "Barriers to using a service"
 
 
 def test_codebook_tree_route_returns_headless_tree_item_map(client_with_codes):
@@ -186,7 +296,13 @@ def test_codebook_tree_route_returns_headless_tree_item_map(client_with_codes):
             "SELECT id FROM source ORDER BY sort_order LIMIT 1"
         ).fetchone()["id"]
         parent = add_folder(conn, "Parent folder")
-        child = add_code(conn, "Nested code", "#123456", parent_id=parent)
+        child = add_code(
+            conn,
+            "Nested code",
+            "#123456",
+            parent_id=parent,
+            definition="Definition imported from a dictionary column",
+        )
         add_annotation(conn, source_id, coder_id, child, 0, 5, "First")
     finally:
         conn.close()
@@ -220,6 +336,7 @@ def test_codebook_tree_route_returns_headless_tree_item_map(client_with_codes):
         "count": 1,
         "colour": "#123456",
         "chord": None,
+        "definition": "Definition imported from a dictionary column",
     }
 
 

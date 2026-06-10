@@ -1577,6 +1577,7 @@ def _codebook_tree_payload(
         if kind == "code":
             item["colour"] = str(node.get("colour", ""))
             item["chord"] = node.get("chord")
+            item["definition"] = node.get("definition") or ""
         items[node_id] = item
         items[parent_id]["children"].append(node_id)
 
@@ -2050,6 +2051,138 @@ async def export_codebook(request: Request):
     )
 
 
+def _normalise_codebook_mapping_column(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip()
+    return value if value else None
+
+
+def _codebook_mapping_select(
+    *,
+    field_id: str,
+    label: str,
+    columns: list[str],
+    selected: str | None,
+    optional: bool = False,
+) -> str:
+    options = []
+    if optional:
+        options.append(
+            '<option value=""'
+            f'{" selected" if selected is None else ""}>None</option>'
+        )
+    for column in columns:
+        safe = html.escape(column)
+        options.append(
+            f'<option value="{safe}"'
+            f'{" selected" if column == selected else ""}>{safe}</option>'
+        )
+    return (
+        '<label class="ace-codebook-import-field">'
+        f'<span>{html.escape(label)}</span>'
+        f'<select id="{field_id}" class="ace-codebook-import-select" '
+        f'data-codebook-import-map>{"".join(options)}</select>'
+        '</label>'
+    )
+
+
+def _render_codebook_import_preview(previewed: list[dict]) -> str:
+    if not previewed:
+        return (
+            '<div class="ace-codebook-import-empty">'
+            'No importable codes found with these columns.</div>'
+        )
+
+    groups: dict[str, list[dict]] = {}
+    for code in previewed:
+        groups.setdefault(code.get("group_name") or "", []).append(code)
+
+    parts = []
+    for group_name, codes in groups.items():
+        if group_name:
+            parts.append(
+                '<div class="ace-codebook-import-folder">'
+                f'{html.escape(group_name)}</div>'
+            )
+        for code in codes:
+            status = "exists" if code["exists"] else "new"
+            definition = (code.get("definition") or "").strip()
+            definition_html = (
+                f'<span class="ace-codebook-import-definition">'
+                f'{html.escape(definition)}</span>'
+                if definition else ""
+            )
+            parts.append(
+                f'<div class="ace-codebook-import-row ace-codebook-import-row--{status}">'
+                f'<span class="ace-codebook-import-stripe" '
+                f'style="background:{html.escape(code["colour"])}"></span>'
+                f'<span class="ace-codebook-import-name">{html.escape(code["name"])}</span>'
+                f'{definition_html}'
+                f'<span class="ace-codebook-import-badge">{status}</span>'
+                '</div>'
+            )
+    return "".join(parts)
+
+
+def _codebook_import_payload(
+    conn: sqlite3.Connection,
+    path: Path,
+    name_column: str | None,
+    group_column: str | None,
+    definition_column: str | None,
+) -> dict:
+    from ace.models.codebook import preview_codebook_csv
+
+    if not name_column:
+        return {
+            "preview_html": (
+                '<div class="ace-codebook-import-empty">'
+                'Choose the column that contains code names.</div>'
+            ),
+            "codes_json": "[]",
+            "new_count": 0,
+            "exists_count": 0,
+            "summary": "No code column selected",
+            "import_label": "Import",
+            "disabled": True,
+        }
+
+    previewed = preview_codebook_csv(
+        conn,
+        path,
+        name_column=name_column,
+        group_column=group_column,
+        definition_column=definition_column,
+    )
+    new_codes = [c for c in previewed if not c["exists"]]
+    existing_codes = [c for c in previewed if c["exists"]]
+    codes_for_import = [
+        {
+            "name": c["name"],
+            "colour": c["colour"],
+            "group_name": c.get("group_name"),
+            "definition": c.get("definition"),
+        }
+        for c in new_codes
+    ]
+    new_count = len(new_codes)
+    exists_count = len(existing_codes)
+    summary = f"{new_count} new"
+    if exists_count:
+        summary += f" · {exists_count} already exist"
+    import_label = f'Import {new_count} code{"s" if new_count != 1 else ""}'
+    return {
+        "preview_html": _render_codebook_import_preview(previewed),
+        "codes_json": json.dumps(codes_for_import),
+        "new_count": new_count,
+        "exists_count": exists_count,
+        "summary": summary,
+        "import_label": import_label,
+        "disabled": new_count == 0,
+    }
+
+
 @router.post("/codes/import/preview-path")
 async def import_codebook_preview_path(
     request: Request,
@@ -2057,7 +2190,7 @@ async def import_codebook_preview_path(
     current_index: int = Form(default=0),
 ):
     """Preview a codebook CSV from a local file path (native file picker flow)."""
-    from ace.models.codebook import preview_codebook_csv
+    from ace.models.codebook import inspect_codebook_csv
 
     coder_id = _require_coder(request)
 
@@ -2067,96 +2200,90 @@ async def import_codebook_preview_path(
 
     try:
         with _project_db(request) as conn:
-            previewed = preview_codebook_csv(conn, str(file_path))
+            inspection = inspect_codebook_csv(file_path)
+            columns = inspection["columns"]
+            detected = inspection["detected"]
+            payload = _codebook_import_payload(
+                conn,
+                file_path,
+                detected.get("name"),
+                detected.get("group"),
+                detected.get("definition"),
+            )
     except Exception as e:
         return _oob_status(f"Could not parse CSV: {e}")
 
-    new_codes = [c for c in previewed if not c["exists"]]
-    existing_codes = [c for c in previewed if c["exists"]]
-
-    groups: dict = {}
-    for code in previewed:
-        gn = code.get("group_name") or ""
-        groups.setdefault(gn, []).append(code)
-
-    preview_parts = []
-    for group_name, codes in groups.items():
-        if group_name:
-            preview_parts.append(
-                f'<div class="ace-import-group-label">{html.escape(group_name)}</div>'
-            )
-        for code in codes:
-            esc_name = html.escape(code["name"])
-            if code["exists"]:
-                preview_parts.append(
-                    f'<div class="ace-import-row ace-import-row--exists">'
-                    f'<span style="width:7px;height:7px;border-radius:50%;'
-                    f'background:var(--ace-text-muted);display:inline-block"></span>'
-                    f'{esc_name}'
-                    f'<span class="ace-import-badge ace-import-badge--exists">exists</span>'
-                    f'</div>'
-                )
-            else:
-                esc_colour = html.escape(code["colour"])
-                preview_parts.append(
-                    f'<div class="ace-import-row ace-import-row--new">'
-                    f'<span style="width:7px;height:7px;border-radius:50%;'
-                    f'background:{esc_colour};display:inline-block"></span>'
-                    f'{esc_name}'
-                    f'<span class="ace-import-badge ace-import-badge--new">new</span>'
-                    f'</div>'
-                )
-    preview_rows = "".join(preview_parts)
-
     filename = html.escape(file_path.name)
-    new_count = len(new_codes)
-    exist_count = len(existing_codes)
-    subtitle_parts = [filename]
-    if exist_count > 0:
-        subtitle_parts.append(f"{exist_count} already exist (skipped)")
-
-    codes_for_import = [
-        {"name": c["name"], "colour": c["colour"], "group_name": c.get("group_name")}
-        for c in new_codes
-    ]
-    codes_json_escaped = html.escape(json.dumps(codes_for_import))
+    safe_path = html.escape(str(file_path))
+    codes_json_escaped = html.escape(payload["codes_json"])
 
     dialog_html = (
-        f'<dialog class="ace-dialog ace-import-dialog">'
-        f'<div class="ace-import-dialog-title">Import Codebook</div>'
-        f'<div class="ace-import-dialog-sub">{" · ".join(subtitle_parts)}</div>'
-    )
-
-    if new_count > 0:
-        dialog_html += (
-            f'<div class="ace-import-preview">'
-            f'<div class="ace-import-preview-header">Preview</div>'
-            f'<div class="ace-import-preview-list">{preview_rows}</div>'
-            f'</div>'
-        )
-    else:
-        dialog_html += (
-            '<div class="ace-import-empty">'
-            'All codes in this file already exist in your codebook.</div>'
-        )
-
-    dialog_html += (
+        '<dialog class="ace-dialog ace-import-dialog ace-codebook-import-dialog" '
+        f'data-csv-path="{safe_path}" data-current-index="{current_index}">'
+        '<div class="ace-import-dialog-title">Import Codebook</div>'
+        f'<div class="ace-import-dialog-sub">{filename} · {html.escape(payload["summary"])}</div>'
+        '<div class="ace-codebook-import-layout">'
+        '<section class="ace-codebook-import-map">'
+        '<p>ACE guessed these columns. Change only what looks wrong.</p>'
+        f'{_codebook_mapping_select(field_id="codebook-map-name", label="Code", columns=columns, selected=detected.get("name"))}'
+        f'{_codebook_mapping_select(field_id="codebook-map-group", label="Folder", columns=columns, selected=detected.get("group"), optional=True)}'
+        f'{_codebook_mapping_select(field_id="codebook-map-definition", label="Definition", columns=columns, selected=detected.get("definition"), optional=True)}'
+        '</section>'
+        '<section class="ace-codebook-import-sidebar-preview" aria-live="polite">'
+        '<div class="ace-codebook-import-sidebar-head">Sidebar preview</div>'
+        f'<div id="codebook-import-preview" class="ace-codebook-import-preview-list">{payload["preview_html"]}</div>'
+        '</section>'
+        '</div>'
         '<div class="ace-import-actions">'
         '<button type="button" class="ace-btn" onclick="this.closest(\'dialog\').close()">Cancel</button>'
+        f'<button type="button" class="ace-btn ace-btn--primary" '
+        f'id="codebook-import-commit" onclick="aceImportFromPreview(this)" '
+        f'data-codes="{codes_json_escaped}" data-current-index="{current_index}"'
+        f'{" disabled" if payload["disabled"] else ""}>'
+        f'{html.escape(payload["import_label"])}</button>'
+        '</div></dialog>'
     )
 
-    if new_count > 0:
-        dialog_html += (
-            f'<button type="button" class="ace-btn ace-btn--primary" '
-            f'onclick="aceImportFromPreview(this)" '
-            f'data-codes="{codes_json_escaped}" '
-            f'data-current-index="{current_index}">'
-            f'Import {new_count} code{"s" if new_count != 1 else ""}</button>'
-        )
-
-    dialog_html += '</div></dialog>'
-
     return HTMLResponse(dialog_html)
+
+
+@router.post("/codes/import/preview-map")
+async def import_codebook_preview_map(
+    request: Request,
+    path: str = Form(...),
+    name_column: str = Form(default=""),
+    group_column: str = Form(default=""),
+    definition_column: str = Form(default=""),
+):
+    """Refresh codebook import preview after the user changes column mapping."""
+    _require_coder(request)
+
+    file_path = Path(path)
+    try:
+        with _project_db(request) as conn:
+            payload = _codebook_import_payload(
+                conn,
+                file_path,
+                _normalise_codebook_mapping_column(name_column),
+                group_column,
+                definition_column,
+            )
+    except Exception as e:
+        return JSONResponse(
+            {
+                "preview_html": (
+                    '<div class="ace-codebook-import-empty">'
+                    f'Could not preview CSV: {html.escape(str(e))}</div>'
+                ),
+                "codes_json": "[]",
+                "new_count": 0,
+                "exists_count": 0,
+                "summary": "Preview failed",
+                "import_label": "Import",
+                "disabled": True,
+            }
+        )
+    return JSONResponse(payload)
 
 
 @router.post("/codes/import")

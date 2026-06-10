@@ -124,7 +124,7 @@
   </div>
 </div>
 <section id="ace-headless-tree-preview"
-         class="ace-headless-tree-preview"
+         class="ace-headless-tree-preview{% if not tree_codes and not read_only %} ace-headless-tree-preview--empty{% endif %}"
          aria-labelledby="ace-headless-tree-preview-title">
   <header class="ace-headless-tree-preview-head">
     <h2 id="ace-headless-tree-preview-title"
@@ -151,7 +151,7 @@
         Import codebook CSV
       </button>
     </div>
-    <p class="ace-empty-hint">You can also type a name and press <kbd>Enter</kbd>.</p>
+    <p class="ace-empty-hint">You can also type <kbd>/code</kbd> followed by a name, then press <kbd>Enter</kbd>.</p>
   </div>
   {% endif %}
 </section>

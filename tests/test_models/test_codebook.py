@@ -14,6 +14,7 @@ from ace.models.codebook import (
     export_codebook_to_csv,
     import_codebook_from_csv,
     import_selected_codes,
+    inspect_codebook_csv,
     list_codes,
     move_code_to_parent,
     preview_codebook_csv,
@@ -307,6 +308,45 @@ def test_preview_no_existing_codes(tmp_db, tmp_path):
     assert all(not p["exists"] for p in preview)
 
 
+def test_inspect_codebook_csv_detects_flexible_columns(tmp_db, tmp_path):
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_text(
+        "Code Label,Theme,Dictionary Definition\n"
+        "Access,Equity,Barriers to using a service\n"
+    )
+
+    inspected = inspect_codebook_csv(csv_path)
+
+    assert inspected["detected"] == {
+        "name": "Code Label",
+        "group": "Theme",
+        "definition": "Dictionary Definition",
+    }
+    assert inspected["columns"] == ["Code Label", "Theme", "Dictionary Definition"]
+
+
+def test_preview_codebook_csv_accepts_selected_columns(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "Test")
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_text(
+        "Code Label,Theme,Dictionary Definition\n"
+        "Access,Equity,Barriers to using a service\n"
+    )
+
+    preview = preview_codebook_csv(
+        conn,
+        csv_path,
+        name_column="Code Label",
+        group_column="Theme",
+        definition_column="Dictionary Definition",
+    )
+
+    assert preview[0]["name"] == "Access"
+    assert preview[0]["group_name"] == "Equity"
+    assert preview[0]["definition"] == "Barriers to using a service"
+    assert preview[0]["exists"] is False
+
+
 def test_export_codebook_to_csv(tmp_db, tmp_path):
     conn = create_project(tmp_db, "Test")
     add_code(conn, "Alpha", "#FF0000")
@@ -315,7 +355,7 @@ def test_export_codebook_to_csv(tmp_db, tmp_path):
     count = export_codebook_to_csv(conn, out)
     assert count == 2
     content = out.read_text()
-    assert "name,group" in content
+    assert "name,group,definition" in content
     assert "Alpha," in content
     assert "Beta," in content
 
@@ -336,6 +376,25 @@ def test_import_selected_codes(tmp_db):
     assert codes[1]["name"] == "Beta"
     # Inserted IDs match what's now in the DB
     assert {c["id"] for c in codes} == set(inserted)
+
+
+def test_import_selected_codes_stores_definition(tmp_db):
+    conn = create_project(tmp_db, "Test")
+    inserted = import_selected_codes(
+        conn,
+        [
+            {
+                "name": "Access",
+                "colour": "#FF0000",
+                "definition": "Barriers to using a service",
+            }
+        ],
+    )
+
+    row = conn.execute(
+        "SELECT definition FROM codebook_code WHERE id = ?", (inserted[0],)
+    ).fetchone()
+    assert row["definition"] == "Barriers to using a service"
 
 
 def test_import_selected_appends_sort_order(tmp_db):
@@ -540,16 +599,16 @@ def test_import_selected_with_group(tmp_db):
 
 
 def test_export_csv_includes_group(tmp_db, tmp_path):
-    """export_codebook_to_csv writes name,group columns (no colour)."""
+    """export_codebook_to_csv writes name,group,definition columns (no colour)."""
     conn = create_project(tmp_db, "Test")
     fid = add_folder(conn, "Emotions")
-    add_code(conn, "Happy", "#FF0000", parent_id=fid)
+    add_code(conn, "Happy", "#FF0000", parent_id=fid, definition="Positive affect")
     add_code(conn, "Ungrouped", "#00FF00")
     out = tmp_path / "out.csv"
     export_codebook_to_csv(conn, out)
     content = out.read_text()
-    assert "name,group" in content
-    assert "Happy,Emotions" in content
+    assert "name,group,definition" in content
+    assert "Happy,Emotions,Positive affect" in content
     assert "Ungrouped," in content
     assert "colour" not in content
 
@@ -559,7 +618,7 @@ def test_round_trip_export_then_import_is_idempotent(tmp_path):
     db = tmp_path / "rt.ace"
     conn = create_project(db, "Test")
     fid = add_folder(conn, "Themes")
-    add_code(conn, "Identity", "#D55E00", parent_id=fid)
+    add_code(conn, "Identity", "#D55E00", parent_id=fid, definition="How participants describe self or group membership")
     add_code(conn, "Trust", "#0072B2")  # root
 
     csv_path = tmp_path / "exported.csv"
@@ -583,6 +642,7 @@ def test_round_trip_export_then_import_is_idempotent(tmp_path):
     assert set(by_name) == {"Identity", "Trust"}
     assert _resolve_group_name(conn, by_name["Identity"]["id"]) == "Themes"
     assert _resolve_group_name(conn, by_name["Trust"]["id"]) is None
+    assert by_name["Identity"]["definition"] == "How participants describe self or group membership"
     conn.close()
 
 

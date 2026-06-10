@@ -2360,6 +2360,7 @@
           row.dataset.kind = data.kind;
           if (data.kind === "folder") row.dataset.folderId = item.getId();
           if (data.kind === "code") row.dataset.codeId = item.getId();
+          if (data.kind === "code" && data.definition) row.dataset.definition = data.definition;
           if (data.chord) row.dataset.chord = data.chord;
           const level = item.getItemMeta().level + 1;
           const path = pathNamesFor(item.getId());

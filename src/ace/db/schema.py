@@ -3,7 +3,7 @@
 import sqlite3
 
 ACE_APPLICATION_ID = 0x41434500  # "ACE\0"
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS project (
@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS codebook_code (
     kind        TEXT NOT NULL DEFAULT 'code' CHECK (kind IN ('code', 'folder')),
     parent_id   TEXT REFERENCES codebook_code(id) ON DELETE SET NULL,
     chord       TEXT,
+    definition  TEXT,
     created_at  TEXT NOT NULL,
     deleted_at  TEXT,
     CHECK ((kind = 'code') OR (colour = '' AND chord IS NULL))

@@ -1793,6 +1793,9 @@
     if (target.id === "modal-container") {
       const dialog = target.querySelector("dialog");
       if (dialog && !dialog.open) dialog.showModal();
+      if (dialog && typeof window._aceInitCodebookImportDialog === "function") {
+        window._aceInitCodebookImportDialog(dialog);
+      }
     }
   });
 
@@ -4224,6 +4227,78 @@
    * 18. Codebook menu
    * ================================================================ */
 
+  let _codeDefinitionPopover = null;
+  let _codeDefinitionAnchor = null;
+
+  function _ensureCodeDefinitionPopover() {
+    if (_codeDefinitionPopover) return _codeDefinitionPopover;
+    const popover = document.createElement("div");
+    popover.id = "ace-code-definition-popover";
+    popover.className = "ace-code-definition-popover";
+    popover.setAttribute("role", "tooltip");
+    popover.hidden = true;
+    popover.innerHTML = '<div class="ace-code-definition-title"></div><div class="ace-code-definition-body"></div>';
+    document.body.appendChild(popover);
+    _codeDefinitionPopover = popover;
+    return popover;
+  }
+
+  function _positionCodeDefinitionPopover(row, popover) {
+    const rect = row.getBoundingClientRect();
+    popover.hidden = false;
+    const popRect = popover.getBoundingClientRect();
+    let left = rect.right + 10;
+    if (left + popRect.width > window.innerWidth - 12) {
+      left = Math.max(12, rect.left - popRect.width - 10);
+    }
+    let top = rect.top + Math.min(0, rect.height - popRect.height) / 2;
+    top = Math.max(12, Math.min(top, window.innerHeight - popRect.height - 12));
+    popover.style.left = left + "px";
+    popover.style.top = top + "px";
+  }
+
+  function _showCodeDefinition(row) {
+    if (!row || row.dataset.kind !== "code" || !row.dataset.definition) return;
+    const popover = _ensureCodeDefinitionPopover();
+    const title = popover.querySelector(".ace-code-definition-title");
+    const body = popover.querySelector(".ace-code-definition-body");
+    if (title) title.textContent = row.querySelector(".ace-ht-label")?.textContent?.trim() || "Code definition";
+    if (body) body.textContent = row.dataset.definition;
+    if (_codeDefinitionAnchor) _codeDefinitionAnchor.removeAttribute("aria-describedby");
+    _codeDefinitionAnchor = row;
+    row.setAttribute("aria-describedby", popover.id);
+    _positionCodeDefinitionPopover(row, popover);
+  }
+
+  function _hideCodeDefinition(row) {
+    if (row && _codeDefinitionAnchor && row !== _codeDefinitionAnchor) return;
+    if (_codeDefinitionAnchor) _codeDefinitionAnchor.removeAttribute("aria-describedby");
+    _codeDefinitionAnchor = null;
+    if (_codeDefinitionPopover) _codeDefinitionPopover.hidden = true;
+  }
+
+  document.addEventListener("mouseover", function (event) {
+    const row = event.target.closest?.(".ace-ht-row--code[data-definition]");
+    if (row) _showCodeDefinition(row);
+  });
+  document.addEventListener("focusin", function (event) {
+    const row = event.target.closest?.(".ace-ht-row--code[data-definition]");
+    if (row) _showCodeDefinition(row);
+  });
+  document.addEventListener("mouseout", function (event) {
+    const row = event.target.closest?.(".ace-ht-row--code[data-definition]");
+    if (!row || row.contains(event.relatedTarget)) return;
+    _hideCodeDefinition(row);
+  });
+  document.addEventListener("focusout", function (event) {
+    const row = event.target.closest?.(".ace-ht-row--code[data-definition]");
+    if (!row) return;
+    setTimeout(function () {
+      if (!row.contains(document.activeElement)) _hideCodeDefinition(row);
+    }, 0);
+  });
+  window.addEventListener("scroll", function () { _hideCodeDefinition(); }, true);
+
   // Codebook menu: toggle, import, export, shortcuts
   document.addEventListener("click", function (e) {
     const dropdown = document.getElementById("codebook-dropdown");
@@ -4242,7 +4317,7 @@
         _clearSearchFilter();
         input.focus();
       }
-      window._setStatus("Type a code name, then press Enter", "ok");
+      window._setStatus("Type /code followed by a name, then press Enter", "ok");
       return;
     }
 
@@ -4354,6 +4429,66 @@
   });
 
   // Import codes from preview dialog
+  window._aceInitCodebookImportDialog = function (dialog) {
+    if (!dialog || dialog.dataset.codebookImportReady === "1") return;
+    if (!dialog.classList.contains("ace-codebook-import-dialog")) return;
+    dialog.dataset.codebookImportReady = "1";
+
+    const selects = Array.from(dialog.querySelectorAll("[data-codebook-import-map]"));
+    const preview = dialog.querySelector("#codebook-import-preview");
+    const commit = dialog.querySelector("#codebook-import-commit");
+    const subtitle = dialog.querySelector(".ace-import-dialog-sub");
+    let requestSeq = 0;
+
+    function refreshPreview() {
+      const seq = ++requestSeq;
+      const body = new URLSearchParams();
+      body.set("path", dialog.dataset.csvPath || "");
+      body.set("name_column", dialog.querySelector("#codebook-map-name")?.value || "");
+      body.set("group_column", dialog.querySelector("#codebook-map-group")?.value || "");
+      body.set("definition_column", dialog.querySelector("#codebook-map-definition")?.value || "");
+
+      if (preview) {
+        preview.setAttribute("aria-busy", "true");
+      }
+
+      fetch("/api/codes/import/preview-map", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      }).then(function (response) {
+        return response.json();
+      }).then(function (data) {
+        if (seq !== requestSeq) return;
+        if (preview) {
+          preview.innerHTML = data.preview_html || "";
+          preview.removeAttribute("aria-busy");
+        }
+        if (commit) {
+          commit.dataset.codes = data.codes_json || "[]";
+          commit.textContent = data.import_label || "Import";
+          commit.disabled = !!data.disabled;
+        }
+        if (subtitle) {
+          const filename = (dialog.dataset.csvPath || "").split(/[\\/]/).pop();
+          subtitle.textContent = filename
+            ? filename + " · " + (data.summary || "")
+            : (data.summary || "");
+        }
+      }).catch(function () {
+        if (preview) {
+          preview.removeAttribute("aria-busy");
+          preview.innerHTML = '<div class="ace-codebook-import-empty">Could not update preview.</div>';
+        }
+        if (commit) commit.disabled = true;
+      });
+    }
+
+    selects.forEach(function (select) {
+      select.addEventListener("change", refreshPreview);
+    });
+  };
+
   window.aceImportFromPreview = function (btn) {
     const codesJson = btn.getAttribute("data-codes");
     const currentIndex = btn.getAttribute("data-current-index") || window.__aceCurrentIndex;

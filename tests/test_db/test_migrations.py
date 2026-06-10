@@ -5,7 +5,7 @@ import sqlite3
 import pytest
 
 from ace.db.connection import create_project, open_project
-from ace.db.migrations import _migrate_v6_to_v7, check_and_migrate
+from ace.db.migrations import _migrate_v6_to_v7, _migrate_v9_to_v10, check_and_migrate
 from ace.db.schema import ACE_APPLICATION_ID, SCHEMA_VERSION
 
 
@@ -492,3 +492,28 @@ def test_v7_idempotent_after_partial_completion(tmp_path):
         "SELECT COUNT(*) FROM codebook_code WHERE kind='folder'"
     ).fetchone()[0]
     assert folder_count_before == folder_count_after  # no duplicates
+
+
+def test_v10_migration_adds_definition_column(tmp_path):
+    db = tmp_path / "v9.ace"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE codebook_code (
+            id          TEXT PRIMARY KEY,
+            name        TEXT NOT NULL,
+            colour      TEXT NOT NULL,
+            sort_order  INTEGER NOT NULL,
+            kind        TEXT NOT NULL DEFAULT 'code' CHECK (kind IN ('code', 'folder')),
+            parent_id   TEXT REFERENCES codebook_code(id) ON DELETE SET NULL,
+            chord       TEXT,
+            created_at  TEXT NOT NULL,
+            deleted_at  TEXT,
+            CHECK ((kind = 'code') OR (colour = '' AND chord IS NULL))
+        );
+        PRAGMA user_version = 9;
+    """)
+
+    _migrate_v9_to_v10(conn)
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(codebook_code)").fetchall()}
+    assert "definition" in cols

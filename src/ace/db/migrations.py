@@ -356,6 +356,19 @@ def _migrate_v8_to_v9(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys = ON")
 
 
+def _migrate_v9_to_v10(conn: sqlite3.Connection) -> None:
+    """Add read-only imported dictionary definitions to code rows."""
+    has_codebook = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='codebook_code'"
+    ).fetchone()
+    if has_codebook is None:
+        return
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(codebook_code)").fetchall()}
+    if "definition" not in cols:
+        conn.execute("ALTER TABLE codebook_code ADD COLUMN definition TEXT")
+
+
 # Registry of migration functions keyed by target version.
 # Each function takes a connection and migrates from version (key - 1) to key.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
@@ -367,6 +380,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     7: _migrate_v6_to_v7,
     8: _migrate_v7_to_v8,
     9: _migrate_v8_to_v9,
+    10: _migrate_v9_to_v10,
 }
 
 

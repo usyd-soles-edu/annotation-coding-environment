@@ -22,9 +22,18 @@ SINGLE_KEY_LIMIT = 31
 
 _INSERT_CODE_SQL = (
     "INSERT INTO codebook_code "
-    "(id, name, colour, sort_order, kind, parent_id, created_at) "
-    "VALUES (?, ?, ?, ?, 'code', ?, ?)"
+    "(id, name, colour, sort_order, kind, parent_id, definition, created_at) "
+    "VALUES (?, ?, ?, ?, 'code', ?, ?, ?)"
 )
+
+CODEBOOK_COLUMN_ALIASES = {
+    "name": ("name", "code", "code_name", "code name", "code label", "label", "category"),
+    "group": ("group", "folder", "parent", "theme"),
+    "definition": (
+        "definition", "description", "dictionary", "meaning", "notes",
+        "dictionary definition", "code definition",
+    ),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +60,7 @@ def add_code(
     name: str,
     colour: str,
     parent_id: str | None = None,
+    definition: str | None = None,
 ) -> str:
     assert_parent_is_folder_or_root(conn, parent_id)
     now = datetime.now(timezone.utc).isoformat()
@@ -63,7 +73,7 @@ def add_code(
 
     conn.execute(
         _INSERT_CODE_SQL,
-        (code_id, name, colour, sort_order, parent_id, now),
+        (code_id, name, colour, sort_order, parent_id, definition, now),
     )
     conn.commit()
     return code_id
@@ -124,7 +134,7 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
     deterministic and unique within the snapshot.
     """
     rows = conn.execute(
-        "SELECT id, name, colour, sort_order, kind, parent_id "
+        "SELECT id, name, colour, sort_order, kind, parent_id, definition "
         "FROM codebook_code WHERE deleted_at IS NULL "
         "ORDER BY sort_order"
     ).fetchall()
@@ -145,6 +155,7 @@ def list_codes_with_tree(conn: sqlite3.Connection) -> list[dict]:
             "id": r["id"], "name": r["name"], "colour": r["colour"],
             "sort_order": r["sort_order"], "kind": r["kind"],
             "parent_id": parent_id,
+            "definition": r["definition"] if r["kind"] == "code" else None,
             "chord": None,
             "level": 1,
             "children": [],
@@ -457,67 +468,147 @@ def compute_codebook_hash(conn: sqlite3.Connection) -> str:
     the hash and codes' parent_id changes when their parent moves.
     """
     rows = conn.execute(
-        "SELECT id, name, colour, kind, parent_id "
+        "SELECT id, name, colour, kind, parent_id, definition "
         "FROM codebook_code WHERE deleted_at IS NULL ORDER BY id"
     ).fetchall()
     combined = "".join(
-        f"{r['id']}{r['name']}{r['colour']}{r['kind']}{r['parent_id'] or ''}"
+        f"{r['id']}{r['name']}{r['colour']}{r['kind']}{r['parent_id'] or ''}{r['definition'] or ''}"
         for r in rows
     )
     return hashlib.sha256(combined.encode()).hexdigest()
 
 
-def _parse_codebook_csv(path: str | Path) -> list[dict]:
-    """Parse a codebook CSV file into a list of {name, colour, group_name} dicts.
+def _normalise_column_name(name: str) -> str:
+    return " ".join(name.strip().lower().replace("_", " ").replace("-", " ").split())
 
-    Reads 'group' column if present (strips whitespace, preserves casing).
-    Ignores 'colour' column — always auto-assigns from palette.
-    Raises ValueError if 'name' column is missing.
+
+def _detect_codebook_columns(fieldnames: list[str]) -> dict[str, str | None]:
+    by_normalised = {_normalise_column_name(name): name for name in fieldnames}
+    detected: dict[str, str | None] = {}
+    for role, aliases in CODEBOOK_COLUMN_ALIASES.items():
+        detected[role] = None
+        for alias in aliases:
+            column = by_normalised.get(_normalise_column_name(alias))
+            if column is not None:
+                detected[role] = column
+                break
+    return detected
+
+
+def inspect_codebook_csv(path: str | Path, sample_limit: int = 20) -> dict:
+    """Return codebook CSV headers, detected mappings, and sample rows."""
+    path = Path(path)
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames or []
+        sample_rows = []
+        for index, row in enumerate(reader):
+            if index >= sample_limit:
+                break
+            sample_rows.append({name: row.get(name, "") for name in fieldnames})
+    return {
+        "columns": fieldnames,
+        "detected": _detect_codebook_columns(fieldnames),
+        "sample_rows": sample_rows,
+    }
+
+
+def _parse_codebook_csv(
+    path: str | Path,
+    name_column: str | None = None,
+    group_column: str | None = None,
+    definition_column: str | None = None,
+) -> list[dict]:
+    """Parse a codebook CSV file into code dicts using selected columns.
+
+    Auto-detects columns when a role is not supplied. The code-name column is
+    required after detection. Group/folder and definition columns are optional.
+    Ignores colour columns — ACE always auto-assigns from the palette.
     """
     path = Path(path)
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
-        if reader.fieldnames is None or "name" not in reader.fieldnames:
-            raise ValueError("CSV must have a 'name' column")
+        fieldnames = reader.fieldnames or []
+        detected = _detect_codebook_columns(fieldnames)
+        name_column = name_column or detected.get("name")
+        group_column = group_column if group_column is not None else detected.get("group")
+        definition_column = (
+            definition_column
+            if definition_column is not None
+            else detected.get("definition")
+        )
 
-        has_group = "group" in (reader.fieldnames or [])
+        if reader.fieldnames is None or not name_column or name_column not in fieldnames:
+            raise ValueError("Choose a code-name column to import")
+        if group_column == "":
+            group_column = None
+        if definition_column == "":
+            definition_column = None
+        if group_column is not None and group_column not in fieldnames:
+            raise ValueError("Selected folder column was not found in the CSV")
+        if definition_column is not None and definition_column not in fieldnames:
+            raise ValueError("Selected definition column was not found in the CSV")
+
         rows: list[dict] = []
         seen_names: set[str] = set()
         for row in reader:
-            name = row.get("name", "").strip()
-            if not name or name in seen_names:
+            name = row.get(name_column, "").strip()
+            name_key = name.lower()
+            if not name or name_key in seen_names:
                 continue
-            seen_names.add(name)
+            seen_names.add(name_key)
 
             colour = next_colour(len(rows))
 
             group_name = None
-            if has_group:
-                g = row.get("group", "").strip()
+            if group_column:
+                g = row.get(group_column, "").strip()
                 if g:
                     group_name = g
 
-            rows.append({"name": name, "colour": colour, "group_name": group_name})
+            definition = None
+            if definition_column:
+                d = row.get(definition_column, "").strip()
+                if d:
+                    definition = d
+
+            rows.append({
+                "name": name,
+                "colour": colour,
+                "group_name": group_name,
+                "definition": definition,
+            })
     return rows
 
 
-def preview_codebook_csv(conn: sqlite3.Connection, path: str | Path) -> list[dict]:
+def preview_codebook_csv(
+    conn: sqlite3.Connection,
+    path: str | Path,
+    name_column: str | None = None,
+    group_column: str | None = None,
+    definition_column: str | None = None,
+) -> list[dict]:
     """Parse a codebook CSV and mark which codes already exist in the project.
 
     Returns list of {"name", "colour", "group_name", "exists"} dicts. Only
     matches against existing code rows — folder names sharing a string with
     an incoming code are not considered duplicates (kinds are independent).
     """
-    rows = _parse_codebook_csv(path)
+    rows = _parse_codebook_csv(
+        path,
+        name_column=name_column,
+        group_column=group_column,
+        definition_column=definition_column,
+    )
     existing = {
-        r["name"]
+        r["name"].lower()
         for r in conn.execute(
             "SELECT name FROM codebook_code "
             "WHERE deleted_at IS NULL AND kind = 'code'"
         ).fetchall()
     }
     return [
-        {**r, "exists": r["name"] in existing}
+        {**r, "exists": r["name"].lower() in existing}
         for r in rows
     ]
 
@@ -583,13 +674,13 @@ def import_selected_codes(conn: sqlite3.Connection, codes: list[dict]) -> list[s
         return []
 
     existing = {
-        r["name"]
+        r["name"].lower()
         for r in conn.execute(
             "SELECT name FROM codebook_code "
             "WHERE deleted_at IS NULL AND kind = 'code'"
         ).fetchall()
     }
-    to_insert = [c for c in codes if c["name"] not in existing]
+    to_insert = [c for c in codes if c["name"].lower() not in existing]
     if not to_insert:
         return []
 
@@ -615,10 +706,10 @@ def import_selected_codes(conn: sqlite3.Connection, codes: list[dict]) -> list[s
             code_id = uuid.uuid4().hex
             conn.execute(
                 "INSERT INTO codebook_code "
-                "(id, name, colour, sort_order, kind, parent_id, created_at) "
-                "VALUES (?, ?, ?, ?, 'code', ?, ?)",
+                "(id, name, colour, sort_order, kind, parent_id, definition, created_at) "
+                "VALUES (?, ?, ?, ?, 'code', ?, ?, ?)",
                 (code_id, code["name"], code["colour"], next_sort,
-                 parent_id, now),
+                 parent_id, code.get("definition") or None, now),
             )
             next_sort += 1
             inserted_ids.append(code_id)
@@ -651,10 +742,10 @@ def import_codebook_from_csv(conn: sqlite3.Connection, path: str | Path) -> int:
             code_id = uuid.uuid4().hex
             conn.execute(
                 "INSERT INTO codebook_code "
-                "(id, name, colour, sort_order, kind, parent_id, created_at) "
-                "VALUES (?, ?, ?, ?, 'code', ?, ?)",
+                "(id, name, colour, sort_order, kind, parent_id, definition, created_at) "
+                "VALUES (?, ?, ?, ?, 'code', ?, ?, ?)",
                 (code_id, row["name"], row["colour"], next_sort,
-                 parent_id, now),
+                 parent_id, row.get("definition") or None, now),
             )
             next_sort += 1
         conn.commit()
@@ -669,7 +760,8 @@ def export_codebook_to_csv(conn: sqlite3.Connection, path: str | Path) -> int:
     rows = conn.execute(
         """
         SELECT c.name AS name,
-               COALESCE(f.name, '') AS group_name
+               COALESCE(f.name, '') AS group_name,
+               COALESCE(c.definition, '') AS definition
         FROM codebook_code c
         LEFT JOIN codebook_code f
                ON f.id = c.parent_id AND f.kind = 'folder'
@@ -678,11 +770,12 @@ def export_codebook_to_csv(conn: sqlite3.Connection, path: str | Path) -> int:
         """
     ).fetchall()
     with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["name", "group"])
+        writer = csv.DictWriter(f, fieldnames=["name", "group", "definition"])
         writer.writeheader()
         for r in rows:
             writer.writerow({
                 "name": r["name"],
                 "group": r["group_name"] or "",
+                "definition": r["definition"] or "",
             })
     return len(rows)
