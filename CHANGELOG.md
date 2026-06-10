@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.3
+
+### Changes
+
+- **Codebook import** — added a compact column-mapping dialog so CSV codebooks can use flexible column names, include optional folders, and import read-only dictionary definitions.
+- **Code definitions** — imported dictionary definitions now appear as hover and focus help in the codebook without making the definitions editable.
+- **Project setup** — made the new-project flow a focused screen with a back control instead of leaving the front-page project links active.
+
+### Fixes
+
+- **First-code prompt** — clarified that slash commands such as `/code` are needed when creating a code from the empty codebook prompt.
+
 ## 1.1.2
 
 ### Changes

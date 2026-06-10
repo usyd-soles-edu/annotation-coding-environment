@@ -62,16 +62,18 @@ If you're adding new behaviour, write a test for it. If you're fixing a bug, wri
 
 ## Releasing a new version
 
-We use semantic versioning. While the project is pre-release, versions look like `0.MINOR.PATCH` — bump the minor number for features, the patch number for fixes.
+We use semantic versioning. Bump the minor number for larger user-facing features and the patch number for fixes or smaller improvements.
 
 To release:
 
 1. Add a new section at the top of `CHANGELOG.md` describing what changed
-2. Check `.zenodo.json` is committed, has `version` set to the release number, and still contains the stable ACE `description`. Zenodo reads metadata from the tagged archive, so stale or uncommitted metadata changes will appear on the DOI record.
-3. Commit it: `git commit -am "docs: changelog for v0.2.0"`
-4. Tag it: `git tag v0.2.0`
-5. Push both: `git push && git push --tags`
-6. Create the GitHub release: `gh release create v0.2.0 --notes-from-tag`
+2. Bump the release number in `src/ace/__init__.py`, `desktop/launcher/Cargo.toml`, `desktop/launcher/Cargo.lock`, `desktop/launcher/Packager.toml`, and `.zenodo.json`
+3. Check `.zenodo.json` is committed and still contains the stable ACE `description`. Zenodo reads metadata from the tagged archive, so stale or uncommitted metadata changes will appear on the DOI record.
+4. Commit it: `git commit -am "chore(release): bump version to X.Y.Z"`
+5. Push `main`: `git push origin main`
+6. Tag it: `git tag vX.Y.Z`
+7. Push the tag: `git push origin vX.Y.Z`
+8. Confirm the `Release Desktop App` GitHub Actions workflow succeeds and publishes the GitHub release for the tag
 
 ### Writing the changelog
 
