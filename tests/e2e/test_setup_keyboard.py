@@ -52,7 +52,20 @@ def test_landing_keyboard_shortcuts_open_primary_actions(
             page.keyboard.press("n")
             assert page.locator("#new-project-form").is_visible()
             assert page.evaluate("document.activeElement.id") == "new-project-input"
+            assert page.locator("#open-existing-btn").is_hidden()
+            assert page.locator(".ace-home-tool-link").is_hidden()
 
+            page.locator("#new-project-input").blur()
+            page.keyboard.press("o")
+            assert page.locator("#new-project-form").is_visible()
+            assert page.url == f"{ace_server}/"
+
+            page.get_by_role("button", name="Back").click()
+            assert not page.locator("#new-project-form").is_visible()
+            assert page.locator("#open-existing-btn").is_visible()
+
+            page.keyboard.press("n")
+            assert page.locator("#new-project-form").is_visible()
             page.keyboard.press("Escape")
             assert not page.locator("#new-project-form").is_visible()
             page.keyboard.press("o")

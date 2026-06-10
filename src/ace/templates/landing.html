@@ -4,7 +4,7 @@
 
 {% block content %}
 <main class="ace-landing">
-  <div class="ace-home">
+  <div class="ace-home" data-mode="home">
 
     <!-- Logo -->
     <div class="ace-home-logo">
@@ -29,7 +29,14 @@
       </button>
     </div>
 
-    <form id="new-project-form" class="ace-home-form" hidden>
+    <form id="new-project-form" class="ace-home-form" aria-labelledby="new-project-title" hidden>
+      <div class="ace-home-form-head">
+        <button id="cancel-new-project-btn" class="ace-home-back" type="button">
+          Back
+        </button>
+        <h1 id="new-project-title" class="ace-home-form-title">New project</h1>
+      </div>
+
       <label class="ace-home-field">
         <span class="ace-home-label">Project name</span>
         <input id="new-project-input" class="ace-home-input"
@@ -50,9 +57,6 @@
       <div class="ace-home-form-actions">
         <button id="create-project-btn" class="ace-btn ace-btn--primary" type="submit" disabled>
           Create project
-        </button>
-        <button id="cancel-new-project-btn" class="ace-btn" type="button">
-          Cancel
         </button>
       </div>
     </form>
@@ -81,6 +85,7 @@
   var pendingOverwrite = false;
   var pendingRecentPath = "";
 
+  var home = document.querySelector(".ace-home");
   var newProjectBtn = document.getElementById("new-project-link");
   var openExistingBtn = document.getElementById("open-existing-btn");
   var openExistingLabel = openExistingBtn.querySelector(".ace-home-action-label");
@@ -143,7 +148,13 @@
     createBtn.disabled = !(projectName() && selectedFolder);
   }
 
+  function setCreateMode(active) {
+    home.classList.toggle("ace-home--creating", active);
+    home.dataset.mode = active ? "create" : "home";
+  }
+
   function showNewProjectForm() {
+    setCreateMode(true);
     form.hidden = false;
     pendingOverwrite = false;
     modal.innerHTML = "";
@@ -154,6 +165,7 @@
 
   function hideNewProjectForm() {
     form.hidden = true;
+    setCreateMode(false);
     nameInput.value = "";
     selectedFolder = "";
     pendingOverwrite = false;
@@ -261,6 +273,7 @@
 
   // --- Open existing ---
   function openExisting() {
+    if (!form.hidden) return;
     if (openExistingBtn.disabled) return;
     setMessage("", "");
     openExistingBtn.disabled = true;
@@ -348,8 +361,14 @@
   openExistingBtn.addEventListener("click", openExisting);
   document.addEventListener("keydown", function(event) {
     if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (!form.hidden) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        hideNewProjectForm();
+      }
+      return;
+    }
     if (isTypingTarget(event.target)) return;
-    if (!form.hidden && form.contains(event.target)) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       moveLandingFocus(event.key === "ArrowDown" ? 1 : -1);

@@ -47,7 +47,9 @@ def test_landing_project_form_is_hidden_and_keyboard_named(client):
     assert 'aria-keyshortcuts="n"' in resp.text
     assert '<span class="ace-home-action-label">New project</span>' in resp.text
     assert '<span class="ace-home-keycap" aria-hidden="true">n</span>' in resp.text
-    assert 'id="new-project-form"' in resp.text
+    assert 'id="new-project-form" class="ace-home-form" aria-labelledby="new-project-title"' in resp.text
+    assert 'id="cancel-new-project-btn" class="ace-home-back"' in resp.text
+    assert "Back" in resp.text
     assert "hidden" in resp.text
     assert 'id="new-project-input"' in resp.text
     assert 'id="choose-project-folder-btn"' in resp.text
