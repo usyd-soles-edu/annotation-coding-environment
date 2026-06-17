@@ -160,6 +160,35 @@ def test_cv_tracks_has_listbox_role_regression(client_with_annotations):
         f'aria-multiselectable="true" not on cv-tracks div: {m.group(0)}'
 
 
+def test_view_engages_readonly_gate(client_with_annotations):
+    """/code/{id}/view must render data-codebook-readonly="1" on the tree
+    mount so _denyCodebookEditing engages and reviewers can't mutate the
+    codebook mid-review (issue #22)."""
+    client, _, code_id, _ = client_with_annotations
+    resp = client.get(f"/code/{code_id}/view")
+    assert resp.status_code == 200
+    # Pin the attribute to the tree mount element specifically, not just
+    # any match elsewhere in the response.
+    m = re.search(r'<div[^>]*\bid="ace-headless-tree-mount"[^>]*>', resp.text)
+    assert m is not None, "ace-headless-tree-mount div not found"
+    assert 'data-codebook-readonly="1"' in m.group(0), \
+        f"readonly gate not engaged on tree mount: {m.group(0)}"
+    # Read-only view must not advertise edit shortcuts (F2/Delete) — only Enter.
+    assert 'aria-keyshortcuts="Enter"' in m.group(0), \
+        f"read-only view advertised edit shortcuts: {m.group(0)}"
+
+
+def test_coding_page_keeps_codebook_editable(client_with_annotations):
+    """/code must keep data-codebook-readonly="0" so editing still works there."""
+    client, _, _, _ = client_with_annotations
+    resp = client.get("/code")
+    assert resp.status_code == 200
+    m = re.search(r'<div[^>]*\bid="ace-headless-tree-mount"[^>]*>', resp.text)
+    assert m is not None, "ace-headless-tree-mount div not found"
+    assert 'data-codebook-readonly="0"' in m.group(0), \
+        f"coding page should be editable: {m.group(0)}"
+
+
 def test_codebook_search_has_slash_keyshortcut_regression(client_with_annotations):
     """Codebook search input advertises `/` hotkey — regression guard.
     Already present via _sidebar_codebook.html pre-change."""
