@@ -185,12 +185,21 @@ def _import_done_actions(*, include_back: bool = False) -> str:
         '<button class="ace-wizard-link ace-wizard-link--inline" type="button" '
         'onclick="showStep(\'step-choose\')">Import more data</button>'
     )
+    remove_last = (
+        '<button class="ace-wizard-link ace-wizard-link--inline" type="button" '
+        'hx-post="/api/import/remove-last" hx-swap="none" '
+        'hx-confirm="Remove the most recent import? This can’t be undone — any coding on those sources is deleted." '
+        'title="Remove the most recent import">Remove last import</button>'
+    )
     if include_back:
         return (
             '<div class="ace-import-result-actions">'
             '<button class="ace-btn" type="button" onclick="showStep(\'step-choose\')">Back</button>'
             '<a href="/code" class="ace-btn ace-btn--primary ace-import-start">Start coding</a>'
             f"{import_more}"
+            "</div>"
+            f'<div class="ace-import-result-actions ace-import-result-actions--secondary">'
+            f"{remove_last}"
             "</div>"
         )
     return (
@@ -199,6 +208,7 @@ def _import_done_actions(*, include_back: bool = False) -> str:
         "</div>"
         '<div class="ace-import-result-actions ace-import-result-actions--secondary">'
         f"{import_more}"
+        f"{remove_last}"
         "</div>"
     )
 
@@ -783,12 +793,18 @@ async def import_commit(
             return _oob_status("Choose a source label column.")
         if not text_col_list:
             return _oob_status("Choose at least one text column.")
-        count, skipped = import_csv(conn, tmp_path, id_column, text_col_list)
+        count, skipped, created_ids = import_csv(conn, tmp_path, id_column, text_col_list)
     except Exception as e:
         db_gen.close()
         return _oob_status(f"Import failed: {e}")
     finally:
         db_gen.close()
+
+    # Remember the last import's source ids so the 'Remove last import'
+    # button can delete them directly (imports are NOT on the undo stack).
+    # Set unconditionally — a no-op import (all duplicates) clears the
+    # record so the button never removes a previous batch by mistake.
+    request.app.state.last_import_source_ids = created_ids
 
     # Clean up upload temp files. Native picker paths belong to the user.
     if getattr(request.app.state, "import_tmp_cleanup", True):
@@ -820,12 +836,18 @@ async def import_folder(
     db_gen = get_db(request)
     conn = next(db_gen)
     try:
-        count, skipped = import_text_files(conn, folder)
+        count, skipped, created_ids = import_text_files(conn, folder)
     except Exception as e:
         db_gen.close()
         return _oob_status(f"Import failed: {e}")
     finally:
         db_gen.close()
+
+    # Remember the last import's source ids so the 'Remove last import'
+    # button can delete them directly (imports are NOT on the undo stack).
+    # Set unconditionally — a no-op import (all duplicates) clears the
+    # record so the button never removes a previous batch by mistake.
+    request.app.state.last_import_source_ids = created_ids
 
     folder_name = html.escape(folder.name)
     escaped_path = html.escape(quote(str(folder), safe=""))
@@ -855,6 +877,46 @@ async def import_folder(
         f"{_import_done_actions(include_back=True)}"
         "</div>"
     )
+
+
+@router.post("/import/remove-last")
+async def import_remove_last(request: Request):
+    """Remove the most recent source import's sources directly.
+
+    Imports are not on the undo stack (that risked silent data loss when Z
+    bumped against later annotations/notes/flags). Instead the last import's
+    source ids are stored on app state and this button deletes them — plus
+    any annotations made on them since — then reloads the wizard. Not
+    reversible.
+    """
+    ids = list(getattr(request.app.state, "last_import_source_ids", None) or [])
+    if not ids:
+        return _oob_status("No import to remove.", "err")
+    try:
+        with _project_db(request) as conn:
+            placeholders = ",".join("?" * len(ids))
+            # Count only live annotations for the user-facing message (what
+            # they'd lose); the DELETE below also clears soft-deleted rows.
+            n_ann = conn.execute(
+                f"SELECT COUNT(*) FROM annotation WHERE source_id IN ({placeholders}) "
+                "AND deleted_at IS NULL",
+                ids,
+            ).fetchone()[0]
+            for sid in ids:
+                conn.execute("DELETE FROM annotation WHERE source_id = ?", (sid,))
+                conn.execute("DELETE FROM source_note WHERE source_id = ?", (sid,))
+                conn.execute("DELETE FROM assignment WHERE source_id = ?", (sid,))
+                conn.execute("DELETE FROM source_content WHERE source_id = ?", (sid,))
+                conn.execute("DELETE FROM source WHERE id = ?", (sid,))
+            conn.commit()
+        request.app.state.last_import_source_ids = None
+        msg = "Removed the last import."
+        if n_ann:
+            msg += f" · {n_ann} annotation{'s' if n_ann != 1 else ''} also removed."
+        return _with_headers(_oob_status(msg, "ok"), {"HX-Refresh": "true"})
+    except Exception:
+        logger.exception("remove-last import failed")
+        return _oob_status("Could not remove the last import.", "err")
 
 
 @router.get("/code/{code_id}/view-data")
