@@ -25,6 +25,38 @@
 (function() {
   "use strict";
 
+  // Single module-level interval handle so a re-pick mid-compute clears the
+  // previous poll instead of racing two polls on app.state.agreement_progress.
+  var _agreementPoll = null;
+
+  function _stopPoll() {
+    if (_agreementPoll) { clearInterval(_agreementPoll); _agreementPoll = null; }
+  }
+
+  function _showTransportError() {
+    _stopPoll();
+    var fill = document.getElementById("ace-agreement-progress-fill");
+    var label = document.getElementById("ace-agreement-progress-label");
+    if (fill) { fill.classList.add("is-error"); fill.style.width = "100%"; }
+    if (label) {
+      label.classList.add("is-error");
+      label.textContent = "Couldn’t reach the server — try again.";
+    }
+  }
+
+  // I2: a 5xx here would only be a genuine transport failure (the route now
+  // always returns 200 with an error fragment). Stop the poll and surface it
+  // so the bar doesn't spin forever.
+  document.addEventListener("htmx:responseError", function (e) {
+    if (!_agreementPoll) { return; }
+    var path = e.detail && e.detail.request && e.detail.request.path;
+    var verb = e.detail && e.detail.request && e.detail.request.verb;
+    if (path === "/api/agreement/compute"
+        && String(verb).toUpperCase() === "POST") {
+      _showTransportError();
+    }
+  });
+
   window.acePickAndCompute = function() {
     var results = document.getElementById("agreement-results");
 
@@ -41,12 +73,43 @@
         // Show loading state only after files are selected
         results.innerHTML =
           '<h1 class="ace-agreement-title">Inter-Coder Agreement</h1>' +
-          '<div class="ace-agreement-loading" role="status" aria-live="polite">Computing agreement\u2026</div>';
+          '<div class="ace-agreement-loading" role="status" aria-live="polite" style="text-align:left">' +
+            '<div class="ace-agreement-progress">' +
+              '<div class="ace-agreement-progress-bar">' +
+                '<div class="ace-agreement-progress-fill" id="ace-agreement-progress-fill" style="width:0%"></div>' +
+              '</div>' +
+              '<div class="ace-agreement-progress-label" id="ace-agreement-progress-label">Computing agreement\u2026</div>' +
+              '<div class="ace-agreement-progress-sub" id="ace-agreement-progress-sub"></div>' +
+            '</div>' +
+          '</div>';
         htmx.ajax("POST", "/api/agreement/compute", {
           values: { paths: JSON.stringify(data.paths) },
           target: "#agreement-results",
           swap: "innerHTML",
         });
+        // Poll progress while compute runs; stop when results swap the bar out.
+        // Clear any previous poll first so a re-pick mid-compute can't race.
+        _stopPoll();
+        _agreementPoll = setInterval(function () {
+          fetch("/api/agreement/progress").then(function (r) { return r.json(); }).then(function (p) {
+            var fill = document.getElementById("ace-agreement-progress-fill");
+            var label = document.getElementById("ace-agreement-progress-label");
+            var sub = document.getElementById("ace-agreement-progress-sub");
+            if (!fill) { _stopPoll(); return; }
+            if (p.error) {
+              fill.classList.add("is-error");
+              fill.style.width = "100%";
+              label.classList.add("is-error");
+              label.textContent = "Couldn\u2019t compute agreement";
+              sub.textContent = p.error;
+              _stopPoll();
+              return;
+            }
+            fill.style.width = p.percent + "%";
+            label.textContent = "Computing agreement\u2026 " + p.percent + "%";
+            sub.textContent = p.stage || "";
+          }).catch(function () { /* swallow \u2014 poll retries */ });
+        }, 400);
       })
       .catch(function() {
         results.innerHTML =
