@@ -2737,51 +2737,145 @@ async def agreement_compute(
     request: Request,
     paths: str = Form(...),
 ):
-    """Load files, compute agreement, return minimalist results HTML."""
-    from ace.services.agreement_loader import AgreementLoader
-    from ace.services.agreement_computer import compute_agreement
+    """Load files, compute agreement (off-thread), return minimalist results HTML.
 
+    The load + build + compute runs in a worker thread (``asyncio.to_thread``)
+    so the event loop stays responsive. Progress is published to
+    ``app.state.agreement_progress`` and read via ``GET /api/agreement/progress``.
+    """
     try:
         path_list = json.loads(paths)
     except (json.JSONDecodeError, TypeError):
-        return HTMLResponse(_agreement_error("Invalid file paths."), status_code=400)
+        return HTMLResponse(_agreement_error("Invalid file paths."), status_code=200)
 
     if not isinstance(path_list, list) or not all(isinstance(p, str) and p for p in path_list):
-        return HTMLResponse(_agreement_error("Invalid file paths."), status_code=400)
+        return HTMLResponse(_agreement_error("Invalid file paths."), status_code=200)
 
     if len(path_list) < 2:
-        return HTMLResponse(_agreement_error("Select at least 2 .ace files."), status_code=400)
+        return HTMLResponse(_agreement_error("Select at least 2 .ace files."), status_code=200)
 
-    loader = AgreementLoader()
-    for p in path_list:
-        result = loader.add_file(p)
-        if result.get("error"):
-            return HTMLResponse(
-                _agreement_error(f"Error loading {Path(p).name}: {result['error']}"),
-                status_code=400,
-            )
+    request.app.state.agreement_progress = {
+        "percent": 0,
+        "stage": "Loading files",
+        "done": False,
+        "error": None,
+    }
 
-    # Store loader for export endpoints
-    request.app.state.agreement_loader = loader
+    html_out = await asyncio.to_thread(
+        _run_agreement,
+        path_list,
+        request.app.state,
+        request.app.state.templates.env,
+    )
+
+    prog = getattr(request.app.state, "agreement_progress", {}) or {}
+    if prog.get("error"):
+        return HTMLResponse(_agreement_error(prog["error"]), status_code=200)
+    if html_out is None:
+        return HTMLResponse(
+            _agreement_error("Agreement could not be computed."),
+            status_code=200,
+        )
+    return HTMLResponse(html_out)
+
+
+def _run_agreement(path_list, state, jinja_env):
+    """Worker-thread entry point: load files, build dataset, compute, render.
+
+    Writes progress to ``state.agreement_progress``. Returns the rendered
+    results HTML, or ``None`` on a handled error (progress.error set).
+
+    The whole worker body is wrapped in a catch-all ``try/except`` so that
+    any escape from the load/build/compute/render pipeline is converted into
+    the standard failure state — the progress bar never spins forever on a
+    500. Note: ``percent`` is unreliable when ``error`` is set (reviewer I3);
+    readers should branch on ``error`` first.
+    """
+    from ace.services.agreement_loader import AgreementLoader
+    from ace.services.agreement_computer import compute_agreement
+
+    def _fail(message):
+        state.agreement_progress = {
+            "percent": 0,
+            "stage": "",
+            "done": False,
+            "error": message,
+        }
+        return None
 
     try:
-        dataset = loader.build_dataset()
+        loader = AgreementLoader()
+        for p in path_list:
+            result = loader.add_file(p)
+            if result.get("error"):
+                return _fail(f"Error loading {Path(p).name}: {result['error']}")
+
+        state.agreement_loader = loader
+        state.agreement_progress = {
+            "percent": 5,
+            "stage": "Building dataset",
+            "done": False,
+            "error": None,
+        }
+
+        try:
+            dataset = loader.build_dataset()
+        except Exception:
+            return _fail(
+                "Cannot compute agreement. Check that the files have shared sources and codes."
+            )
+
+        if not dataset.sources:
+            return _fail("No shared sources found across the selected files.")
+
+        total = max(1, len(dataset.sources))
+
+        def cb(done, _total, stage):
+            # Scale the per-source callback (0..total) into 10..99 so the bar
+            # doesn't leap to 100% before the (cheap) rendering step.
+            pct = 10 + int(done * 89 / total)
+            state.agreement_progress = {
+                "percent": min(99, pct),
+                "stage": stage,
+                "done": False,
+                "error": None,
+            }
+
+        result = compute_agreement(dataset, progress_callback=cb)
+
+        state.agreement_dataset = dataset
+        state.agreement_result = result
+        state.agreement_progress = {
+            "percent": 100,
+            "stage": "Rendering results",
+            "done": True,
+            "error": None,
+        }
+
+        return _render_agreement_results(result, dataset, loader, jinja_env)
     except Exception:
-        return HTMLResponse(_agreement_error("Cannot compute agreement. Check that the files have shared sources and codes."), status_code=400)
+        logger.exception("agreement compute failed")
+        return _fail("Agreement could not be computed.")
 
-    if not dataset.sources:
-        return HTMLResponse(
-            _agreement_error("No shared sources found across the selected files."),
-            status_code=400,
-        )
 
-    result = compute_agreement(dataset)
+@router.get("/agreement/progress")
+async def agreement_progress(request: Request):
+    """Return the current agreement-compute progress as JSON.
 
-    request.app.state.agreement_dataset = dataset
-    request.app.state.agreement_result = result
-
-    html_out = _render_agreement_results(result, dataset, loader, request.app.state.templates.env)
-    return HTMLResponse(html_out)
+    Shape: ``{percent: 0-100, stage: str, done: bool, error: str | null}``.
+    """
+    p = getattr(request.app.state, "agreement_progress", None) or {
+        "percent": 0,
+        "stage": "",
+        "done": False,
+        "error": None,
+    }
+    return {
+        "percent": p.get("percent", 0),
+        "stage": p.get("stage", ""),
+        "done": bool(p.get("done")),
+        "error": p.get("error"),
+    }
 
 
 @router.get("/agreement/export/results")

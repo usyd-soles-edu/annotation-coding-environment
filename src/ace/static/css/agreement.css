@@ -418,6 +418,33 @@ th.col-num { text-align: right; }
   font-size: var(--ace-font-size-sm);
 }
 
+/* ── Polled progress bar (compute offload) ── */
+.ace-agreement-progress { max-width: 360px; }
+.ace-agreement-progress-bar {
+  height: 6px;
+  background: var(--ace-border-light);
+  border-radius: var(--ace-radius);
+  overflow: hidden;
+}
+.ace-agreement-progress-fill {
+  height: 100%;
+  background: var(--ace-focus);
+  border-radius: var(--ace-radius);
+  transition: width .3s ease;
+}
+.ace-agreement-progress-fill.is-error { background: var(--ace-danger); }
+.ace-agreement-progress-label {
+  margin-top: var(--ace-space-3);
+  font-size: var(--ace-font-size-sm);
+  color: var(--ace-text-muted);
+}
+.ace-agreement-progress-label.is-error { color: var(--ace-danger); }
+.ace-agreement-progress-sub {
+  font-size: var(--ace-font-size-2xs);
+  color: var(--ace-primary-light);
+  margin-top: 2px;
+}
+
 /* ── Print styles ── */
 @media print {
   .ace-agreement-page { max-width: none; padding: 0; }

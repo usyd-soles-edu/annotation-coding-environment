@@ -171,11 +171,144 @@ def test_compute_returns_new_results_html(client_with_agreement_files):
 
 
 def test_compute_insufficient_files(client, ace_file_a):
-    """Computing with < 2 paths returns error HTML."""
+    """Computing with < 2 paths returns error HTML (returns 200 so HTMX swaps it in)."""
     paths = json.dumps([str(ace_file_a)])
     resp = client.post("/api/agreement/compute", data={"paths": paths})
-    assert resp.status_code == 400
+    assert resp.status_code == 200
     assert "at least" in resp.text.lower()
+    # Error fragment must include the Choose different files button
+    assert "Choose different files" in resp.text
+
+
+# ── Progress endpoint ─────────────────────────────────────────────────
+
+
+def test_agreement_progress_default_shape(client):
+    """GET /api/agreement/progress returns the expected shape with sensible defaults."""
+    resp = client.get("/api/agreement/progress")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data.keys()) == {"percent", "stage", "done", "error"}
+    assert isinstance(data["percent"], int)
+    assert 0 <= data["percent"] <= 100
+    assert isinstance(data["stage"], str)
+    assert isinstance(data["done"], bool)
+    # error is null or str
+    assert data["error"] is None or isinstance(data["error"], str)
+
+
+def test_agreement_progress_reflects_state(client, app):
+    """Progress endpoint reads app.state.agreement_progress when set."""
+    app.state.agreement_progress = {
+        "percent": 42,
+        "stage": "Computing agreement",
+        "done": False,
+        "error": None,
+    }
+    resp = client.get("/api/agreement/progress")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["percent"] == 42
+    assert data["stage"] == "Computing agreement"
+    assert data["done"] is False
+    assert data["error"] is None
+
+
+def test_agreement_progress_error_variant(client, app):
+    """Progress endpoint surfaces the error field."""
+    app.state.agreement_progress = {
+        "percent": 0,
+        "stage": "",
+        "done": False,
+        "error": "No shared sources",
+    }
+    resp = client.get("/api/agreement/progress")
+    data = resp.json()
+    assert data["error"] == "No shared sources"
+    assert data["done"] is False
+
+
+def test_compute_sets_progress_done_on_success(client, ace_file_a, ace_file_b):
+    """A successful compute leaves progress marked done at 100%."""
+    paths = json.dumps([str(ace_file_a), str(ace_file_b)])
+    resp = client.post("/api/agreement/compute", data={"paths": paths})
+    assert resp.status_code == 200
+    prog = client.get("/api/agreement/progress").json()
+    assert prog["done"] is True
+    assert prog["percent"] == 100
+    assert prog["error"] is None
+
+
+def test_compute_error_sets_progress_error(client, ace_file_a):
+    """A failed compute (insufficient files) leaves no error in progress (rejected early)."""
+    paths = json.dumps([str(ace_file_a)])
+    client.post("/api/agreement/compute", data={"paths": paths})
+    # Invalid input rejected before the thread runs — progress stays whatever it was.
+    resp = client.get("/api/agreement/progress")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert set(data.keys()) == {"percent", "stage", "done", "error"}
+
+
+def test_compute_exception_yields_error_state_not_500(client, ace_file_a, ace_file_b, app):
+    """An exception inside compute_agreement is caught by the worker catch-all:
+    the route returns 200 with an error fragment and agreement_progress["error"]
+    is set — never a 500 that leaves the poll bar spinning forever."""
+    import ace.routes.api as api_mod
+    import ace.services.agreement_computer as computer_mod
+
+    def _boom(*args, **kwargs):
+        raise RuntimeError("synthetic compute failure")
+
+    orig = computer_mod.compute_agreement
+    # The route imports compute_agreement locally, so patch the source module.
+    computer_mod.compute_agreement = _boom
+    try:
+        paths = json.dumps([str(ace_file_a), str(ace_file_b)])
+        resp = client.post("/api/agreement/compute", data={"paths": paths})
+    finally:
+        computer_mod.compute_agreement = orig
+
+    assert resp.status_code == 200, "expected 200 with error fragment, got 500"
+    assert "Choose different files" in resp.text
+    prog = client.get("/api/agreement/progress").json()
+    assert prog["error"], "agreement_progress['error'] should be set on failure"
+    assert prog["done"] is False
+
+
+def test_compute_runs_off_thread(client, ace_file_a, ace_file_b, app):
+    """Compute runs in a worker thread (asyncio.to_thread), not on the event loop.
+
+    We instrument asyncio.to_thread so that when it is asked to run the agreement
+    worker, it records the call. If the route runs compute synchronously on the
+    event loop instead, the instrumented to_thread is never invoked and the test
+    fails.
+    """
+    import asyncio
+
+    real_to_thread = asyncio.to_thread
+    calls = []
+
+    async def spy_to_thread(fn, *args, **kwargs):
+        calls.append(getattr(fn, "__name__", repr(fn)))
+        return await real_to_thread(fn, *args, **kwargs)
+
+    # Patch the asyncio.to_thread name looked up by the route module.
+    import ace.routes.api as api_mod
+
+    orig = api_mod.asyncio.to_thread
+    api_mod.asyncio.to_thread = spy_to_thread
+    try:
+        paths = json.dumps([str(ace_file_a), str(ace_file_b)])
+        resp = client.post("/api/agreement/compute", data={"paths": paths})
+        assert resp.status_code == 200
+    finally:
+        api_mod.asyncio.to_thread = orig
+
+    # The route must have delegated to a worker via to_thread.
+    assert any(name == "_run_agreement" for name in calls), (
+        f"agreement_compute did not offload to a thread (to_thread calls: {calls})"
+    )
 
 
 def test_compute_missing_paths(client):
