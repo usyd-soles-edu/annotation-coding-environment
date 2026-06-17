@@ -5100,6 +5100,10 @@
     const target = e.detail && e.detail.target;
     if (!target) return;
     if (target.id !== "text-panel" && target.id !== "coding-workspace") return;
+    // A cancelled swap (e.g. the 4xx handler sets shouldSwap=false) won't reach
+    // afterSettle, so don't capture — the textarea is untouched and the normal
+    // debounce still saves it.
+    if (e.detail.shouldSwap === false) return;
     if (!_noteSaveTimer) return;
     const ta = document.getElementById("note-textarea");
     if (!ta) return;
@@ -5109,6 +5113,10 @@
       selEnd: ta.selectionEnd,
       focused: _isEditing(),
     };
+    // Stop the debounce here so it can't fire after the swap (saving the
+    // reverted server value) and race the restore-save in afterSettle.
+    clearTimeout(_noteSaveTimer);
+    _noteSaveTimer = null;
   });
 
   document.body.addEventListener("htmx:afterSettle", function (evt) {
