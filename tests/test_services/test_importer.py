@@ -42,7 +42,7 @@ def test_get_random_previews_empty_folder(tmp_path):
 
 def test_import_csv_creates_sources(tmp_db, sample_csv):
     conn = create_project(tmp_db, "test")
-    count, _skipped = import_csv(conn, sample_csv, id_column="participant_id", text_columns=["reflection"])
+    count, _skipped, _ids = import_csv(conn, sample_csv, id_column="participant_id", text_columns=["reflection"])
     assert count == 3
     sources = list_sources(conn)
     assert len(sources) == 3
@@ -79,7 +79,7 @@ def test_import_csv_multi_column(tmp_path, tmp_db):
         "S2,Answer B,Answer Y,treatment\n"
     )
     conn = create_project(tmp_db, "test")
-    count, _skipped = import_csv(conn, csv_path, id_column="id", text_columns=["question1", "question2"])
+    count, _skipped, _ids = import_csv(conn, csv_path, id_column="id", text_columns=["question1", "question2"])
     assert count == 2
     sources = list_sources(conn)
     assert len(sources) == 2
@@ -99,7 +99,7 @@ def test_import_text_files(tmp_path, tmp_db):
     (folder / "file1.txt").write_text("Hello world")
     (folder / "file2.txt").write_text("Goodbye world")
     conn = create_project(tmp_db, "test")
-    count, _skipped = import_text_files(conn, folder)
+    count, _skipped, _ids = import_text_files(conn, folder)
     assert count == 2
     sources = list_sources(conn)
     assert len(sources) == 2
@@ -115,7 +115,7 @@ def test_import_csv_two_rows(tmp_path):
     csv_path.write_text("id,text\nA1,hello\nA2,world\n")
     db_path = tmp_path / "two.ace"
     conn = create_project(db_path, "test")
-    count, _skipped = import_csv(conn, csv_path, id_column="id", text_columns=["text"])
+    count, _skipped, _ids = import_csv(conn, csv_path, id_column="id", text_columns=["text"])
     assert count == 2
     sources = list_sources(conn)
     assert [s["display_id"] for s in sources] == ["A1", "A2"]
@@ -128,7 +128,7 @@ def test_import_csv_multi_text_columns(tmp_path):
     csv_path.write_text("id,q1,q2\nR1,ans1,ans2\nR2,ans3,ans4\n")
     db_path = tmp_path / "multi_text.ace"
     conn = create_project(db_path, "test")
-    count, _skipped = import_csv(conn, csv_path, id_column="id", text_columns=["q1", "q2"])
+    count, _skipped, _ids = import_csv(conn, csv_path, id_column="id", text_columns=["q1", "q2"])
     assert count == 2
     sources = list_sources(conn)
     assert [s["display_id"] for s in sources] == ["R1", "R2"]
@@ -154,7 +154,7 @@ def test_import_xlsx(tmp_path):
 
     db_path = tmp_path / "xlsx.ace"
     conn = create_project(db_path, "test")
-    count, _skipped = import_csv(conn, xlsx_path, id_column="id", text_columns=["response"])
+    count, _skipped, _ids = import_csv(conn, xlsx_path, id_column="id", text_columns=["response"])
     assert count == 2
     sources = list_sources(conn)
     assert sources[0]["display_id"] == "X1"
@@ -173,7 +173,7 @@ def test_import_text_files_two(tmp_path):
 
     db_path = tmp_path / "txt.ace"
     conn = create_project(db_path, "test")
-    count, _skipped = import_text_files(conn, folder)
+    count, _skipped, _ids = import_text_files(conn, folder)
     assert count == 2
     sources = list_sources(conn)
     display_ids = sorted(s["display_id"] for s in sources)
@@ -193,7 +193,7 @@ def test_import_text_files_md(tmp_path):
 
     db_path = tmp_path / "mixed.ace"
     conn = create_project(db_path, "test")
-    count, _skipped = import_text_files(conn, folder)
+    count, _skipped, _ids = import_text_files(conn, folder)
     assert count == 2
     sources = list_sources(conn)
     display_ids = sorted(s["display_id"] for s in sources)
@@ -211,16 +211,21 @@ def test_import_csv_skips_duplicate_display_ids(tmp_path):
 
     try:
         # First import: both rows created, none skipped.
-        created, skipped = import_csv(
+        created, skipped, ids = import_csv(
             conn, csv_path, id_column="id", text_columns=["text"]
         )
         assert (created, skipped) == (2, 0)
+        assert len(ids) == 2
+        # Each created id resolves to a real source.
+        by_id = {s["id"]: s for s in list_sources(conn)}
+        assert {by_id[i]["display_id"] for i in ids} == {"A", "B"}
 
         # Re-import the same file: nothing new, both rows skipped.
-        created, skipped = import_csv(
+        created, skipped, ids = import_csv(
             conn, csv_path, id_column="id", text_columns=["text"]
         )
         assert (created, skipped) == (0, 2)
+        assert ids == []
 
         # No duplicate rows, original text intact.
         sources = list_sources(conn)
@@ -245,7 +250,7 @@ def test_import_csv_skips_only_existing_rows(tmp_path):
 
     try:
         import_csv(conn, csv_a, id_column="id", text_columns=["text"])
-        created, skipped = import_csv(
+        created, skipped, _ids = import_csv(
             conn, csv_b, id_column="id", text_columns=["text"]
         )
 
@@ -273,7 +278,7 @@ def test_import_csv_skips_intra_file_duplicate_ids(tmp_path):
     conn = create_project(db_path, "test")
 
     try:
-        created, skipped = import_csv(
+        created, skipped, _ids = import_csv(
             conn, csv_path, id_column="id", text_columns=["text"]
         )
 
@@ -298,11 +303,15 @@ def test_import_text_files_skips_duplicate_display_ids(tmp_path):
     conn = create_project(db_path, "test")
 
     try:
-        created, skipped = import_text_files(conn, folder)
+        created, skipped, ids = import_text_files(conn, folder)
         assert (created, skipped) == (2, 0)
+        # The created ids map to the imported files in order.
+        by_id = {s["id"]: s for s in list_sources(conn)}
+        assert [by_id[i]["display_id"] for i in ids] == ["one", "two"]
 
-        created, skipped = import_text_files(conn, folder)
+        created, skipped, ids = import_text_files(conn, folder)
         assert (created, skipped) == (0, 2)
+        assert ids == []
 
         sources = {s["display_id"]: s for s in list_sources(conn)}
         assert set(sources) == {"one", "two"}
@@ -322,7 +331,7 @@ def test_import_csv_latin1(tmp_path):
 
     db_path = tmp_path / "latin1.ace"
     conn = create_project(db_path, "test")
-    count, _skipped = import_csv(conn, csv_path, id_column="id", text_columns=["text"])
+    count, _skipped, _ids = import_csv(conn, csv_path, id_column="id", text_columns=["text"])
     assert count == 1
     sources = list_sources(conn)
     assert sources[0]["display_id"] == "L1"

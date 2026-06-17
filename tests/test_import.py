@@ -281,3 +281,109 @@ def test_import_folder_accepts_file_uri(client_with_project):
     assert resp.status_code == 200
     assert "1 file" in resp.text
     assert "Check imported text files" in resp.text
+
+
+def test_import_remove_last_deletes_stored_sources(client_with_project):
+    """POST /api/import/remove-last deletes the stored source ids + dependents,
+    clears the stored ids, and reloads the page."""
+    client, tmp_path = client_with_project
+    app = client.app
+
+    # Insert two sources directly and store their ids as the "last import".
+    from ace.db.connection import open_project
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        conn.execute(
+            "INSERT INTO source (id, display_id, source_type, source_column, "
+            "filename, metadata_json, sort_order, created_at) "
+            "VALUES ('s1', 'A', 'file', NULL, 'a.txt', NULL, 1, '2026-01-01T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO source (id, display_id, source_type, source_column, "
+            "filename, metadata_json, sort_order, created_at) "
+            "VALUES ('s2', 'B', 'file', NULL, 'b.txt', NULL, 2, '2026-01-01T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO source_content (source_id, content_text, content_hash) "
+            "VALUES ('s1', 'text a', 'x'), ('s2', 'text b', 'y')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    app.state.last_import_source_ids = ["s1", "s2"]
+
+    resp = client.post("/api/import/remove-last")
+    assert resp.status_code == 200
+    assert "Removed the last import." in resp.text
+    assert resp.headers.get("HX-Refresh") == "true"
+    # Stored ids cleared — a second call reports nothing to remove.
+    assert app.state.last_import_source_ids is None
+
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM source").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM source_content").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+    resp = client.post("/api/import/remove-last")
+    assert resp.status_code == 200
+    assert "No import to remove." in resp.text
+
+
+def test_import_remove_last_reports_annotations_also_removed(client_with_project):
+    """When the removed import had annotations, the status notes how many went."""
+    client, tmp_path = client_with_project
+    app = client.app
+
+    from ace.db.connection import open_project
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        conn.execute(
+            "INSERT INTO source (id, display_id, source_type, source_column, "
+            "filename, metadata_json, sort_order, created_at) "
+            "VALUES ('s1', 'A', 'file', NULL, 'a.txt', NULL, 1, '2026-01-01T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO source_content (source_id, content_text, content_hash) "
+            "VALUES ('s1', 'text a', 'x')"
+        )
+        # A code + coder + annotation on the imported source.
+        conn.execute(
+            "INSERT INTO coder (id, name) VALUES ('c1', 'alice')"
+        )
+        conn.execute(
+            "INSERT INTO codebook_code (id, name, colour, kind, parent_id, sort_order, created_at) "
+            "VALUES ('code1', 'Joy', '#ff0000', 'code', NULL, 1, '2026-01-01T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO assignment (id, source_id, coder_id, assigned_at, updated_at) "
+            "VALUES ('asg1', 's1', 'c1', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')"
+        )
+        conn.execute(
+            "INSERT INTO annotation (id, source_id, coder_id, code_id, start_offset, "
+            "end_offset, selected_text, created_at, updated_at) "
+            "VALUES ('ann1', 's1', 'c1', 'code1', 0, 4, 'text', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00')"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    app.state.last_import_source_ids = ["s1"]
+
+    resp = client.post("/api/import/remove-last")
+    assert resp.status_code == 200
+    assert "1 annotation also removed." in resp.text
+    assert resp.headers.get("HX-Refresh") == "true"
+
+
+def test_import_remove_last_with_no_stored_ids(client_with_project):
+    """With no prior import stored, the route returns the error status."""
+    client, _ = client_with_project
+    app = client.app
+    app.state.last_import_source_ids = None
+
+    resp = client.post("/api/import/remove-last")
+    assert resp.status_code == 200
+    assert "No import to remove." in resp.text

@@ -28,7 +28,7 @@ def import_csv(
     path: str | Path,
     id_column: str,
     text_columns: list[str],
-) -> tuple[int, int]:
+) -> tuple[int, int, list[str]]:
     """Import rows from a CSV or Excel file as sources.
 
     Each row becomes one source. When multiple text columns are selected,
@@ -36,7 +36,9 @@ def import_csv(
     Non-ID/non-text columns are stored as metadata_json.
 
     Rows whose ``display_id`` already exists in the ``source`` table are
-    skipped (the existing text is preserved). Returns ``(created, skipped)``.
+    skipped (the existing text is preserved). Returns
+    ``(created, skipped, created_ids)`` where ``created_ids`` is the list of
+    new source ids (used by the 'Remove last import' button).
     """
     path = Path(path)
     rows, columns = read_tabular(path)
@@ -45,6 +47,7 @@ def import_csv(
     existing = _existing_display_ids(conn)
     created = 0
     skipped = 0
+    created_ids: list[str] = []
 
     for row in rows:
         display_id = str(row[id_column])
@@ -52,20 +55,22 @@ def import_csv(
             skipped += 1
             continue
         metadata = {c: row[c] for c in meta_columns} if meta_columns else None
+        content_text = _combine_text_columns(row, text_columns)
 
-        add_source(
+        source_id = add_source(
             conn,
             display_id=display_id,
-            content_text=_combine_text_columns(row, text_columns),
+            content_text=content_text,
             source_type="row",
             filename=path.name,
             source_column=None,
             metadata=metadata,
         )
+        created_ids.append(source_id)
         existing.add(display_id)
         created += 1
 
-    return created, skipped
+    return created, skipped, created_ids
 
 
 def _combine_text_columns(row: dict, text_columns: list[str]) -> str:
@@ -93,33 +98,37 @@ def _list_text_files(folder: Path) -> list[Path]:
 def import_text_files(
     conn: sqlite3.Connection,
     folder: str | Path,
-) -> tuple[int, int]:
+) -> tuple[int, int, list[str]]:
     """Import text files (.txt, .md) from a folder as sources.
 
     Each file becomes one source with ``display_id`` = filename stem. Files
     whose stem already exists in the ``source`` table are skipped (the
-    existing text is preserved). Returns ``(created, skipped)``.
+    existing text is preserved). Returns ``(created, skipped, created_ids)``
+    where ``created_ids`` is the list of new source ids (used by the
+    'Remove last import' button).
     """
     existing = _existing_display_ids(conn)
     created = 0
     skipped = 0
+    created_ids: list[str] = []
     for txt_path in _list_text_files(Path(folder)):
         display_id = txt_path.stem
         if display_id in existing:
             skipped += 1
             continue
         content = _read_text_file(txt_path)
-        add_source(
+        source_id = add_source(
             conn,
             display_id=display_id,
             content_text=content,
             source_type="file",
             filename=txt_path.name,
         )
+        created_ids.append(source_id)
         existing.add(display_id)
         created += 1
 
-    return created, skipped
+    return created, skipped, created_ids
 
 
 def get_random_previews(
