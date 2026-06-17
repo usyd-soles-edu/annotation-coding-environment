@@ -1607,6 +1607,30 @@
     _sidebarFocusState.scrollTop = tree ? tree.scrollTop : 0;
   });
 
+  /* ================================================================
+   * 4xx error feedback — surface HTMX error bodies in the status bar
+   * ================================================================ */
+
+  // Surface 4xx response bodies as a sticky status-bar error instead of
+  // letting HTMX silently drop them. Coding routes raise HTTPException(400),
+  // which FastAPI serialises to {"detail": "..."} — prefer that, fall back to
+  // raw text, then a generic message. 5xx is left untouched so a server
+  // traceback isn't dumped into the status bar.
+  document.addEventListener("htmx:beforeSwap", function (e) {
+    const xhr = e.detail && e.detail.xhr;
+    if (!xhr || xhr.status < 400 || xhr.status >= 500) return;
+    let msg = "";
+    try {
+      const body = JSON.parse(xhr.responseText);
+      if (body && typeof body.detail === "string") msg = body.detail;
+    } catch (_) {
+      if (xhr.responseText) msg = xhr.responseText.slice(0, 200);
+    }
+    if (!msg) msg = "That action couldn't complete — try again.";
+    if (typeof window._setStatus === "function") window._setStatus(msg, "err");
+    if (typeof e.detail.shouldSwap === "boolean") e.detail.shouldSwap = false;
+  });
+
   // Track whether the sidebar element survived the most recent swap.
   // Annotation-only routes (apply, delete-annotation, navigate, flag,
   // apply-sentence, delete-sentence) deliberately omit the sidebar OOB so

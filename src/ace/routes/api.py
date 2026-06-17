@@ -30,10 +30,17 @@ def _require_coder(request: Request) -> str:
     Used by every route that mutates coder-owned state. The single
     remaining caller that wants Optional semantics (the `codes`
     listing route) reads `request.app.state.coder_id` directly.
+
+    The detail is plain English so the client's htmx:beforeSwap
+    listener can surface it in the status bar (HTMX drops 4xx bodies
+    by default; we parse the JSON and show it).
     """
     cid = getattr(request.app.state, "coder_id", None)
     if cid is None:
-        raise HTTPException(status_code=400)
+        raise HTTPException(
+            status_code=400,
+            detail="No coder is selected — open a project from the home page.",
+        )
     return cid
 
 
