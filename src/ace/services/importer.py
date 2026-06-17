@@ -12,27 +12,45 @@ _CSV_ENCODINGS = ("utf-8", "latin-1", "cp1252")
 _TEXT_EXTENSIONS = ("*.txt", "*.md")
 
 
+def _existing_display_ids(conn: sqlite3.Connection) -> set[str]:
+    """Return the set of display_ids already present in the source table."""
+    return {row[0] for row in conn.execute("SELECT display_id FROM source")}
+
+
+def count_already_present(conn: sqlite3.Connection, folder: str | Path) -> int:
+    """Count text files in ``folder`` whose stem is already a source display_id."""
+    existing = _existing_display_ids(conn)
+    return sum(1 for f in _list_text_files(Path(folder)) if f.stem in existing)
+
+
 def import_csv(
     conn: sqlite3.Connection,
     path: str | Path,
     id_column: str,
     text_columns: list[str],
-) -> int:
+) -> tuple[int, int]:
     """Import rows from a CSV or Excel file as sources.
 
     Each row becomes one source. When multiple text columns are selected,
     their values are combined as labelled sections in source order.
     Non-ID/non-text columns are stored as metadata_json.
-    Returns the number of sources created.
+
+    Rows whose ``display_id`` already exists in the ``source`` table are
+    skipped (the existing text is preserved). Returns ``(created, skipped)``.
     """
     path = Path(path)
     rows, columns = read_tabular(path)
 
     meta_columns = [c for c in columns if c != id_column and c not in text_columns]
-    count = 0
+    existing = _existing_display_ids(conn)
+    created = 0
+    skipped = 0
 
     for row in rows:
         display_id = str(row[id_column])
+        if display_id in existing:
+            skipped += 1
+            continue
         metadata = {c: row[c] for c in meta_columns} if meta_columns else None
 
         add_source(
@@ -44,9 +62,10 @@ def import_csv(
             source_column=None,
             metadata=metadata,
         )
-        count += 1
+        existing.add(display_id)
+        created += 1
 
-    return count
+    return created, skipped
 
 
 def _combine_text_columns(row: dict, text_columns: list[str]) -> str:
@@ -74,25 +93,33 @@ def _list_text_files(folder: Path) -> list[Path]:
 def import_text_files(
     conn: sqlite3.Connection,
     folder: str | Path,
-) -> int:
+) -> tuple[int, int]:
     """Import text files (.txt, .md) from a folder as sources.
 
-    Each file becomes one source with display_id = filename stem.
-    Returns the number of sources created.
+    Each file becomes one source with ``display_id`` = filename stem. Files
+    whose stem already exists in the ``source`` table are skipped (the
+    existing text is preserved). Returns ``(created, skipped)``.
     """
-    count = 0
+    existing = _existing_display_ids(conn)
+    created = 0
+    skipped = 0
     for txt_path in _list_text_files(Path(folder)):
+        display_id = txt_path.stem
+        if display_id in existing:
+            skipped += 1
+            continue
         content = _read_text_file(txt_path)
         add_source(
             conn,
-            display_id=txt_path.stem,
+            display_id=display_id,
             content_text=content,
             source_type="file",
             filename=txt_path.name,
         )
-        count += 1
+        existing.add(display_id)
+        created += 1
 
-    return count
+    return created, skipped
 
 
 def get_random_previews(

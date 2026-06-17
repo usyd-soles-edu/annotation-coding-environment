@@ -1273,6 +1273,15 @@ body {
   font-family: var(--ace-font-mono);
   font-size: var(--ace-font-size-xs);
 }
+.ace-import-result p.ace-import-result-skipped {
+  margin-top: calc(-1 * var(--ace-space-2));
+  font-style: italic;
+}
+.ace-folder-import-duplicates {
+  margin: var(--ace-space-2) 0 0;
+  font-style: italic;
+  font-size: var(--ace-font-size-2xs);
+}
 .ace-import-result-actions {
   display: flex;
   justify-content: center;

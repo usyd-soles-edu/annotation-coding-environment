@@ -203,13 +203,28 @@ def _import_done_actions(*, include_back: bool = False) -> str:
     )
 
 
-def _import_result_fragment(count_label: str, source_label: str | None = None) -> str:
+def _skipped_html(n: int, unit: str) -> str:
+    """Render the 'skipped duplicates' notice (empty string when n == 0)."""
+    if not n:
+        return ""
+    plural = "" if n == 1 else "s"
+    return (f'<p class="ace-import-result-skipped">Skipped {n} {unit}{plural} '
+            f"already present in this project.</p>")
+
+
+def _import_result_fragment(
+    count_label: str,
+    source_label: str | None = None,
+    *,
+    skipped: int = 0,
+) -> str:
     source_html = ""
     if source_label:
         source_html = (
             " from "
             f'<span class="ace-import-result-meta">{html.escape(source_label)}</span>'
         )
+    skipped_html = _skipped_html(skipped, "source")
     return (
         '<div class="ace-import-result">'
         '<div class="ace-import-result-top">'
@@ -217,6 +232,7 @@ def _import_result_fragment(count_label: str, source_label: str | None = None) -
         "</div>"
         f'<div class="ace-import-result-count">{html.escape(count_label)}</div>'
         f"<p>Imported successfully{source_html}</p>"
+        f"{skipped_html}"
         f"{_import_done_actions()}"
         "</div>"
     )
@@ -267,7 +283,11 @@ def _folder_preview_panel(preview: dict) -> str:
 
 
 def _folder_import_preview_fragment(
-    previews: list[dict], total: int, escaped_folder: str
+    previews: list[dict],
+    total: int,
+    escaped_folder: str,
+    *,
+    already_present: int = 0,
 ) -> str:
     """Return the #import-preview HTML fragment (outerHTML-swappable)."""
     if not previews:
@@ -289,6 +309,14 @@ def _folder_import_preview_fragment(
         if remaining
         else "All files shown"
     )
+    dup_html = ""
+    if already_present > 0:
+        unit = "file" if already_present == 1 else "files"
+        dup_html = (
+            f'<p class="ace-folder-import-duplicates">'
+            f"{already_present} {unit} already in this project."
+            f"</p>"
+        )
     return (
         '<div id="import-preview" class="ace-folder-import-browser">'
         '<aside class="ace-folder-import-list" aria-label="Imported files">'
@@ -305,6 +333,7 @@ def _folder_import_preview_fragment(
         "</div>"
         f'<div class="ace-folder-import-files">{buttons}</div>'
         f'<div class="ace-folder-import-more">{html.escape(more_label)}</div>'
+        f"{dup_html}"
         "</aside>"
         f"{_folder_preview_panel(first)}"
         "</div>"
@@ -754,7 +783,7 @@ async def import_commit(
             return _oob_status("Choose a source label column.")
         if not text_col_list:
             return _oob_status("Choose at least one text column.")
-        count = import_csv(conn, tmp_path, id_column, text_col_list)
+        count, skipped = import_csv(conn, tmp_path, id_column, text_col_list)
     except Exception as e:
         db_gen.close()
         return _oob_status(f"Import failed: {e}")
@@ -770,7 +799,9 @@ async def import_commit(
     request.app.state.import_source_name = None
 
     count_label = f'{count} source{"s" if count != 1 else ""}'
-    return HTMLResponse(_import_result_fragment(count_label, source_name))
+    return HTMLResponse(
+        _import_result_fragment(count_label, source_name, skipped=skipped)
+    )
 
 
 @router.post("/import/folder")
@@ -789,7 +820,7 @@ async def import_folder(
     db_gen = get_db(request)
     conn = next(db_gen)
     try:
-        count = import_text_files(conn, folder)
+        count, skipped = import_text_files(conn, folder)
     except Exception as e:
         db_gen.close()
         return _oob_status(f"Import failed: {e}")
@@ -806,6 +837,8 @@ async def import_folder(
         else ""
     )
 
+    skipped_html = _skipped_html(skipped, "file")
+
     return HTMLResponse(
         '<div class="ace-import-result ace-import-result--folder">'
         '<div class="ace-import-result-top">'
@@ -817,6 +850,7 @@ async def import_folder(
         "ACE imported each text or Markdown file as a separate source. "
         "Scan a random sample before coding."
         "</p>"
+        f"{skipped_html}"
         f"{preview_html}"
         f"{_import_done_actions(include_back=True)}"
         "</div>"
@@ -845,9 +879,9 @@ async def code_view_data_json(request: Request, code_id: str):
 
 
 @router.get("/import/preview")
-async def import_preview(folder: str = Query(...)):
+async def import_preview(request: Request, folder: str = Query(...)):
     """Return an HTML fragment previewing a random text file from the folder."""
-    from ace.services.importer import get_random_previews
+    from ace.services.importer import count_already_present, get_random_previews
 
     folder_path = Path(folder)
     if not folder_path.is_dir():
@@ -855,7 +889,20 @@ async def import_preview(folder: str = Query(...)):
 
     total, previews = get_random_previews(folder_path)
     escaped_folder = html.escape(quote(folder, safe=""))
-    return HTMLResponse(_folder_import_preview_fragment(previews, total, escaped_folder))
+
+    # Count how many files in the folder are already sources in the open
+    # project so the preview can flag duplicates before import.
+    already_present = 0
+    project_path = getattr(request.app.state, "project_path", None)
+    if project_path and Path(project_path).exists():
+        with _project_db(request) as conn:
+            already_present = count_already_present(conn, folder_path)
+
+    return HTMLResponse(
+        _folder_import_preview_fragment(
+            previews, total, escaped_folder, already_present=already_present
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
