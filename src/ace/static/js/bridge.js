@@ -4867,6 +4867,9 @@
   let _noteInFlight = null;
   let _noteStatusClearTimer = null;
   let _previouslyFocused = null;
+  // #13: a dirty note edit captured before an inspector OOB swap so it can be
+  // restored after — see the beforeSwap/afterSettle pair below.
+  let _pendingNoteRestore = null;
 
   function _noteEls() {
     return {
@@ -5086,6 +5089,28 @@
     }
   });
 
+  // #13: the inspector (which contains the note textarea) is OOB-swapped on
+  // mutations like flag/apply. If a debounced note save is still pending when
+  // that swap fires, the textarea is torn down mid-edit — the visible text
+  // reverts to the stored value and the next keystroke would overwrite the
+  // in-flight save. Capture the dirty edit before the swap and restore it
+  // after settle. Gated on the pending-save timer (which aceNavigate has
+  // already flushed), so a genuine source change is never clobbered.
+  document.addEventListener("htmx:beforeSwap", function (e) {
+    const target = e.detail && e.detail.target;
+    if (!target) return;
+    if (target.id !== "text-panel" && target.id !== "coding-workspace") return;
+    if (!_noteSaveTimer) return;
+    const ta = document.getElementById("note-textarea");
+    if (!ta) return;
+    _pendingNoteRestore = {
+      value: ta.value,
+      selStart: ta.selectionStart,
+      selEnd: ta.selectionEnd,
+      focused: _isEditing(),
+    };
+  });
+
   document.body.addEventListener("htmx:afterSettle", function (evt) {
     const target = evt.detail && evt.detail.target;
     if (!target) return;
@@ -5094,6 +5119,19 @@
       _noteInFlight = null;
       _syncHasNoteAttribute();
       _syncAppliedPanelForNoteState();
+      // Restore a dirty edit captured before this swap, then persist it
+      // straight away (not debounced — there's no typing stream to coalesce
+      // here, and a timer would race the next swap).
+      if (_pendingNoteRestore) {
+        const ta = document.getElementById("note-textarea");
+        if (ta) {
+          ta.value = _pendingNoteRestore.value;
+          try { ta.setSelectionRange(_pendingNoteRestore.selStart, _pendingNoteRestore.selEnd); } catch (_) {}
+          if (_pendingNoteRestore.focused) ta.focus();
+        }
+        _pendingNoteRestore = null;
+        _doSaveNote();
+      }
     }
   });
 
