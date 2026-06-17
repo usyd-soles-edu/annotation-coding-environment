@@ -18,6 +18,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+
+from ace.models.codebook import code_name as _code_name
 from typing import Callable, Literal
 
 logger = logging.getLogger(__name__)
@@ -293,13 +295,6 @@ class UndoManager:
 # ---------------------------------------------------------------------------
 # Description helpers (run at replay time, reflect current entity names)
 # ---------------------------------------------------------------------------
-
-
-def _code_name(conn, code_id: str) -> str:
-    row = conn.execute(
-        "SELECT name FROM codebook_code WHERE id = ?", (code_id,)
-    ).fetchone()
-    return row["name"] if row else "(deleted code)"
 
 
 def _source_display_id(conn, source_id: str) -> str:

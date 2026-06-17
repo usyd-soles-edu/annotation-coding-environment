@@ -365,7 +365,7 @@
       if (row) {
         const codeId = row.getAttribute("data-code-id");
         if (codeId) {
-          _applyCode(codeId, { shortcut: ";" + chord });
+          _applyCode(codeId);
           _exitChordMode();
           return;
         }
@@ -717,7 +717,7 @@
         if (!window.__aceLastSelection && window.__aceFocusIndex < 0) {
           _focusSentence(0);
         }
-        _applyCode(codeId, { shortcut: _keylabel(pos) });
+        _applyCode(codeId);
       }
     }
   });
@@ -2599,37 +2599,27 @@
   });
 
   /** Unified apply helper used by keycap click, search Enter, and tree Enter. */
-  function _applyCode(codeId, opts) {
+  function _applyCode(codeId) {
     if (_codeApplicationDisabled()) return false;
-    opts = opts || {};
-    let codeName = opts.codeName || "";
-    let row = _findCodebookItemRow(codeId);
-    if (row) {
-      codeName = _codebookRowLabel(row) || codeName;
-    }
+    // The server emits a branch-specific OOB status (Applied / Removed /
+    // Merged with adjacent) on /api/code/apply-sentence, which swaps into
+    // #ace-statusbar-event. No client-side status message here.
     const isSelection = !!window.__aceLastSelection;
-    let afterApply = null;
-    if (codeName) {
-      const target = isSelection ? "selection" : "sentence " + (window.__aceFocusIndex + 1);
-      const shortcut = opts.shortcut ? opts.shortcut + " · " : "";
-      const message = "Applied " + shortcut + codeName + " to " + target;
-      afterApply = function () { _setStatus(message, "ok"); };
-    }
     if (isSelection) {
-      return _applyCodeToSelection(codeId, afterApply);
+      return _applyCodeToSelection(codeId, null);
     } else if (window.__aceFocusIndex >= 0) {
-      return _applyCodeToSentence(codeId, afterApply);
+      return _applyCodeToSentence(codeId, null);
     } else {
       return false;
     }
   }
 
   document.addEventListener("ace:apply-code", function (event) {
-    const detail = event.detail || {};
-    if (!detail.codeId) return;
+    const codeId = event.detail && event.detail.codeId;
+    if (!codeId) return;
     if (_codeApplicationDisabled()) return;
     _clearSearchFilter();
-    _applyCode(detail.codeId, { codeName: detail.codeName || "" });
+    _applyCode(codeId);
   });
 
   document.addEventListener("ace:rename-codebook-item", function (event) {

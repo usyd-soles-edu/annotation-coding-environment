@@ -55,6 +55,19 @@ def next_colour(existing_count: int) -> str:
     """Return the next colour from the palette, cycling if needed."""
     return COLOUR_PALETTE[existing_count % len(COLOUR_PALETTE)][0]
 
+
+def code_name(conn: sqlite3.Connection, code_id: str) -> str:
+    """Return the code's display name, or '(deleted code)' if it no longer exists.
+
+    Shared by status-message rendering (api.py apply routes) and the undo
+    description helpers (services/undo.py).
+    """
+    row = conn.execute(
+        "SELECT name FROM codebook_code WHERE id = ?", (code_id,)
+    ).fetchone()
+    return row["name"] if row else "(deleted code)"
+
+
 def add_code(
     conn: sqlite3.Connection,
     name: str,
