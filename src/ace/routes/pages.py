@@ -346,6 +346,6 @@ async def code_view_page(request: Request, code_id: str):
             "code_counts_by_id": code_counts_by_id,
             "project_file_stem": project_file_stem,
             "version": __version__,
-            "codebook_readonly": True,
+            "codebook_browse_mode": True,
         },
     )
