@@ -68,6 +68,15 @@
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.paths || data.paths.length < 2) {
+          // Fewer than 2 files: re-show the pick state instead of failing
+          // silently. The server has a clear "at least 2 files" message, but
+          // the request is never sent from here, so surface it client-side.
+          results.innerHTML =
+            '<h1 class="ace-agreement-title">Inter-Coder Agreement</h1>' +
+            '<div class="ace-agreement-empty">' +
+              '<p>Select 2 or more .ace files to compute agreement</p>' +
+              '<button class="ace-agreement-choose-btn" onclick="acePickAndCompute()">Choose files</button>' +
+            '</div>';
           return;
         }
         // Show loading state only after files are selected
