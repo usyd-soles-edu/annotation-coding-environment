@@ -1384,6 +1384,49 @@ def test_apply_same_code_overlap_merges(client_with_codes):
     assert _count_active_annotations(client, db_path, 0) == 1
 
 
+def test_apply_status_applied_for_new_selection(client_with_codes):
+    """POST /api/code/apply emits an 'Applied <code>' OOB status for a new span."""
+    client, coder_id, code_a, _, _ = client_with_codes
+    client.cookies.set("coder_id", coder_id)
+
+    resp = client.post("/api/code/apply", data={
+        "code_id": code_a, "current_index": 0,
+        "start_offset": 0, "end_offset": 5, "selected_text": "First",
+    })
+    assert resp.status_code == 200
+    body = resp.text
+    # OOB status fragments present with the ok kind…
+    assert 'id="ace-statusbar-event"' in body
+    assert "ace-statusbar-event--ok" in body
+    assert "ace-text-event-pill--ok" in body
+    # …and the message names the applied code (code_a's name is "Theme A").
+    assert "Applied Theme A" in body
+
+
+def test_apply_status_merged_for_adjacent_same_code(client_with_codes):
+    """Re-applying the same code to an overlapping span emits a 'Merged' status."""
+    client, coder_id, code_a, _, _ = client_with_codes
+    client.cookies.set("coder_id", coder_id)
+
+    # First apply — a fresh span → Applied.
+    r1 = client.post("/api/code/apply", data={
+        "code_id": code_a, "current_index": 0,
+        "start_offset": 0, "end_offset": 10, "selected_text": "First docu",
+    })
+    assert r1.status_code == 200
+    assert "Applied Theme A" in r1.text
+
+    # Second apply, overlapping the first → merged into one spanning row.
+    r2 = client.post("/api/code/apply", data={
+        "code_id": code_a, "current_index": 0,
+        "start_offset": 5, "end_offset": 15, "selected_text": "documen",
+    })
+    assert r2.status_code == 200
+    body = r2.text
+    assert "Merged Theme A with adjacent" in body
+    assert "ace-statusbar-event--ok" in body
+
+
 def test_apply_different_code_overlap_creates_two(client_with_codes):
     """Overlap with DIFFERENT code → both annotations remain."""
     client, _, code_a, code_b, db_path = client_with_codes
@@ -2376,3 +2419,88 @@ def test_set_parent_route_respects_target_order(client_with_codes):
     finally:
         conn.close()
     assert [row["id"] for row in rows] == [first, moving_folder, second]
+
+
+# ---------------------------------------------------------------------------
+# annotate_sentence — branch-specific status messages (#14)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def client_with_two_sentences(tmp_path):
+    """Project with a single source containing two adjacent sentences + 1 code.
+
+    The source text splits into exactly two sentences so the merge branch
+    (apply same code to an adjacent sentence) is reachable.
+    """
+    app = create_app()
+    db_path = tmp_path / "test.ace"
+    conn = create_project(str(db_path), "Test Project")
+
+    coders = list_coders(conn)
+    coder_id = coders[0]["id"]
+
+    add_source(conn, "S001", "First sentence here. Second sentence now.", "row")
+    code_a = add_code(conn, "Theme A", "#BF6030")
+
+    conn.close()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        app.state.project_path = str(db_path)
+        app.state.coder_id = coder_id
+        client.get("/code")
+        yield client, coder_id, code_a, str(db_path)
+
+
+def test_annotate_sentence_add_status(client_with_codes):
+    """POST /api/code/apply-sentence (new code) -> 'Applied' status fragment."""
+    client, _coder_id, code_a, _code_b, _db_path = client_with_codes
+    resp = client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
+    )
+    assert resp.status_code == 200
+    assert "Applied" in resp.text
+    assert "Theme A" in resp.text
+    # The status fragment swaps into the event channel.
+    assert 'id="ace-statusbar-event"' in resp.text
+    assert "ace-statusbar-event--ok" in resp.text
+
+
+def test_annotate_sentence_toggle_off_status(client_with_codes):
+    """Applying the same code to the same sentence again -> 'Removed' status."""
+    client, _coder_id, code_a, _code_b, _db_path = client_with_codes
+    # First apply (add)
+    client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
+    )
+    # Second apply (toggle off)
+    resp = client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
+    )
+    assert resp.status_code == 200
+    assert "Removed" in resp.text
+    assert "Theme A" in resp.text
+    assert 'id="ace-statusbar-event"' in resp.text
+
+
+def test_annotate_sentence_merge_status(client_with_two_sentences):
+    """Applying a code to a sentence adjacent to an existing same-code span
+    -> 'Merged with adjacent' status."""
+    client, _coder_id, code_a, _db_path = client_with_two_sentences
+    # Apply to sentence 0 (add)
+    client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
+    )
+    # Apply same code to the adjacent sentence 1 (merge)
+    resp = client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 1, "current_index": 0},
+    )
+    assert resp.status_code == 200
+    assert "Merged" in resp.text
+    assert "adjacent" in resp.text
+    assert 'id="ace-statusbar-event"' in resp.text

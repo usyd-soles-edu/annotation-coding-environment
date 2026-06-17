@@ -1208,6 +1208,7 @@ async def annotate(
 ):
     """Create an annotation and return updated text panel + annotation list."""
     from ace.models.annotation import add_annotation_merging
+    from ace.models.codebook import code_name
 
     coder_id = _require_coder(request)
 
@@ -1235,7 +1236,20 @@ async def annotate(
         else:
             undo.record_add(source_id, ann_id)
 
-        return _annotation_only_response(request, conn, coder_id, current_index)
+        # Branch-specific status (mirrors /code/apply-sentence): Merged when
+        # adjacent same-code spans were unioned, otherwise Applied. The
+        # selection route does not toggle-off (re-applying the same span
+        # merges into the existing one), so there is no Removed branch here.
+        name = code_name(conn, code_id)
+        if replaced_ids:
+            status_msg = f"Merged {name} with adjacent"
+        else:
+            status_msg = f"Applied {name}"
+        status_html = _oob_status(status_msg, "ok").body.decode()
+
+        return _annotation_only_response(
+            request, conn, coder_id, current_index, extra=status_html,
+        )
 
 
 @router.post("/code/delete-annotation")
@@ -1504,6 +1518,7 @@ async def annotate_sentence(
     from ace.models.annotation import (
         add_annotation, delete_annotation, expand_annotation, get_annotations_for_source,
     )
+    from ace.models.codebook import code_name
     from ace.models.source import get_source_content
     from ace.services.text_splitter import split_into_units
 
@@ -1527,6 +1542,9 @@ async def annotate_sentence(
         start = unit["start_offset"]
         end = unit["end_offset"]
 
+        # Resolve the code's display name for the branch-specific status message.
+        name = code_name(conn, code_id)
+
         # Check if this exact code already exists on this sentence (toggle)
         existing = get_annotations_for_source(conn, source_id, coder_id)
         existing_same_code = None
@@ -1537,11 +1555,13 @@ async def annotate_sentence(
                     break
 
         undo = _get_undo_manager(request)
+        status_msg = ""
 
         if existing_same_code:
             # Toggle off: remove this specific code
             delete_annotation(conn, existing_same_code["id"])
             undo.record_delete(source_id, existing_same_code["id"])
+            status_msg = f"Removed {name} from sentence {sentence_index + 1}"
         else:
             # Auto-merge: check if adjacent sentence already has the same code
             neighbour = None
@@ -1563,6 +1583,7 @@ async def annotate_sentence(
                 new_text = source_text[new_start:new_end]
                 expand_annotation(conn, neighbour["id"], new_start, new_end, new_text)
                 undo.record_add(source_id, neighbour["id"])
+                status_msg = f"Merged {name} with adjacent"
             else:
                 try:
                     ann_id = add_annotation(
@@ -1572,8 +1593,10 @@ async def annotate_sentence(
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
                 undo.record_add(source_id, ann_id)
+                status_msg = f"Applied {name} to sentence {sentence_index + 1}"
 
-        return _annotation_only_response(request, conn, coder_id, current_index)
+        status_html = _oob_status(status_msg, "ok").body.decode()
+        return _annotation_only_response(request, conn, coder_id, current_index, extra=status_html)
 
 
 @router.post("/code/delete-sentence")
