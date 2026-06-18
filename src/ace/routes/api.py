@@ -2738,10 +2738,18 @@ def _agreement_progress(percent: int, stage: str, *, done: bool = False, error: 
     return {"percent": percent, "stage": stage, "done": done, "error": error}
 
 
+def _clear_agreement_cache(state) -> None:
+    """Drop cached agreement data so exports cannot serve stale results."""
+    state.agreement_loader = None
+    state.agreement_dataset = None
+    state.agreement_result = None
+    state.agreement_progress = _agreement_progress(0, "")
+
+
 @router.post("/agreement/compute")
 async def agreement_compute(
     request: Request,
-    paths: str = Form(...),
+    paths: str | None = Form(default=None),
 ):
     """Load files, compute agreement (off-thread), return minimalist results HTML.
 
@@ -2749,6 +2757,8 @@ async def agreement_compute(
     so the event loop stays responsive. Progress is published to
     ``app.state.agreement_progress`` and read via ``GET /api/agreement/progress``.
     """
+    _clear_agreement_cache(request.app.state)
+
     try:
         path_list = json.loads(paths)
     except (json.JSONDecodeError, TypeError):
@@ -2852,6 +2862,13 @@ async def agreement_progress(request: Request):
         "done": bool(p.get("done")),
         "error": p.get("error"),
     }
+
+
+@router.post("/agreement/clear")
+async def agreement_clear(request: Request):
+    """Clear cached agreement results before a replacement file selection."""
+    _clear_agreement_cache(request.app.state)
+    return Response(status_code=204)
 
 
 @router.get("/agreement/export/results")

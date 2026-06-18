@@ -67,11 +67,18 @@
   window.acePickAndCompute = function() {
     var results = document.getElementById("agreement-results");
 
-    fetch("/api/native/pick-files", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: "accept=.ace"
-    })
+    _stopPoll();
+    fetch("/api/agreement/clear", { method: "POST" })
+      .then(function (clearResponse) {
+        if (!clearResponse.ok) {
+          throw new Error("Could not clear cached agreement results");
+        }
+        return fetch("/api/native/pick-files", {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: "accept=.ace"
+        });
+      })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.paths || data.paths.length < 2) {
