@@ -33,6 +33,9 @@
   // Single module-level interval handle so a re-pick mid-compute clears the
   // previous poll instead of racing two polls on app.state.agreement_progress.
   var _agreementPoll = null;
+  var _agreementSelectedPaths = [];
+  var _agreementPreviewSeq = 0;
+  var _agreementPreviewPending = false;
 
   function _stopPoll() {
     if (_agreementPoll) { clearInterval(_agreementPoll); _agreementPoll = null; }
@@ -64,10 +67,167 @@
     }
   });
 
-  window.acePickAndCompute = function() {
+  function _showGenericAgreementError() {
     var results = document.getElementById("agreement-results");
+    _agreementSelectedPaths = [];
+    _setAgreementReviewBusy(false);
+    results.innerHTML =
+      _HEADING +
+      '<div class="ace-agreement-error">' +
+      '<p>Something went wrong. Please try again.</p>' +
+      '<button class="ace-agreement-choose-btn" onclick="acePickAndCompute()">Choose different files</button>' +
+      '</div>';
+  }
 
+  function _selectedAgreementPaths() {
+    if (_agreementSelectedPaths.length) {
+      return _agreementSelectedPaths.slice();
+    }
+    var dataEl = document.getElementById("ace-agreement-selected-paths");
+    if (!dataEl) { return []; }
+    try {
+      var parsed = JSON.parse(dataEl.textContent || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function _setAgreementReviewBusy(busy) {
+    _agreementPreviewPending = busy;
+    document.querySelectorAll("[data-agreement-remove], [data-agreement-compute]").forEach(function (button) {
+      button.disabled = busy;
+      button.setAttribute("aria-busy", busy ? "true" : "false");
+    });
+  }
+
+  function _restoreAgreementFocus(index) {
+    if (typeof index !== "number" || index < 0) { return; }
+    var removeButtons = document.querySelectorAll("[data-agreement-remove]");
+    var next = removeButtons[Math.min(index, removeButtons.length - 1)];
+    if (next) {
+      next.focus();
+      return;
+    }
+    var compute = document.querySelector("[data-agreement-compute]");
+    if (compute && !compute.disabled) {
+      compute.focus();
+    }
+  }
+
+  function _renderAgreementPreview(paths, opts) {
+    var results = document.getElementById("agreement-results");
+    var seq = ++_agreementPreviewSeq;
+    opts = opts || {};
+    _agreementSelectedPaths = Array.isArray(paths) ? paths.slice() : [];
     _stopPoll();
+    if (!paths || paths.length < 2) {
+      _setAgreementReviewBusy(false);
+      results.innerHTML = _initialResults;
+      return Promise.resolve();
+    }
+
+    _setAgreementReviewBusy(true);
+    var body = new URLSearchParams();
+    body.set("paths", JSON.stringify(paths));
+    return fetch("/api/agreement/preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString()
+    })
+      .then(function (r) {
+        if (!r.ok) { throw new Error("Preview failed"); }
+        return r.text();
+      })
+      .then(function (html) {
+        if (seq !== _agreementPreviewSeq) { return; }
+        results.innerHTML = html;
+        _setAgreementReviewBusy(false);
+        _restoreAgreementFocus(opts.focusRemoveIndex);
+      });
+  }
+
+  function _showAgreementLoading() {
+    var results = document.getElementById("agreement-results");
+    results.innerHTML =
+      _HEADING +
+      '<div class="ace-agreement-loading" role="status" aria-live="polite" style="text-align:left">' +
+        '<div class="ace-agreement-progress">' +
+          '<div class="ace-agreement-progress-bar">' +
+            '<div class="ace-agreement-progress-fill" id="ace-agreement-progress-fill" style="width:0%"></div>' +
+          '</div>' +
+          '<div class="ace-agreement-progress-label" id="ace-agreement-progress-label">Computing agreement\u2026</div>' +
+          '<div class="ace-agreement-progress-sub" id="ace-agreement-progress-sub"></div>' +
+        '</div>' +
+      '</div>';
+  }
+
+  function _startAgreementProgressPoll() {
+    _stopPoll();
+    _agreementPoll = setInterval(function () {
+      fetch("/api/agreement/progress").then(function (r) { return r.json(); }).then(function (p) {
+        var fill = document.getElementById("ace-agreement-progress-fill");
+        var label = document.getElementById("ace-agreement-progress-label");
+        var sub = document.getElementById("ace-agreement-progress-sub");
+        if (!fill) { _stopPoll(); return; }
+        if (p.error) {
+          _showError("Couldn\u2019t compute agreement", p.error);
+          return;
+        }
+        fill.style.width = p.percent + "%";
+        label.textContent = "Computing agreement\u2026 " + p.percent + "%";
+        sub.textContent = p.stage || "";
+      }).catch(function () { /* swallow \u2014 poll retries */ });
+    }, 400);
+  }
+
+  function _startAgreementCompute(paths) {
+    if (_agreementPreviewPending) { return; }
+    paths = paths || _selectedAgreementPaths();
+    if (!paths || paths.length < 2) {
+      document.getElementById("agreement-results").innerHTML = _initialResults;
+      return;
+    }
+
+    _showAgreementLoading();
+    htmx.ajax("POST", "/api/agreement/compute", {
+      values: { paths: JSON.stringify(paths) },
+      target: "#agreement-results",
+      swap: "innerHTML",
+    });
+    _startAgreementProgressPoll();
+  }
+
+  document.addEventListener("click", function (e) {
+    var removeBtn = e.target.closest && e.target.closest("[data-agreement-remove]");
+    if (removeBtn) {
+      e.preventDefault();
+      var paths = _selectedAgreementPaths();
+      var idx = Number(removeBtn.getAttribute("data-index"));
+      if (Number.isInteger(idx) && idx >= 0 && idx < paths.length) {
+        paths.splice(idx, 1);
+        _renderAgreementPreview(paths, { focusRemoveIndex: idx }).catch(_showGenericAgreementError);
+      }
+      return;
+    }
+
+    var computeBtn = e.target.closest && e.target.closest("[data-agreement-compute]");
+    if (computeBtn) {
+      e.preventDefault();
+      if (!computeBtn.disabled) {
+        _startAgreementCompute();
+      }
+      return;
+    }
+
+    var chooseBtn = e.target.closest && e.target.closest("[data-agreement-choose-again]");
+    if (chooseBtn) {
+      e.preventDefault();
+      window.acePickAndCompute();
+    }
+  });
+
+  window.acePickAndCompute = function() {
     fetch("/api/agreement/clear", { method: "POST" })
       .then(function (clearResponse) {
         if (!clearResponse.ok) {
@@ -86,53 +246,12 @@
           // silently. Also stop any poll left from an abandoned in-flight
           // compute so it can't fire one extra /progress request.
           _stopPoll();
-          results.innerHTML = _initialResults;
+          document.getElementById("agreement-results").innerHTML = _initialResults;
           return;
         }
-        // Show loading state only after files are selected
-        results.innerHTML =
-          _HEADING +
-          '<div class="ace-agreement-loading" role="status" aria-live="polite" style="text-align:left">' +
-            '<div class="ace-agreement-progress">' +
-              '<div class="ace-agreement-progress-bar">' +
-                '<div class="ace-agreement-progress-fill" id="ace-agreement-progress-fill" style="width:0%"></div>' +
-              '</div>' +
-              '<div class="ace-agreement-progress-label" id="ace-agreement-progress-label">Computing agreement\u2026</div>' +
-              '<div class="ace-agreement-progress-sub" id="ace-agreement-progress-sub"></div>' +
-            '</div>' +
-          '</div>';
-        htmx.ajax("POST", "/api/agreement/compute", {
-          values: { paths: JSON.stringify(data.paths) },
-          target: "#agreement-results",
-          swap: "innerHTML",
-        });
-        // Poll progress while compute runs; stop when results swap the bar out.
-        // Clear any previous poll first so a re-pick mid-compute can't race.
-        _stopPoll();
-        _agreementPoll = setInterval(function () {
-          fetch("/api/agreement/progress").then(function (r) { return r.json(); }).then(function (p) {
-            var fill = document.getElementById("ace-agreement-progress-fill");
-            var label = document.getElementById("ace-agreement-progress-label");
-            var sub = document.getElementById("ace-agreement-progress-sub");
-            if (!fill) { _stopPoll(); return; }
-            if (p.error) {
-              _showError("Couldn\u2019t compute agreement", p.error);
-              return;
-            }
-            fill.style.width = p.percent + "%";
-            label.textContent = "Computing agreement\u2026 " + p.percent + "%";
-            sub.textContent = p.stage || "";
-          }).catch(function () { /* swallow \u2014 poll retries */ });
-        }, 400);
+        return _renderAgreementPreview(data.paths);
       })
-      .catch(function() {
-        results.innerHTML =
-          _HEADING +
-          '<div class="ace-agreement-error">' +
-          '<p>Something went wrong. Please try again.</p>' +
-          '<button class="ace-agreement-choose-btn" onclick="acePickAndCompute()">Choose different files</button>' +
-          '</div>';
-      });
+      .catch(_showGenericAgreementError);
   };
 })();
 </script>

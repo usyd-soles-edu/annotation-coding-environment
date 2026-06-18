@@ -1,0 +1,42 @@
+<h1 class="ace-agreement-title">Inter-Coder Agreement</h1>
+
+<div class="ace-agreement-review" aria-live="polite">
+  <div class="ace-agreement-review-head">
+    <h2>Review selected files</h2>
+    {% if valid %}
+      <p>Agreement will use <strong>{{ matched_codes }} matched {% if matched_codes == 1 %}code{% else %}codes{% endif %}</strong> across <strong>{{ matched_sources }} matched {% if matched_sources == 1 %}source{% else %}sources{% endif %}</strong>.</p>
+    {% else %}
+      <p>{{ error }}</p>
+    {% endif %}
+  </div>
+
+  <div class="ace-agreement-file-list" role="list">
+    {% for file in files %}
+      <div class="ace-agreement-file-row{% if file.error %} is-error{% endif %}" role="listitem">
+        <div class="ace-agreement-file-main">
+          <span class="ace-agreement-file-name">{{ file.filename }}</span>
+          <span class="ace-agreement-file-coders">
+            {% if file.coder_names %}{{ file.coder_names | join(", ") }}{% else %}No coder name{% endif %}
+          </span>
+        </div>
+        <div class="ace-agreement-file-meta">
+          {% if file.error %}
+            <span>{{ file.error }}</span>
+          {% else %}
+            <span>{{ file.source_count }} {% if file.source_count == 1 %}source{% else %}sources{% endif %}</span>
+            <span>{{ file.code_count }} total {% if file.code_count == 1 %}code{% else %}codes{% endif %}</span>
+            <span>{{ file.annotation_count }} {% if file.annotation_count == 1 %}annotation{% else %}annotations{% endif %}</span>
+          {% endif %}
+        </div>
+        <button type="button" class="ace-agreement-remove-btn" data-agreement-remove data-index="{{ loop.index0 }}" aria-label="Remove {{ file.filename }}">Remove</button>
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="ace-agreement-review-actions">
+    <button type="button" class="ace-agreement-choose-btn" data-agreement-choose-again>Choose files</button>
+    <button type="button" class="ace-agreement-compute-btn" data-agreement-compute{% if not valid %} disabled{% endif %}>Compute agreement</button>
+  </div>
+</div>
+
+<script id="ace-agreement-selected-paths" type="application/json">{{ paths | tojson }}</script>

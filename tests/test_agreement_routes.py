@@ -143,6 +143,181 @@ def test_agreement_picker_clears_cached_results_before_file_selection(client):
     assert "clearResponse.ok" in resp.text
 
 
+def test_agreement_page_reviews_selected_files_before_compute(client):
+    """Selected files are previewed and editable before computation starts."""
+    resp = client.get("/agreement")
+
+    assert resp.status_code == 200
+    assert '"/api/agreement/preview"' in resp.text
+    assert "data-agreement-remove" in resp.text
+    assert "data-agreement-compute" in resp.text
+    assert "_renderAgreementPreview" in resp.text
+    assert "_startAgreementCompute" in resp.text
+
+
+def test_agreement_preview_renders_review_without_computing(client_with_agreement_files):
+    client, paths = client_with_agreement_files
+
+    resp = client.post("/api/agreement/preview", data={"paths": json.dumps(paths)})
+
+    assert resp.status_code == 200
+    html = resp.text
+    assert "Review selected files" in html
+    assert "alice.ace" in html
+    assert "bob.ace" in html
+    assert "2 matched codes" in html
+    assert "2 matched sources" in html
+    assert "2 sources" in html
+    assert "2 total codes" in html
+    assert "2 annotations" in html
+    assert "data-agreement-compute" in html
+    assert 'aria-label="Remove alice.ace"' in html
+
+    assert client.get("/api/agreement/export/results").status_code == 400
+    assert client.get("/api/agreement/export/raw").status_code == 400
+
+
+def test_agreement_preview_clears_stale_exports(client_with_agreement_files):
+    client, paths = client_with_agreement_files
+    client.post("/api/agreement/compute", data={"paths": json.dumps(paths)})
+    assert client.get("/api/agreement/export/results").status_code == 200
+    assert client.get("/api/agreement/export/raw").status_code == 200
+
+    resp = client.post("/api/agreement/preview", data={"paths": json.dumps(paths)})
+
+    assert resp.status_code == 200
+    assert "Review selected files" in resp.text
+    assert client.get("/api/agreement/export/results").status_code == 400
+    assert client.get("/api/agreement/export/raw").status_code == 400
+
+
+def test_agreement_clear_invalidates_in_flight_compute_worker(
+    client, app, ace_file_a, ace_file_b
+):
+    """A superseded compute worker must not repopulate stale export data."""
+    import ace.routes.api as api_mod
+
+    orig_to_thread = api_mod.asyncio.to_thread
+
+    async def stale_to_thread(fn, *args, **kwargs):
+        if getattr(fn, "__name__", "") == "_run_agreement":
+            api_mod._clear_agreement_cache(app.state)
+            return fn(*args, **kwargs)
+        return await orig_to_thread(fn, *args, **kwargs)
+
+    api_mod.asyncio.to_thread = stale_to_thread
+    try:
+        resp = client.post(
+            "/api/agreement/compute",
+            data={"paths": json.dumps([str(ace_file_a), str(ace_file_b)])},
+        )
+    finally:
+        api_mod.asyncio.to_thread = orig_to_thread
+
+    assert resp.status_code == 204
+    assert client.get("/api/agreement/export/results").status_code == 400
+    assert client.get("/api/agreement/export/raw").status_code == 400
+
+
+def test_agreement_preview_uses_form_paths_contract(client_with_agreement_files):
+    client, paths = client_with_agreement_files
+
+    resp = client.post("/api/agreement/preview", json={"paths": paths})
+
+    assert resp.status_code == 200
+    assert "Invalid file paths." in resp.text
+
+
+def test_agreement_preview_hides_full_paths_in_visible_rows(client_with_agreement_files):
+    client, paths = client_with_agreement_files
+
+    resp = client.post("/api/agreement/preview", data={"paths": json.dumps(paths)})
+
+    assert resp.status_code == 200
+    visible_html = resp.text.split('<script id="ace-agreement-selected-paths"', 1)[0]
+    for path in paths:
+        assert path not in visible_html
+    assert "ace-agreement-selected-paths" in resp.text
+
+
+def test_agreement_preview_escapes_file_and_coder_text(client, tmp_path):
+    path_a = _make_ace_file(
+        tmp_path / "alice<&quotable>.ace",
+        "Project A",
+        "Alice <Lead>",
+        sources=[("S1", "Shared text")],
+        codes=[("Positive", "#00AA00")],
+        annotations=[(0, 0, 0, 6, "Shared")],
+    )
+    path_b = _make_ace_file(
+        tmp_path / "bob.ace",
+        "Project B",
+        "Bob & Co",
+        sources=[("S1", "Shared text")],
+        codes=[("Positive", "#00AA00")],
+        annotations=[(0, 0, 0, 6, "Shared")],
+    )
+
+    resp = client.post(
+        "/api/agreement/preview",
+        data={"paths": json.dumps([str(path_a), str(path_b)])},
+    )
+
+    assert resp.status_code == 200
+    visible_html = resp.text.split('<script id="ace-agreement-selected-paths"', 1)[0]
+    assert "Alice &lt;Lead&gt;" in visible_html
+    assert "Bob &amp; Co" in visible_html
+    assert "alice&lt;&amp;quotable&gt;.ace" in visible_html
+    assert "Alice <Lead>" not in visible_html
+    assert "Bob & Co" not in visible_html
+
+
+def test_agreement_preview_disables_compute_for_unmatched_set(client, tmp_path):
+    path_a = _make_ace_file(
+        tmp_path / "alice.ace",
+        "Project A",
+        "Alice",
+        sources=[("S1", "Alpha only")],
+        codes=[("Positive", "#00AA00")],
+        annotations=[(0, 0, 0, 5, "Alpha")],
+    )
+    path_b = _make_ace_file(
+        tmp_path / "bob.ace",
+        "Project B",
+        "Bob",
+        sources=[("S2", "Beta only")],
+        codes=[("Positive", "#00AA00")],
+        annotations=[(0, 0, 0, 4, "Beta")],
+    )
+
+    resp = client.post(
+        "/api/agreement/preview",
+        data={"paths": json.dumps([str(path_a), str(path_b)])},
+    )
+
+    assert resp.status_code == 200
+    assert "These files share no source texts" in resp.text
+    assert "data-agreement-compute" in resp.text
+    assert "disabled" in resp.text
+
+
+def test_agreement_preview_shows_bad_file_error_and_disables_compute(
+    client, ace_file_a, tmp_path
+):
+    bad_path = tmp_path / "not-ace.txt"
+    bad_path.write_text("not a sqlite database", encoding="utf-8")
+
+    resp = client.post(
+        "/api/agreement/preview",
+        data={"paths": json.dumps([str(ace_file_a), str(bad_path)])},
+    )
+
+    assert resp.status_code == 200
+    assert "alice.ace" in resp.text
+    assert "not-ace.txt" in resp.text
+    assert "disabled" in resp.text
+
+
 # ── Compute ───────────────────────────────────────────────────────────
 
 
