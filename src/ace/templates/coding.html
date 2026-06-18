@@ -23,7 +23,7 @@
   if (_sw) {
     // Clamp to the 40%-of-viewport cap the resize drag enforces, so a width
     // saved on a large monitor doesn't crush the text on a smaller screen.
-    var _swCap = window.innerWidth * 0.4;
+    var _swCap = document.documentElement.clientWidth * 0.4;
     var _swPx = Math.max(150, Math.min(parseInt(_sw, 10) || 360, _swCap));
     document.documentElement.style.setProperty("--ace-sidebar-width", _swPx + "px");
   }
