@@ -1794,8 +1794,11 @@
         let dropLog = [];
         let mountedElement = null;
         let changedDropScopes = null;
+        let fallbackDropFolderId = "";
+        let pointerDraggedItemId = "";
         let dragImageElement = null;
         let lastAssistiveDragName = "";
+        let lastDndAnnouncement = "";
         let suppressNextRefocus = false;
         let searchRaw = "";
         let searchText = "";
@@ -1965,7 +1968,125 @@
           if (!("insertionIndex" in target)) return `inside ${targetName}`;
           return `at position ${target.insertionIndex + 1} in ${targetName}`;
         }
-        function updateDndAnnouncement() {
+        function currentDraggedItemLabel() {
+          const dragged = currentDraggedItem();
+          if (dragged) return dragged.getItemName?.() || "item";
+          return lastAssistiveDragName || "item";
+        }
+        function currentDraggedItem() {
+          const state = tree?.getState?.() || {};
+          return state.dnd?.draggedItems?.[0] || (pointerDraggedItemId ? tree?.getItemInstance?.(pointerDraggedItemId) : null) || null;
+        }
+        function currentDraggedItemId() {
+          return currentDraggedItem()?.getId?.() || "";
+        }
+        function dragPlacementFromItem(item) {
+          if (!item) return null;
+          const data = item.getItemData?.() || {};
+          const id = item.getId?.() || "";
+          const parentId = findParentId(id) || ROOT_ID;
+          if (item.isUnorderedDragTarget?.() && data.kind === "folder") {
+            return {
+              type: "inside-folder",
+              parentId: id,
+              beforeId: "",
+              afterId: "",
+              label: `Inside ${data.name || "folder"}`,
+              badge: "Inside",
+              indent: 1
+            };
+          }
+          if (item.isDragTargetAbove?.()) {
+            return {
+              type: parentId === ROOT_ID ? "before-root-code" : "before-folder-child",
+              parentId,
+              beforeId: id,
+              afterId: "",
+              label: `Before ${data.name || "item"}`,
+              badge: "Before",
+              indent: parentId === ROOT_ID ? 0 : 1
+            };
+          }
+          if (item.isDragTargetBelow?.()) {
+            return {
+              type: parentId === ROOT_ID ? "after-root-code" : "after-folder-child",
+              parentId,
+              beforeId: "",
+              afterId: id,
+              label: `After ${data.name || "item"}`,
+              badge: "After",
+              indent: parentId === ROOT_ID ? 0 : 1
+            };
+          }
+          return null;
+        }
+        function currentDragPlacement() {
+          const item = visibleTreeItems().find(function(candidate) {
+            return candidate.isDragTargetAbove?.() || candidate.isDragTargetBelow?.() || candidate.isUnorderedDragTarget?.();
+          });
+          return dragPlacementFromItem(item);
+        }
+        function fallbackFolderPlacement() {
+          if (!fallbackDropFolderId || !currentDraggedItemId()) return null;
+          const folder = itemData(fallbackDropFolderId);
+          const dragged = currentDraggedItem();
+          if (!folder || folder.kind !== "folder") return null;
+          if (dragged?.getItemData?.()?.kind !== "code") return null;
+          return {
+            type: "inside-folder",
+            parentId: fallbackDropFolderId,
+            beforeId: "",
+            afterId: "",
+            label: `Inside ${folder.name || "folder"}`,
+            badge: "Inside",
+            indent: 1
+          };
+        }
+        function setFallbackDropFolder(nextFolderId) {
+          if (fallbackDropFolderId === nextFolderId) return;
+          fallbackDropFolderId = nextFolderId;
+          scheduleDragStateRender();
+        }
+        function fallbackFolderIdFromRow(row) {
+          const dragged = currentDraggedItem();
+          const draggedId = currentDraggedItemId();
+          const rowId = row?.getAttribute?.("data-item-id") || "";
+          const rowData = rowId ? itemData(rowId) : null;
+          if (draggedId && rowData?.kind === "folder" && dragged?.getItemData?.()?.kind === "code" && draggedId !== rowId) {
+            return rowId;
+          }
+          return "";
+        }
+        function handleMountDragOver(event) {
+          const mount = document.getElementById("ace-headless-tree-mount");
+          if (!mount || !currentDraggedItemId()) return;
+          const hit = document.elementFromPoint?.(event.clientX, event.clientY) || event.target;
+          const row = hit?.closest?.("#ace-headless-tree-mount .ace-ht-row[data-item-id]");
+          if (!row || !mount.contains(row)) {
+            setFallbackDropFolder("");
+            return;
+          }
+          setFallbackDropFolder(fallbackFolderIdFromRow(row));
+        }
+        function handleMountDragStart(event) {
+          const mount = document.getElementById("ace-headless-tree-mount");
+          const row = event.target?.closest?.("#ace-headless-tree-mount .ace-ht-row[data-item-id]");
+          if (!mount || !row || !mount.contains(row)) return;
+          pointerDraggedItemId = row.getAttribute("data-item-id") || "";
+        }
+        function handleMountDragEnd() {
+          pointerDraggedItemId = "";
+          delete document.body.dataset.codebookDragging;
+          setFallbackDropFolder("");
+        }
+        function setDndAnnouncement(text) {
+          const announcer = document.getElementById("ace-ht-dnd-announcer");
+          if (!announcer) return;
+          if (text === lastDndAnnouncement && announcer.textContent === text) return;
+          lastDndAnnouncement = text;
+          announcer.textContent = text;
+        }
+        function updateDndAnnouncement(placement) {
           const announcer = document.getElementById("ace-ht-dnd-announcer");
           if (!announcer || !tree) return;
           const state = tree.getState?.() || {};
@@ -1974,15 +2095,17 @@
           if (dragged) lastAssistiveDragName = dragged.getItemName?.() || "item";
           const name = lastAssistiveDragName || "item";
           if (assistiveState === 1) {
-            announcer.textContent = `Moving ${name}. Use arrow keys to choose a position, Enter to move, Escape to cancel.`;
+            setDndAnnouncement(`Moving ${name}. Use arrow keys to choose a position, Enter to move, Escape to cancel.`);
           } else if (assistiveState === 2) {
-            announcer.textContent = `Moving ${name} ${dragTargetText(activeDragTarget())}. Enter to move, Escape to cancel.`;
+            setDndAnnouncement(`Moving ${name} ${dragTargetText(activeDragTarget())}. Enter to move, Escape to cancel.`);
           } else if (assistiveState === 3) {
-            announcer.textContent = `Moved ${name}.`;
+            setDndAnnouncement(`Moved ${name}.`);
           } else if (assistiveState === 4) {
-            announcer.textContent = "Move cancelled.";
+            setDndAnnouncement("Move cancelled.");
+          } else if (dragged && placement) {
+            setDndAnnouncement(`Release to place ${currentDraggedItemLabel()} ${placement.label.toLowerCase()}.`);
           } else {
-            announcer.textContent = "";
+            setDndAnnouncement("");
           }
         }
         async function persistDrop(id, previousParent, nextParent, order, restoreSnapshot) {
@@ -2349,6 +2472,17 @@
             if (typeof defaultClick === "function") defaultClick(event);
           };
           applyProps(row, itemProps);
+          row.addEventListener("dragstart", function() {
+            pointerDraggedItemId = item.getId();
+          });
+          row.addEventListener("dragend", function() {
+            pointerDraggedItemId = "";
+            setFallbackDropFolder("");
+          });
+          row.addEventListener("dragover", function() {
+            if (!currentDraggedItemId()) return;
+            setFallbackDropFolder(fallbackFolderIdFromRow(row));
+          });
           row.addEventListener("dblclick", function(event) {
             queueRenamingFromPointer(event);
           });
@@ -2508,19 +2642,50 @@
             });
             row.append(chip);
           }
+          if (!codebookEditingDisabled()) {
+            const menuButton = document.createElement("button");
+            menuButton.type = "button";
+            menuButton.className = "ace-ht-row-menu";
+            menuButton.setAttribute("aria-label", `More actions for ${data.name}`);
+            menuButton.textContent = "...";
+            menuButton.addEventListener("click", function(event) {
+              event.preventDefault();
+              event.stopPropagation();
+              item.setFocused();
+              const rect = menuButton.getBoundingClientRect();
+              row.dispatchEvent(new MouseEvent("contextmenu", {
+                bubbles: true,
+                cancelable: true,
+                clientX: rect.left,
+                clientY: rect.bottom
+              }));
+            });
+            row.append(menuButton);
+          }
           return row;
         }
         function renderTree() {
           const mount = document.getElementById("ace-headless-tree-mount");
           if (!mount || !tree) return;
+          if (mount.dataset.dragFallbackBound !== "1") {
+            mount.addEventListener("dragstart", handleMountDragStart, true);
+            mount.addEventListener("dragend", handleMountDragEnd, true);
+            mount.addEventListener("drag", handleMountDragOver, true);
+            mount.addEventListener("dragenter", handleMountDragOver, true);
+            mount.addEventListener("dragover", handleMountDragOver, true);
+            mount.addEventListener("mousemove", handleMountDragOver, true);
+            mount.addEventListener("pointermove", handleMountDragOver, true);
+            mount.dataset.dragFallbackBound = "1";
+          }
           const rows = visibleTreeItems().map(rowForItem);
           const createRow = createSearchRow();
           if (createRow) rows.push(createRow);
           mount.replaceChildren(...rows);
-          const dragLine = document.createElement("div");
-          dragLine.className = "ace-ht-drag-line";
-          Object.assign(dragLine.style, tree.getDragLineStyle?.() || { display: "none" });
-          mount.append(dragLine);
+          const dragSlot = document.createElement("div");
+          dragSlot.className = "ace-ht-drag-slot";
+          dragSlot.hidden = true;
+          dragSlot.setAttribute("aria-hidden", "true");
+          mount.append(dragSlot);
           const announcer = document.createElement("div");
           announcer.id = "ace-ht-dnd-announcer";
           announcer.className = "ace-sr-only";
@@ -2539,6 +2704,47 @@
             tree.getFocusedItem()?.getElement()?.focus({ preventScroll: true });
           }
         }
+        function renderDragSlot(mount, placement) {
+          const slot = mount.querySelector(".ace-ht-drag-slot");
+          if (!slot) return;
+          if (!placement) {
+            slot.hidden = true;
+            slot.style.removeProperty("--ht-indent");
+            slot.removeAttribute("data-drag-target");
+            slot.removeAttribute("data-parent-id");
+            slot.removeAttribute("data-before-id");
+            slot.removeAttribute("data-after-id");
+            slot.textContent = "";
+            slot.classList.remove("ace-ht-drag-slot--child", "ace-ht-drag-slot--inside");
+            return;
+          }
+          const beforeRow = placement.beforeId ? rowByItemId(placement.beforeId) : null;
+          const afterRow = placement.afterId ? rowByItemId(placement.afterId) : null;
+          const parentRow = placement.type === "inside-folder" ? rowByItemId(placement.parentId) : null;
+          const referenceRow = beforeRow || afterRow || parentRow;
+          if (!referenceRow) {
+            slot.hidden = true;
+            return;
+          }
+          slot.hidden = false;
+          slot.style.setProperty("--ht-indent", placement.indent === 1 ? "14px" : "0px");
+          slot.dataset.dragTarget = placement.type;
+          slot.dataset.parentId = placement.parentId === ROOT_ID ? "" : placement.parentId;
+          slot.dataset.beforeId = placement.beforeId || "";
+          slot.dataset.afterId = placement.afterId || "";
+          slot.classList.toggle("ace-ht-drag-slot--child", placement.indent === 1);
+          slot.classList.toggle("ace-ht-drag-slot--inside", placement.type === "inside-folder");
+          slot.replaceChildren();
+          const label = document.createElement("span");
+          label.className = "ace-ht-drag-slot-label";
+          label.textContent = "Drop here";
+          const badge = document.createElement("span");
+          badge.className = "ace-ht-drag-slot-badge";
+          badge.textContent = placement.badge;
+          slot.append(label, badge);
+          if (beforeRow) beforeRow.before(slot);
+          else referenceRow.after(slot);
+        }
         function scheduleDragStateRender() {
           if (dragRenderQueued) return;
           dragRenderQueued = true;
@@ -2550,25 +2756,28 @@
         function renderDragState() {
           const mount = document.getElementById("ace-headless-tree-mount");
           if (!mount || !tree) return;
-          const dropReceiverId = dropReceiverFolderId();
+          const draggedId = currentDraggedItemId();
+          if (draggedId) document.body.dataset.codebookDragging = "1";
+          else delete document.body.dataset.codebookDragging;
+          if (!draggedId) fallbackDropFolderId = "";
+          const placement = currentDragPlacement() || fallbackFolderPlacement();
+          const dropReceiverId = dropReceiverFolderId() || placement?.parentId || "";
           mount.querySelectorAll(".ace-ht-row[data-item-id]").forEach(function(row) {
             row.classList.remove("ace-ht-row--drop-receiver");
+            row.classList.remove("ace-ht-row--drag-source");
             row.removeAttribute("data-drop-target");
           });
           visibleTreeItems().forEach(function(item) {
             const row = rowByItemId(item.getId());
             if (!row) return;
             if (dropReceiverId === item.getId()) row.classList.add("ace-ht-row--drop-receiver");
+            if (draggedId === item.getId()) row.classList.add("ace-ht-row--drag-source");
             if (item.isDragTargetAbove?.()) row.dataset.dropTarget = "above";
             if (item.isDragTargetBelow?.()) row.dataset.dropTarget = "below";
             if (item.isUnorderedDragTarget?.()) row.dataset.dropTarget = "inside";
           });
-          const dragLine = mount.querySelector(".ace-ht-drag-line");
-          if (dragLine) {
-            dragLine.style.cssText = "";
-            Object.assign(dragLine.style, tree.getDragLineStyle?.() || { display: "none" });
-          }
-          updateDndAnnouncement();
+          renderDragSlot(mount, placement);
+          updateDndAnnouncement(placement);
         }
         function buildTree() {
           tree = createTree({

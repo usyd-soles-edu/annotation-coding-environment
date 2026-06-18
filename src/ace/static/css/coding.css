@@ -737,7 +737,7 @@
   --ht-indent: 0px;
   position: relative;
   display: grid;
-  grid-template-columns: 18px 1fr 28px 32px;
+  grid-template-columns: 18px minmax(0, 1fr) 28px 32px 24px;
   align-items: center;
   column-gap: 6px;
   min-height: 24px;
@@ -840,6 +840,31 @@ body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] {
   cursor: default;
 }
 
+.ace-ht-row-menu {
+  grid-column: 5;
+  justify-self: end;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--ace-text-muted);
+  font: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.ace-ht-row:hover .ace-ht-row-menu,
+.ace-ht-row:focus-within .ace-ht-row-menu,
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-row-menu {
+  opacity: 1;
+}
+
+.ace-ht-row-menu:focus-visible {
+  outline: 2px solid var(--ace-focus);
+  outline-offset: -2px;
+}
+
 .ace-ht-count {
   justify-self: end;
   font-family: var(--ace-font-mono);
@@ -914,6 +939,36 @@ body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-label,
   background: var(--ace-bg-muted);
 }
 
+.ace-ht-row--drag-source {
+  opacity: 0.35;
+}
+
+body[data-codebook-dragging="1"] .ace-ht-row--folder:not(.ace-ht-row--drag-source) {
+  margin-bottom: 26px;
+}
+
+body[data-codebook-dragging="1"] .ace-ht-row--folder:not(.ace-ht-row--drag-source)::after {
+  content: "Drop inside folder";
+  position: absolute;
+  left: calc(8px + 14px);
+  right: 10px;
+  bottom: -25px;
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 6px 0 18px;
+  background: #f4f4f0;
+  box-shadow:
+    inset 3px 0 0 var(--ace-focus),
+    inset 0 1px 0 var(--ace-focus),
+    inset 0 -1px 0 var(--ace-focus);
+  color: var(--ace-text);
+  font-size: var(--ace-font-size-2xs);
+  font-weight: var(--ace-weight-semibold);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .ace-ht-create-row {
   display: grid;
   grid-template-columns: 18px 1fr auto;
@@ -965,11 +1020,85 @@ body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-label,
   font: inherit;
 }
 
-.ace-ht-drag-line {
+.ace-ht-drag-slot {
+  --ht-indent: 0px;
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto 24px;
+  align-items: center;
+  column-gap: 6px;
+  min-height: 24px;
+  margin: 1px 0;
+  padding: 0 10px 0 calc(8px + var(--ht-indent));
+  border: 0;
+  border-radius: 0;
+  background: #f4f4f0;
+  color: var(--ace-text);
+  box-shadow:
+    inset 3px 0 0 var(--ace-focus),
+    inset 0 1px 0 var(--ace-focus),
+    inset 0 -1px 0 var(--ace-focus);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.ace-ht-drag-slot[hidden] {
+  display: none;
+}
+
+.ace-ht-drag-slot::before {
+  content: "";
+  grid-column: 1;
+  justify-self: center;
+  width: 10px;
   height: 2px;
   border-radius: 999px;
   background: var(--ace-focus);
-  pointer-events: none;
+}
+
+.ace-ht-drag-slot--child {
+  --ht-indent: 14px;
+}
+
+.ace-ht-drag-slot--inside::before {
+  width: 10px;
+  height: 12px;
+  border: 1px solid var(--ace-focus);
+  border-right: 0;
+  background: transparent;
+}
+
+.ace-ht-drag-slot-label {
+  grid-column: 2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--ace-font-size-2xs);
+  font-weight: var(--ace-weight-semibold);
+}
+
+.ace-ht-drag-slot-badge {
+  grid-column: 3;
+  min-height: 16px;
+  padding: 0 6px;
+  border: 1px solid var(--ace-focus);
+  border-radius: 3px;
+  background: var(--ace-bg);
+  color: var(--ace-text);
+  font-size: var(--ace-font-size-2xs);
+  font-weight: 800;
+  line-height: 16px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ace-ht-drag-slot,
+  .ace-codebook-drag-clone,
+  .ace-ht-row {
+    transition: none !important;
+  }
 }
 
 .ace-ht-drag-image {

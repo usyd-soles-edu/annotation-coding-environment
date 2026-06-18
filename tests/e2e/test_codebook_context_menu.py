@@ -144,6 +144,108 @@ def test_context_menu_change_colour_updates_headless_code_row(ace_server, browse
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_row_actions_button_opens_context_menu_by_click(ace_server, browser_name):
+    """The row actions button exposes the same menu without requiring right-click."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(CODE_ROW)
+
+            row = page.locator(CODE_ROW).first
+            row.hover()
+            row.locator(".ace-ht-row-menu").click()
+
+            page.wait_for_selector(".ace-context-menu", timeout=2000)
+            labels = page.evaluate(
+                """
+                () => Array.from(document.querySelectorAll(
+                  ".ace-context-menu .ace-context-menu-item"
+                )).map((el) => el.textContent.trim())
+                """
+            )
+            assert any("Move to" in label for label in labels), labels
+            assert any("Cut" in label for label in labels), labels
+            assert any("Paste here" in label for label in labels), labels
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_context_menu_move_to_root_is_single_pointer_path(ace_server, browser_name):
+    """A child code can be moved back to root through pointer menu actions."""
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(CODE_ROW)
+
+            page.evaluate(
+                """
+                async () => {
+                  let payload = await fetch("/api/codes/tree").then((r) => r.json());
+                  let folder = Object.values(payload.items).find(
+                    (item) => item.kind === "folder" && item.id !== "root"
+                  );
+                  if (!folder) {
+                    const create = await fetch("/api/codes/folder", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                      body: new URLSearchParams({
+                        name: "Menu target",
+                        current_index: String(window.__aceCurrentIndex || 0),
+                      }),
+                    });
+                    if (!create.ok) throw new Error(`folder create failed: ${create.status}`);
+                    await create.text();
+                    payload = await fetch("/api/codes/tree").then((r) => r.json());
+                    folder = Object.values(payload.items).find(
+                      (item) => item.kind === "folder" && item.name === "Menu target"
+                    );
+                  }
+                  const rootCode = payload.items.root.children
+                    .map((id) => payload.items[id])
+                    .find((item) => item?.kind === "code");
+                  if (!rootCode || !folder) throw new Error("missing root code or folder");
+                  const move = await fetch(`/api/codes/${rootCode.id}/parent`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: new URLSearchParams({
+                      parent_id: folder.id,
+                      target_order_ids: JSON.stringify([rootCode.id]),
+                      current_index: String(window.__aceCurrentIndex || 0),
+                    }),
+                  });
+                  const moveText = await move.text();
+                  if (!move.ok) throw new Error(`move failed: ${move.status}: ${moveText}`);
+                }
+                """
+            )
+            page.reload()
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--code[aria-level='2']")
+
+            child = page.locator("#ace-headless-tree-mount .ace-ht-row--code[aria-level='2']").first
+            child_name = child.locator(CODE_NAME).inner_text().strip()
+            child.locator(".ace-ht-row-menu").click()
+            page.wait_for_selector(".ace-context-menu", timeout=2000)
+            page.locator(".ace-context-menu .ace-context-menu-item", has_text="Move to root").click()
+
+            page.wait_for_function(
+                """
+                (label) => Array.from(document.querySelectorAll(
+                  "#ace-headless-tree-mount .ace-ht-row--code[aria-level='1'] .ace-ht-label"
+                )).some((el) => el.textContent.trim() === label)
+                """,
+                arg=child_name,
+                timeout=3000,
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_outside_click_dismisses_context_menu(ace_server, browser_name):
     """Clicking anywhere outside the menu closes it."""
     with sync_playwright() as p:
