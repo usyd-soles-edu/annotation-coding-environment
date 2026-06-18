@@ -34,6 +34,12 @@ def test_bridge_has_before_swap_4xx_listener():
     assert "shouldSwap = false" in src, "missing shouldSwap=false on 4xx"
 
 
+def test_bridge_cheatsheet_lists_v_as_reserved_key():
+    src = BRIDGE.read_text(encoding="utf-8")
+    assert '1 – 9, 0, a–y (not q v x z n)' in src
+    assert '_shortcutRow("V", "View coded text")' in src
+
+
 def test_require_coder_returns_id_when_set():
     """Happy path: _require_coder returns the id unchanged when set.
 
