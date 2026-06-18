@@ -135,6 +135,13 @@ def test_agreement_page_renders(client):
     assert "agreement-results" in resp.text
 
 
+def test_agreement_picker_clears_cached_results_before_file_selection(client):
+    """Picking a new file set must invalidate previous exports even if cancelled."""
+    resp = client.get("/agreement")
+    assert resp.status_code == 200
+    assert 'fetch("/api/agreement/clear"' in resp.text
+
+
 # ── Compute ───────────────────────────────────────────────────────────
 
 
@@ -358,3 +365,32 @@ def test_export_raw_data_csv(client_with_agreement_files):
     assert "end_offset" in text
     assert "coder_id" in text
     assert "code_name" in text
+
+
+def test_clear_agreement_cache_invalidates_cached_exports(client_with_agreement_files):
+    """Clear endpoint removes old computed data before choosing a replacement set."""
+    client, paths = client_with_agreement_files
+    client.post("/api/agreement/compute", data={"paths": json.dumps(paths)})
+    assert client.get("/api/agreement/export/results").status_code == 200
+    assert client.get("/api/agreement/export/raw").status_code == 200
+
+    resp = client.post("/api/agreement/clear")
+    assert resp.status_code == 204
+
+    assert client.get("/api/agreement/export/results").status_code == 400
+    assert client.get("/api/agreement/export/raw").status_code == 400
+
+
+def test_failed_agreement_compute_invalidates_cached_exports(client_with_agreement_files):
+    """A failed replacement compute must not leave previous exports live."""
+    client, paths = client_with_agreement_files
+    client.post("/api/agreement/compute", data={"paths": json.dumps(paths)})
+    assert client.get("/api/agreement/export/results").status_code == 200
+    assert client.get("/api/agreement/export/raw").status_code == 200
+
+    resp = client.post("/api/agreement/compute", data={"paths": json.dumps(paths[:1])})
+    assert resp.status_code == 200
+    assert "Select at least 2" in resp.text
+
+    assert client.get("/api/agreement/export/results").status_code == 400
+    assert client.get("/api/agreement/export/raw").status_code == 400
