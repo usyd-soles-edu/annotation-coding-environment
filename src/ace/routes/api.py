@@ -2738,12 +2738,145 @@ def _agreement_progress(percent: int, stage: str, *, done: bool = False, error: 
     return {"percent": percent, "stage": stage, "done": done, "error": error}
 
 
-def _clear_agreement_cache(state) -> None:
+_AGREEMENT_STALE = object()
+
+
+def _agreement_generation(state) -> int:
+    return int(getattr(state, "agreement_generation", 0) or 0)
+
+
+def _clear_agreement_cache(state) -> int:
     """Drop cached agreement data so exports cannot serve stale results."""
+    state.agreement_generation = _agreement_generation(state) + 1
     state.agreement_loader = None
     state.agreement_dataset = None
     state.agreement_result = None
     state.agreement_progress = _agreement_progress(0, "")
+    return state.agreement_generation
+
+
+def _agreement_is_current(state, generation: int) -> bool:
+    return _agreement_generation(state) == generation
+
+
+def _parse_agreement_paths(paths: str | None) -> tuple[list[str] | None, str | None]:
+    try:
+        path_list = json.loads(paths)
+    except (json.JSONDecodeError, TypeError):
+        return None, "Invalid file paths."
+
+    if not isinstance(path_list, list) or not all(isinstance(p, str) and p for p in path_list):
+        return None, "Invalid file paths."
+
+    if len(path_list) < 2:
+        return None, "Select at least 2 .ace files."
+
+    return path_list, None
+
+
+def _run_agreement_preview(path_list: list[str]) -> dict:
+    from ace.services.agreement_loader import AgreementLoader
+
+    loader = AgreementLoader()
+    files = []
+
+    for p in path_list:
+        path = Path(p)
+        try:
+            info = loader.add_file(path)
+        except Exception as exc:
+            logger.warning("agreement preview could not load %s: %s", path, exc)
+            files.append({
+                "path": str(path),
+                "filename": path.name,
+                "coder_names": [],
+                "source_count": 0,
+                "annotation_count": 0,
+                "code_count": 0,
+                "warnings": [],
+                "error": f"Cannot open '{path.name}': {exc}",
+            })
+            continue
+
+        if info.get("error"):
+            files.append({
+                "path": str(path),
+                "filename": path.name,
+                "coder_names": [],
+                "source_count": 0,
+                "annotation_count": 0,
+                "code_count": 0,
+                "warnings": [],
+                "error": info["error"],
+            })
+            continue
+
+        info["code_count"] = len(loader._file_data[-1]["codes"])
+        files.append(info)
+
+    file_errors = any(f.get("error") for f in files)
+    validation = {
+        "valid": False,
+        "error": "Select at least 2 valid .ace files.",
+        "warnings": [],
+    }
+    if len(loader._file_data) >= 2:
+        try:
+            validation = loader.validate()
+        except Exception:
+            logger.exception("agreement preview validation failed")
+            validation = {
+                "valid": False,
+                "error": "Cannot preview agreement. Check that the files have shared sources and codes.",
+                "warnings": [],
+            }
+
+    if file_errors:
+        validation = {
+            **validation,
+            "valid": False,
+            "error": "Remove files with errors before computing agreement.",
+        }
+
+    return {
+        "files": files,
+        "valid": bool(validation.get("valid")),
+        "error": validation.get("error"),
+        "warnings": validation.get("warnings", []),
+        "matched_sources": validation.get("matched_sources"),
+        "matched_codes": validation.get("matched_codes"),
+        "n_coders": validation.get("n_coders"),
+    }
+
+
+def _render_agreement_preview(preview: dict, jinja_env) -> str:
+    tmpl = jinja_env.get_template("agreement_review.html")
+    return tmpl.render(
+        files=preview["files"],
+        paths=[f["path"] for f in preview["files"]],
+        valid=preview["valid"],
+        error=preview["error"],
+        warnings=preview["warnings"],
+        matched_sources=preview["matched_sources"],
+        matched_codes=preview["matched_codes"],
+        n_coders=preview["n_coders"],
+    )
+
+
+@router.post("/agreement/preview")
+async def agreement_preview(
+    request: Request,
+    paths: str | None = Form(default=None),
+):
+    _clear_agreement_cache(request.app.state)
+
+    path_list, error = _parse_agreement_paths(paths)
+    if error:
+        return HTMLResponse(_agreement_error(error), status_code=200)
+
+    preview = await asyncio.to_thread(_run_agreement_preview, path_list)
+    html_out = _render_agreement_preview(preview, request.app.state.templates.env)
+    return HTMLResponse(html_out, status_code=200)
 
 
 @router.post("/agreement/compute")
@@ -2757,18 +2890,11 @@ async def agreement_compute(
     so the event loop stays responsive. Progress is published to
     ``app.state.agreement_progress`` and read via ``GET /api/agreement/progress``.
     """
-    _clear_agreement_cache(request.app.state)
+    generation = _clear_agreement_cache(request.app.state)
 
-    try:
-        path_list = json.loads(paths)
-    except (json.JSONDecodeError, TypeError):
-        return HTMLResponse(_agreement_error("Invalid file paths."), status_code=200)
-
-    if not isinstance(path_list, list) or not all(isinstance(p, str) and p for p in path_list):
-        return HTMLResponse(_agreement_error("Invalid file paths."), status_code=200)
-
-    if len(path_list) < 2:
-        return HTMLResponse(_agreement_error("Select at least 2 .ace files."), status_code=200)
+    path_list, error = _parse_agreement_paths(paths)
+    if error:
+        return HTMLResponse(_agreement_error(error), status_code=200)
 
     request.app.state.agreement_progress = _agreement_progress(0, "Loading files")
 
@@ -2777,7 +2903,10 @@ async def agreement_compute(
         path_list,
         request.app.state,
         request.app.state.templates.env,
+        generation,
     )
+    if html_out is _AGREEMENT_STALE:
+        return Response(status_code=204)
 
     prog = getattr(request.app.state, "agreement_progress", {}) or {}
     if prog.get("error"):
@@ -2790,7 +2919,7 @@ async def agreement_compute(
     return HTMLResponse(html_out)
 
 
-def _run_agreement(path_list, state, jinja_env):
+def _run_agreement(path_list, state, jinja_env, generation: int):
     """Worker-thread entry point: load files, build dataset, compute, render.
 
     Writes progress to ``state.agreement_progress``. Returns the rendered
@@ -2806,6 +2935,8 @@ def _run_agreement(path_list, state, jinja_env):
     from ace.services.agreement_computer import compute_agreement
 
     def _fail(message):
+        if not _agreement_is_current(state, generation):
+            return _AGREEMENT_STALE
         state.agreement_progress = _agreement_progress(0, "", error=message)
         return None
 
@@ -2815,6 +2946,9 @@ def _run_agreement(path_list, state, jinja_env):
             result = loader.add_file(p)
             if result.get("error"):
                 return _fail(f"Error loading {Path(p).name}: {result['error']}")
+
+        if not _agreement_is_current(state, generation):
+            return _AGREEMENT_STALE
 
         state.agreement_loader = loader
         state.agreement_progress = _agreement_progress(5, "Building dataset")
@@ -2835,9 +2969,13 @@ def _run_agreement(path_list, state, jinja_env):
             # Scale the per-source callback (0..total) into 10..99 so the bar
             # doesn't leap to 100% before the (cheap) rendering step.
             pct = 10 + int(done * 89 / total)
-            state.agreement_progress = _agreement_progress(min(99, pct), stage)
+            if _agreement_is_current(state, generation):
+                state.agreement_progress = _agreement_progress(min(99, pct), stage)
 
         result = compute_agreement(dataset, progress_callback=cb)
+
+        if not _agreement_is_current(state, generation):
+            return _AGREEMENT_STALE
 
         state.agreement_dataset = dataset
         state.agreement_result = result

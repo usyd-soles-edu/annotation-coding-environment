@@ -414,6 +414,134 @@ th.col-num { text-align: right; }
 
 .ace-agreement-choose-btn:hover { background: var(--ace-border-light); }
 
+.ace-agreement-review {
+  margin-top: 24px;
+}
+
+.ace-agreement-review-head {
+  padding: 16px 0 12px;
+  border-bottom: 1px solid var(--ace-border);
+}
+
+.ace-agreement-review-head h2 {
+  margin: 0 0 6px;
+  font-size: var(--ace-font-size-base);
+  font-weight: 600;
+}
+
+.ace-agreement-review-head p {
+  margin: 0;
+  font-size: var(--ace-font-size-sm);
+  color: var(--ace-text);
+}
+
+.ace-agreement-file-list {
+  margin-top: 8px;
+  border-bottom: 1px solid var(--ace-border);
+}
+
+.ace-agreement-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(220px, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  padding: 8px 0;
+  border-top: 1px solid var(--ace-border-light);
+  font-size: var(--ace-font-size-sm);
+}
+
+.ace-agreement-file-main,
+.ace-agreement-file-meta {
+  min-width: 0;
+}
+
+.ace-agreement-file-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.ace-agreement-file-coders,
+.ace-agreement-file-meta {
+  color: var(--ace-text-muted);
+  font-size: var(--ace-font-size-xs);
+}
+
+.ace-agreement-file-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.ace-agreement-file-row.is-error .ace-agreement-file-meta {
+  color: var(--ace-danger);
+}
+
+.ace-agreement-remove-btn {
+  min-height: 32px;
+  padding: 5px 12px;
+  color: var(--ace-danger);
+  background: #fff;
+  border: 1px solid var(--ace-danger);
+  border-radius: var(--ace-radius);
+  cursor: pointer;
+  font-size: var(--ace-font-size-xs);
+  font-weight: 600;
+}
+
+.ace-agreement-remove-btn:hover {
+  background: #fff5f5;
+}
+
+.ace-agreement-review-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.ace-agreement-compute-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 8px 20px;
+  color: #fff;
+  background: var(--ace-text);
+  border: 1px solid var(--ace-text);
+  border-radius: var(--ace-radius);
+  cursor: pointer;
+  font-size: var(--ace-font-size-sm);
+  font-weight: 600;
+}
+
+.ace-agreement-compute-btn:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+@media (max-width: 560px) {
+  .ace-agreement-file-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px 10px;
+  }
+
+  .ace-agreement-file-meta {
+    grid-column: 1 / -1;
+  }
+
+  .ace-agreement-review-actions {
+    flex-wrap: wrap;
+  }
+
+  .ace-agreement-review-actions button {
+    flex: 1 1 140px;
+    justify-content: center;
+  }
+}
+
 .ace-agreement-loading {
   font-size: var(--ace-font-size-sm);
 }
