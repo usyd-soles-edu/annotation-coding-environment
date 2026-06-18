@@ -19,7 +19,6 @@ def _build_sparse_counts(
     coder_ids: Sequence[str],
     code_names: Sequence[str],
     progress_callback=None,
-    progress_total: int = 1,
 ) -> tuple[dict[str, Counter[int]], dict[str, Counter[int]], dict[str, set[str]]]:
     """Build per-code/per-source bitmask counts and per-code source sets."""
     coder_bit = {cid: bit for bit, cid in enumerate(coder_ids)}
@@ -44,9 +43,10 @@ def _build_sparse_counts(
     per_code_counts: dict[str, Counter[int]] = {name: Counter() for name in code_names}
     per_source_counts: dict[str, Counter[int]] = {}
 
+    n_sources = len(dataset.sources)
     for src_i, source in enumerate(dataset.sources, start=1):
         if progress_callback:
-            progress_callback(src_i, progress_total, f"Computing agreement · {src_i} of {progress_total} sources")
+            progress_callback(src_i, f"Computing agreement · {src_i} of {n_sources} sources")
         text_len = len(source.content_text)
         if text_len == 0:
             continue
@@ -99,7 +99,7 @@ def compute_agreement(
 ) -> AgreementResult:
     """Compute all agreement metrics from a matched dataset.
 
-    ``progress_callback`` is an optional ``Callable[[done, total, stage], None]``
+    ``progress_callback`` is an optional ``Callable[[done, stage], None]``
     invoked during the expensive per-source counting loop. It is pure
     synchronous code and must not block on I/O.
     """
@@ -118,16 +118,14 @@ def compute_agreement(
     coder_ids = [c.id for c in dataset.coders]
     code_names = [c.name for c in dataset.codes]
 
-    total_sources = max(1, len(dataset.sources))
     if progress_callback:
-        progress_callback(0, total_sources, "Counting annotation overlaps")
+        progress_callback(0, "Counting annotation overlaps")
 
     per_code_counts, per_source_counts, code_source_sets = _build_sparse_counts(
         dataset,
         coder_ids,
         code_names,
         progress_callback=progress_callback,
-        progress_total=total_sources,
     )
 
     # Compute per-code metrics

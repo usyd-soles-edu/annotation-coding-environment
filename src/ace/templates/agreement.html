@@ -25,6 +25,11 @@
 (function() {
   "use strict";
 
+  var _HEADING = '<h1 class="ace-agreement-title">Inter-Coder Agreement</h1>';
+  // Snapshot the server-rendered pick state so the under-2-files branch can
+  // restore it verbatim instead of re-typing the markup.
+  var _initialResults = (document.getElementById("agreement-results") || {}).innerHTML || "";
+
   // Single module-level interval handle so a re-pick mid-compute clears the
   // previous poll instead of racing two polls on app.state.agreement_progress.
   var _agreementPoll = null;
@@ -33,15 +38,17 @@
     if (_agreementPoll) { clearInterval(_agreementPoll); _agreementPoll = null; }
   }
 
-  function _showTransportError() {
+  // Flip the progress bar to its error state. Shared by the transport-failure
+  // listener and the poll's error branch (which used to fork the same DOM
+  // mutation). subText is optional.
+  function _showError(labelText, subText) {
     _stopPoll();
     var fill = document.getElementById("ace-agreement-progress-fill");
     var label = document.getElementById("ace-agreement-progress-label");
+    var sub = document.getElementById("ace-agreement-progress-sub");
     if (fill) { fill.classList.add("is-error"); fill.style.width = "100%"; }
-    if (label) {
-      label.classList.add("is-error");
-      label.textContent = "Couldn’t reach the server — try again.";
-    }
+    if (label) { label.classList.add("is-error"); label.textContent = labelText; }
+    if (sub && subText) { sub.textContent = subText; }
   }
 
   // I2: a 5xx here would only be a genuine transport failure (the route now
@@ -53,7 +60,7 @@
     var verb = e.detail && e.detail.request && e.detail.request.verb;
     if (path === "/api/agreement/compute"
         && String(verb).toUpperCase() === "POST") {
-      _showTransportError();
+      _showError("Couldn’t reach the server — try again.");
     }
   });
 
@@ -69,22 +76,15 @@
       .then(function(data) {
         if (!data.paths || data.paths.length < 2) {
           // Fewer than 2 files: re-show the pick state instead of failing
-          // silently. The server has a clear "at least 2 files" message, but
-          // the request is never sent from here, so surface it client-side.
-          // Stop any poll left from an abandoned in-flight compute so it can't
-          // fire one extra /progress request against the re-rendered DOM.
+          // silently. Also stop any poll left from an abandoned in-flight
+          // compute so it can't fire one extra /progress request.
           _stopPoll();
-          results.innerHTML =
-            '<h1 class="ace-agreement-title">Inter-Coder Agreement</h1>' +
-            '<div class="ace-agreement-empty">' +
-              '<p>Select 2 or more .ace files to compute agreement</p>' +
-              '<button class="ace-agreement-choose-btn" onclick="acePickAndCompute()">Choose files</button>' +
-            '</div>';
+          results.innerHTML = _initialResults;
           return;
         }
         // Show loading state only after files are selected
         results.innerHTML =
-          '<h1 class="ace-agreement-title">Inter-Coder Agreement</h1>' +
+          _HEADING +
           '<div class="ace-agreement-loading" role="status" aria-live="polite" style="text-align:left">' +
             '<div class="ace-agreement-progress">' +
               '<div class="ace-agreement-progress-bar">' +
@@ -109,12 +109,7 @@
             var sub = document.getElementById("ace-agreement-progress-sub");
             if (!fill) { _stopPoll(); return; }
             if (p.error) {
-              fill.classList.add("is-error");
-              fill.style.width = "100%";
-              label.classList.add("is-error");
-              label.textContent = "Couldn\u2019t compute agreement";
-              sub.textContent = p.error;
-              _stopPoll();
+              _showError("Couldn\u2019t compute agreement", p.error);
               return;
             }
             fill.style.width = p.percent + "%";
@@ -125,7 +120,7 @@
       })
       .catch(function() {
         results.innerHTML =
-          '<h1 class="ace-agreement-title">Inter-Coder Agreement</h1>' +
+          _HEADING +
           '<div class="ace-agreement-error">' +
           '<p>Something went wrong. Please try again.</p>' +
           '<button class="ace-agreement-choose-btn" onclick="acePickAndCompute()">Choose different files</button>' +

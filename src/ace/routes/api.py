@@ -902,12 +902,13 @@ async def import_remove_last(request: Request):
                 "AND deleted_at IS NULL",
                 ids,
             ).fetchone()[0]
-            for sid in ids:
-                conn.execute("DELETE FROM annotation WHERE source_id = ?", (sid,))
-                conn.execute("DELETE FROM source_note WHERE source_id = ?", (sid,))
-                conn.execute("DELETE FROM assignment WHERE source_id = ?", (sid,))
-                conn.execute("DELETE FROM source_content WHERE source_id = ?", (sid,))
-                conn.execute("DELETE FROM source WHERE id = ?", (sid,))
+            # No ON DELETE CASCADE in the schema, so clear each dependent
+            # table explicitly (one batched DELETE each) before the sources.
+            conn.execute(f"DELETE FROM annotation WHERE source_id IN ({placeholders})", ids)
+            conn.execute(f"DELETE FROM source_note WHERE source_id IN ({placeholders})", ids)
+            conn.execute(f"DELETE FROM assignment WHERE source_id IN ({placeholders})", ids)
+            conn.execute(f"DELETE FROM source_content WHERE source_id IN ({placeholders})", ids)
+            conn.execute(f"DELETE FROM source WHERE id IN ({placeholders})", ids)
             conn.commit()
         request.app.state.last_import_source_ids = None
         msg = "Removed the last import."
@@ -2732,6 +2733,11 @@ def _render_agreement_results(result, dataset, loader, jinja_env) -> str:
     )
 
 
+def _agreement_progress(percent: int, stage: str, *, done: bool = False, error: str | None = None) -> dict:
+    """Build the agreement-compute progress dict stored on app.state."""
+    return {"percent": percent, "stage": stage, "done": done, "error": error}
+
+
 @router.post("/agreement/compute")
 async def agreement_compute(
     request: Request,
@@ -2754,12 +2760,7 @@ async def agreement_compute(
     if len(path_list) < 2:
         return HTMLResponse(_agreement_error("Select at least 2 .ace files."), status_code=200)
 
-    request.app.state.agreement_progress = {
-        "percent": 0,
-        "stage": "Loading files",
-        "done": False,
-        "error": None,
-    }
+    request.app.state.agreement_progress = _agreement_progress(0, "Loading files")
 
     html_out = await asyncio.to_thread(
         _run_agreement,
@@ -2795,12 +2796,7 @@ def _run_agreement(path_list, state, jinja_env):
     from ace.services.agreement_computer import compute_agreement
 
     def _fail(message):
-        state.agreement_progress = {
-            "percent": 0,
-            "stage": "",
-            "done": False,
-            "error": message,
-        }
+        state.agreement_progress = _agreement_progress(0, "", error=message)
         return None
 
     try:
@@ -2811,12 +2807,7 @@ def _run_agreement(path_list, state, jinja_env):
                 return _fail(f"Error loading {Path(p).name}: {result['error']}")
 
         state.agreement_loader = loader
-        state.agreement_progress = {
-            "percent": 5,
-            "stage": "Building dataset",
-            "done": False,
-            "error": None,
-        }
+        state.agreement_progress = _agreement_progress(5, "Building dataset")
 
         try:
             dataset = loader.build_dataset()
@@ -2830,27 +2821,17 @@ def _run_agreement(path_list, state, jinja_env):
 
         total = max(1, len(dataset.sources))
 
-        def cb(done, _total, stage):
+        def cb(done, stage):
             # Scale the per-source callback (0..total) into 10..99 so the bar
             # doesn't leap to 100% before the (cheap) rendering step.
             pct = 10 + int(done * 89 / total)
-            state.agreement_progress = {
-                "percent": min(99, pct),
-                "stage": stage,
-                "done": False,
-                "error": None,
-            }
+            state.agreement_progress = _agreement_progress(min(99, pct), stage)
 
         result = compute_agreement(dataset, progress_callback=cb)
 
         state.agreement_dataset = dataset
         state.agreement_result = result
-        state.agreement_progress = {
-            "percent": 100,
-            "stage": "Rendering results",
-            "done": True,
-            "error": None,
-        }
+        state.agreement_progress = _agreement_progress(100, "Rendering results", done=True)
 
         return _render_agreement_results(result, dataset, loader, jinja_env)
     except Exception:
@@ -2864,12 +2845,7 @@ async def agreement_progress(request: Request):
 
     Shape: ``{percent: 0-100, stage: str, done: bool, error: str | null}``.
     """
-    p = getattr(request.app.state, "agreement_progress", None) or {
-        "percent": 0,
-        "stage": "",
-        "done": False,
-        "error": None,
-    }
+    p = getattr(request.app.state, "agreement_progress", None) or _agreement_progress(0, "")
     return {
         "percent": p.get("percent", 0),
         "stage": p.get("stage", ""),
