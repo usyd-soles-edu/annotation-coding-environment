@@ -108,6 +108,25 @@ def _record_apply_requests(page) -> list[str]:
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_coding_cheat_sheet_lists_v_as_reserved_shortcut(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#text-panel")
+
+            page.keyboard.press("Shift+/")
+            sheet = page.locator("#ace-cheat-sheet")
+            expect(sheet).to_be_visible()
+            expect(sheet).to_contain_text("1 – 9, 0, a–y (not q v x z n)")
+            expect(sheet).to_contain_text("V")
+            expect(sheet).to_contain_text("View coded text")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_coding_and_coded_text_views_load_headless_sidebar_controller(
     ace_server, browser_name
 ):

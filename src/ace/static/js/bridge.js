@@ -772,7 +772,7 @@
       '<table style="width:100%;border-collapse:collapse;">' +
       _shortcutRow("↑ / ↓", "Navigate sentences") +
       _shortcutRow("Shift + ← / →", "Previous / next source") +
-      _shortcutRow("1 – 9, 0, a–y (not q x z n)", "Apply code") +
+      _shortcutRow("1 – 9, 0, a–y (not q v x z n)", "Apply code") +
       _shortcutRow("; then two letters", "Apply a two-key shortcut") +
       _shortcutRow("Q", "Repeat last code") +
       _shortcutRow("X", "Remove code from sentence") +
@@ -781,6 +781,7 @@
       _shortcutRow("Ctrl/⌘ + Shift + Z", "Redo") +
       _shortcutRow("Shift + F", "Flag/unflag source") +
       _shortcutRow("N", "Open / close note panel") +
+      _shortcutRow("V", "View coded text") +
       _shortcutRow("Tab", "Cycle source → search → tree → source") +
       _shortcutRow("⌥ + →", "Move item into the folder above") +
       _shortcutRow("⌥ + ⇧ + →", "Wrap two sibling codes into a new folder") +
