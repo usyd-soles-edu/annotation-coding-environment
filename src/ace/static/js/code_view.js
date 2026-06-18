@@ -775,7 +775,23 @@
     handle.addEventListener("dblclick", () => {
       document.documentElement.style.setProperty("--ace-sidebar-width", "360px");
       localStorage.setItem("ace-sidebar-width", 360);
+      clampToViewport();
     });
+
+    // Re-clamp on viewport resize (mirrors the drag's cap) so a width saved on
+    // a large monitor doesn't crush the text here either. Re-derives from the
+    // saved value; runs once to refine the pre-CSS restore.
+    function clampToViewport() {
+      if (dragging) return;
+      const vw = document.documentElement.clientWidth;
+      const splitW = container.getBoundingClientRect().width;
+      if (!vw || !splitW) return;
+      const saved = parseInt(localStorage.getItem("ace-sidebar-width") || "360", 10) || 360;
+      const px = Math.max(150, Math.min(saved, Math.min(vw, splitW) * 0.4));
+      document.documentElement.style.setProperty("--ace-sidebar-width", px + "px");
+    }
+    window.addEventListener("resize", clampToViewport);
+    clampToViewport();
   })();
 
   renderForData(data);

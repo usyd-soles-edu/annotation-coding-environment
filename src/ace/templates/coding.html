@@ -20,7 +20,13 @@
 <script>
   // Apply saved sidebar width + grid height before CSS loads to prevent layout glitch
   var _sw = localStorage.getItem("ace-sidebar-width");
-  if (_sw) document.documentElement.style.setProperty("--ace-sidebar-width", _sw + "px");
+  if (_sw) {
+    // Clamp to the 40%-of-viewport cap the resize drag enforces, so a width
+    // saved on a large monitor doesn't crush the text on a smaller screen.
+    var _swCap = document.documentElement.clientWidth * 0.4;
+    var _swPx = Math.max(150, Math.min(parseInt(_sw, 10) || 360, _swCap));
+    document.documentElement.style.setProperty("--ace-sidebar-width", _swPx + "px");
+  }
   var _gh = localStorage.getItem("ace-grid-height");
   if (_gh) document.documentElement.style.setProperty("--ace-grid-height", _gh);
   var _ts = localStorage.getItem("ace-coding-text-size");

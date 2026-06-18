@@ -847,7 +847,29 @@
     handle.addEventListener("dblclick", function () {
       document.documentElement.style.setProperty("--ace-sidebar-width", "360px");
       localStorage.setItem("ace-sidebar-width", 360);
+      clampToViewport(); // 360 can exceed the cap on small viewports
     });
+
+    // Re-clamp on viewport resize (mirrors the drag's 40% cap above) so
+    // shrinking the window never re-crushes the text — a width saved on a
+    // large monitor is clamped down here, and grows back if the window
+    // widens. Re-derives from the saved value each time; skipped during a
+    // drag. Runs once now to refine the pre-CSS restore (which used
+    // innerWidth as an approximation).
+    function clampToViewport() {
+      if (dragging) return;
+      // Cap against the smaller of the viewport and the grid container — the
+      // viewport (an overflowing grid can't inflate the cap) and the grid
+      // itself (if it's narrower than the viewport, match what the drag allows).
+      const vw = document.documentElement.clientWidth;
+      const splitW = split.getBoundingClientRect().width;
+      if (!vw || !splitW) return;
+      const saved = parseInt(localStorage.getItem("ace-sidebar-width") || "360", 10) || 360;
+      const px = Math.max(150, Math.min(saved, Math.min(vw, splitW) * 0.4));
+      document.documentElement.style.setProperty("--ace-sidebar-width", px + "px");
+    }
+    window.addEventListener("resize", clampToViewport);
+    clampToViewport();
   }
 
   function _initGridResize() {
