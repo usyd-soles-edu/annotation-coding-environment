@@ -1003,13 +1003,13 @@ def test_headless_tree_candidate_browser_drag_reorders_root_codes(ace_server, br
             )
             slot_state = _drag_slot_state(page)
             assert slot_state is not None
-            assert slot_state["target"] in {"before-root-code", "after-root-code"}
-            assert "Charlie" not in slot_state["text"]
+            assert slot_state["target"] in {"root-position", "before-root-code", "after-root-code"}
+            assert slot_state["text"] == "Charlie"
             assert slot_state["ariaHidden"] == "true"
             assert slot_state["position"] == "relative"
             assert slot_state["height"] >= 24
             assert slot_state["sourceDimmed"] is True
-            if slot_state["target"].startswith("before"):
+            if slot_state["beforeId"]:
                 assert slot_state["nextId"] == slot_state["beforeId"]
             else:
                 assert slot_state["previousId"] == slot_state["afterId"]
@@ -1163,46 +1163,28 @@ def test_headless_tree_candidate_direct_folder_drop_moves_inside(ace_server, bro
                   const slot = document.querySelector(
                     "#ace-headless-tree-mount .ace-ht-drag-slot:not([hidden])"
                   );
-                  const row = document.querySelector(
-                    `#ace-headless-tree-mount .ace-ht-row[data-item-id="${folder}"]`
-                  );
-                  const slotMatches = slot?.dataset.dragTarget === "inside-folder" &&
-                    slot?.dataset.parentId === folder;
-                  const gapMatches = row &&
-                    parseFloat(getComputedStyle(row).marginBottom) >= 20;
                   return document.body.dataset.codebookDragging === "1" &&
-                    (slotMatches || gapMatches);
+                    slot?.dataset.dragTarget === "inside-folder" &&
+                    slot?.dataset.parentId === folder &&
+                    slot.textContent.trim() === "Bravo";
                 }
                 """,
                 arg=ids,
             )
-            folder_gap = page.evaluate(
+            slot_state = _drag_slot_state(page)
+            assert slot_state is not None
+            assert slot_state["target"] == "inside-folder"
+            assert slot_state["parentId"] == str(ids["folder"])
+            assert slot_state["text"] == "Bravo"
+            assert slot_state["sourceDimmed"] is True
+            folder_wells = page.evaluate(
                 """
-                ({ folder }) => {
-                  const slot = document.querySelector(
-                    "#ace-headless-tree-mount .ace-ht-drag-slot:not([hidden])"
-                  );
-                  const row = document.querySelector(
-                    `#ace-headless-tree-mount .ace-ht-row[data-item-id="${folder}"]`
-                  );
-                  return {
-                    slotTarget: slot?.dataset.dragTarget || "",
-                    slotParentId: slot?.dataset.parentId || "",
-                    marginBottom: Math.round(parseFloat(getComputedStyle(row).marginBottom)),
-                    sourceDimmed: !!document.querySelector(".ace-ht-row--drag-source"),
-                  };
-                }
-                """,
-                arg=ids,
+                () => Array.from(document.querySelectorAll(
+                  "#ace-headless-tree-mount .ace-ht-row--folder"
+                )).filter((row) => parseFloat(getComputedStyle(row).marginBottom) >= 20).length
+                """
             )
-            assert (
-                folder_gap["marginBottom"] >= 20
-                or (
-                    folder_gap["slotTarget"] == "inside-folder"
-                    and folder_gap["slotParentId"] == str(ids["folder"])
-                )
-            )
-            assert folder_gap["sourceDimmed"] is True
+            assert folder_wells == 0
             page.mouse.up()
 
             page.wait_for_function(
@@ -1285,14 +1267,10 @@ def test_headless_tree_candidate_folder_body_accepts_inside_drop(
                   const slot = document.querySelector(
                     "#ace-headless-tree-mount .ace-ht-drag-slot:not([hidden])"
                   );
-                  const row = document
-                    .querySelector(`#ace-headless-tree-mount .ace-ht-row[data-item-id="${folder}"]`);
-                  const slotMatches = slot?.dataset.dragTarget === "inside-folder" &&
-                    slot?.dataset.parentId === folder;
-                  const gapMatches = row &&
-                    parseFloat(getComputedStyle(row).marginBottom) >= 20;
                   return document.body.dataset.codebookDragging === "1" &&
-                    (slotMatches || gapMatches);
+                    slot?.dataset.dragTarget === "inside-folder" &&
+                    slot?.dataset.parentId === folder &&
+                    slot.textContent.trim() === "Bravo";
                 }
                 """,
                 arg=ids,
@@ -1387,51 +1365,23 @@ def test_headless_tree_candidate_highlights_drop_receiver_folder(
                   const slot = document.querySelector(
                     "#ace-headless-tree-mount .ace-ht-drag-slot:not([hidden])"
                   );
-                  const row = document.querySelector(
-                    `#ace-headless-tree-mount .ace-ht-row[data-item-id="${folder}"]`
-                  );
-                  const slotMatches = slot?.dataset.dragTarget === "inside-folder" &&
-                    slot?.dataset.parentId === folder;
-                  const gapMatches = row &&
-                    parseFloat(getComputedStyle(row).marginBottom) >= 20;
                   return document.body.dataset.codebookDragging === "1" &&
-                    (slotMatches || gapMatches);
+                    slot?.dataset.dragTarget === "inside-folder" &&
+                    slot?.dataset.parentId === folder &&
+                    slot.textContent.trim() === "Bravo";
                 }
                 """,
                 arg=ids,
             )
             slot_state = _drag_slot_state(page)
-            if (
-                slot_state is not None
-                and slot_state["target"] == "inside-folder"
-                and slot_state["parentId"] == str(ids["folder"])
-            ):
-                assert slot_state["target"] == "inside-folder"
-                assert slot_state["parentId"] == str(ids["folder"])
-                assert "Inside" in slot_state["text"]
-                assert "Bravo" not in slot_state["text"]
-                assert slot_state["ariaHidden"] == "true"
-                assert slot_state["position"] == "relative"
-                assert slot_state["height"] >= 24
-                assert slot_state["previousId"] == str(ids["folder"])
-                assert slot_state["sourceDimmed"] is True
-            else:
-                folder_gap = page.evaluate(
-                    """
-                    ({ folder }) => {
-                      const row = document.querySelector(
-                        `#ace-headless-tree-mount .ace-ht-row[data-item-id="${folder}"]`
-                      );
-                      return {
-                        marginBottom: Math.round(parseFloat(getComputedStyle(row).marginBottom)),
-                        sourceDimmed: !!document.querySelector(".ace-ht-row--drag-source"),
-                      };
-                    }
-                    """,
-                    arg=ids,
-                )
-                assert folder_gap["marginBottom"] >= 20
-                assert folder_gap["sourceDimmed"] is True
+            assert slot_state is not None
+            assert slot_state["target"] == "inside-folder"
+            assert slot_state["parentId"] == str(ids["folder"])
+            assert slot_state["text"] == "Bravo"
+            assert slot_state["ariaHidden"] == "true"
+            assert slot_state["position"] == "relative"
+            assert slot_state["height"] >= 24
+            assert slot_state["sourceDimmed"] is True
 
             charlie.scroll_into_view_if_needed()
             charlie_box = charlie.bounding_box()
@@ -1446,7 +1396,14 @@ def test_headless_tree_candidate_highlights_drop_receiver_folder(
                   const slot = document.querySelector(
                     "#ace-headless-tree-mount .ace-ht-drag-slot:not([hidden])"
                   );
-                  if (receivers.length !== 1 || !slot) return null;
+                  if (
+                    receivers.length !== 1 ||
+                    !slot ||
+                    !["folder-child-position", "before-folder-child", "after-folder-child"]
+                      .includes(slot.dataset.dragTarget || "")
+                  ) {
+                    return null;
+                  }
                   const style = getComputedStyle(receivers[0]);
                   return {
                     receiverId: receivers[0].dataset.itemId,
@@ -1463,7 +1420,11 @@ def test_headless_tree_candidate_highlights_drop_receiver_folder(
             assert state["receiverIsFolder"] is True
             assert state["receiverHasVisualTreatment"] is True
             assert state["slotAriaHidden"] == "true"
-            assert state["slotTarget"] in {"before-folder-child", "after-folder-child"}
+            assert state["slotTarget"] in {
+                "folder-child-position",
+                "before-folder-child",
+                "after-folder-child",
+            }
 
             page.mouse.up()
             page.wait_for_function(

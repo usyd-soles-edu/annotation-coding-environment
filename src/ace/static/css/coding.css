@@ -943,32 +943,6 @@ body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-label,
   opacity: 0.35;
 }
 
-body[data-codebook-dragging="1"] .ace-ht-row--folder:not(.ace-ht-row--drag-source) {
-  margin-bottom: 26px;
-}
-
-body[data-codebook-dragging="1"] .ace-ht-row--folder:not(.ace-ht-row--drag-source)::after {
-  content: "Drop inside folder";
-  position: absolute;
-  left: calc(8px + 14px);
-  right: 10px;
-  bottom: -25px;
-  display: flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 0 6px 0 18px;
-  background: #f4f4f0;
-  box-shadow:
-    inset 3px 0 0 var(--ace-focus),
-    inset 0 1px 0 var(--ace-focus),
-    inset 0 -1px 0 var(--ace-focus);
-  color: var(--ace-text);
-  font-size: var(--ace-font-size-2xs);
-  font-weight: var(--ace-weight-semibold);
-  pointer-events: none;
-  white-space: nowrap;
-}
-
 .ace-ht-create-row {
   display: grid;
   grid-template-columns: 18px 1fr auto;
@@ -1022,20 +996,20 @@ body[data-codebook-dragging="1"] .ace-ht-row--folder:not(.ace-ht-row--drag-sourc
 
 .ace-ht-drag-slot {
   --ht-indent: 0px;
+  --preview-colour: var(--ace-focus);
   position: relative;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto 24px;
+  grid-template-columns: 18px minmax(0, 1fr) 28px 32px 24px;
   align-items: center;
-  column-gap: 6px;
   min-height: 24px;
   margin: 1px 0;
   padding: 0 10px 0 calc(8px + var(--ht-indent));
   border: 0;
   border-radius: 0;
-  background: #f4f4f0;
+  background: var(--ace-bg);
   color: var(--ace-text);
   box-shadow:
-    inset 3px 0 0 var(--ace-focus),
+    inset 3px 0 0 var(--preview-colour),
     inset 0 1px 0 var(--ace-focus),
     inset 0 -1px 0 var(--ace-focus);
   pointer-events: none;
@@ -1048,12 +1022,13 @@ body[data-codebook-dragging="1"] .ace-ht-row--folder:not(.ace-ht-row--drag-sourc
 
 .ace-ht-drag-slot::before {
   content: "";
-  grid-column: 1;
-  justify-self: center;
-  width: 10px;
-  height: 2px;
-  border-radius: 999px;
-  background: var(--ace-focus);
+  position: absolute;
+  left: calc(8px + var(--ht-indent));
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--preview-colour);
 }
 
 .ace-ht-drag-slot--child {
@@ -1061,11 +1036,7 @@ body[data-codebook-dragging="1"] .ace-ht-row--folder:not(.ace-ht-row--drag-sourc
 }
 
 .ace-ht-drag-slot--inside::before {
-  width: 10px;
-  height: 12px;
-  border: 1px solid var(--ace-focus);
-  border-right: 0;
-  background: transparent;
+  background: var(--preview-colour);
 }
 
 .ace-ht-drag-slot-label {
@@ -1076,21 +1047,6 @@ body[data-codebook-dragging="1"] .ace-ht-row--folder:not(.ace-ht-row--drag-sourc
   white-space: nowrap;
   font-size: var(--ace-font-size-2xs);
   font-weight: var(--ace-weight-semibold);
-}
-
-.ace-ht-drag-slot-badge {
-  grid-column: 3;
-  min-height: 16px;
-  padding: 0 6px;
-  border: 1px solid var(--ace-focus);
-  border-radius: 3px;
-  background: var(--ace-bg);
-  color: var(--ace-text);
-  font-size: var(--ace-font-size-2xs);
-  font-weight: 800;
-  line-height: 16px;
-  letter-spacing: .04em;
-  text-transform: uppercase;
 }
 
 @media (prefers-reduced-motion: reduce) {
