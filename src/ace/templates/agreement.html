@@ -96,7 +96,13 @@
   function _setAgreementReviewBusy(busy) {
     _agreementPreviewPending = busy;
     document.querySelectorAll("[data-agreement-remove], [data-agreement-compute]").forEach(function (button) {
-      button.disabled = busy;
+      if (busy) {
+        button.dataset.agreementWasDisabled = button.disabled ? "1" : "0";
+        button.disabled = true;
+      } else if (button.dataset.agreementWasDisabled) {
+        button.disabled = button.dataset.agreementWasDisabled === "1";
+        delete button.dataset.agreementWasDisabled;
+      }
       button.setAttribute("aria-busy", busy ? "true" : "false");
     });
   }

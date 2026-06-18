@@ -161,3 +161,49 @@ def test_agreement_review_blocks_compute_while_removal_preview_is_pending(
             assert json.loads(values["paths"][0]) == [str(alice), str(bob)]
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_agreement_review_keeps_compute_disabled_for_invalid_preview(
+    ace_server, tmp_path, browser_name
+):
+    alice = _make_agreement_file(tmp_path / "alice.ace", "Alice", ["Positive"])
+    bob = tmp_path / "bob.ace"
+
+    conn = create_project(str(bob), "Agreement Bob")
+    try:
+        conn.execute("UPDATE coder SET name = ? WHERE name = 'default'", ("Bob",))
+        conn.commit()
+        coder_id = conn.execute("SELECT id FROM coder").fetchone()[0]
+        source_id = add_source(conn, "S2", "Different agreement text", "row")
+        code_id = add_code(conn, "Positive", "#00AA00")
+        add_annotation(conn, source_id, coder_id, code_id, 0, 9, "Different")
+    finally:
+        checkpoint_and_close(conn)
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-files",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"paths": [str(alice), str(bob)]}),
+                ),
+            )
+
+            page.goto(f"{ace_server}/agreement")
+            page.get_by_role("button", name="Choose files").click()
+
+            expect(page.get_by_role("heading", name="Review selected files")).to_be_visible(
+                timeout=5000
+            )
+            expect(page.locator("#agreement-results")).to_contain_text(
+                "These files share no source texts",
+                timeout=5000,
+            )
+            expect(page.locator("[data-agreement-compute]")).to_be_disabled()
+        finally:
+            browser.close()
