@@ -140,6 +140,7 @@ def test_agreement_picker_clears_cached_results_before_file_selection(client):
     resp = client.get("/agreement")
     assert resp.status_code == 200
     assert 'fetch("/api/agreement/clear"' in resp.text
+    assert "clearResponse.ok" in resp.text
 
 
 # ── Compute ───────────────────────────────────────────────────────────
@@ -319,9 +320,10 @@ def test_compute_runs_off_thread(client, ace_file_a, ace_file_b, app):
 
 
 def test_compute_missing_paths(client):
-    """Computing with no paths param returns 422."""
+    """Computing with no paths param returns an HTMX-swappable error fragment."""
     resp = client.post("/api/agreement/compute")
-    assert resp.status_code == 422
+    assert resp.status_code == 200
+    assert "Invalid file paths." in resp.text
 
 
 # ── Export ────────────────────────────────────────────────────────────
@@ -391,6 +393,21 @@ def test_failed_agreement_compute_invalidates_cached_exports(client_with_agreeme
     resp = client.post("/api/agreement/compute", data={"paths": json.dumps(paths[:1])})
     assert resp.status_code == 200
     assert "Select at least 2" in resp.text
+
+    assert client.get("/api/agreement/export/results").status_code == 400
+    assert client.get("/api/agreement/export/raw").status_code == 400
+
+
+def test_missing_paths_compute_invalidates_cached_exports(client_with_agreement_files):
+    """Missing form data must still clear old agreement exports."""
+    client, paths = client_with_agreement_files
+    client.post("/api/agreement/compute", data={"paths": json.dumps(paths)})
+    assert client.get("/api/agreement/export/results").status_code == 200
+    assert client.get("/api/agreement/export/raw").status_code == 200
+
+    resp = client.post("/api/agreement/compute")
+    assert resp.status_code == 200
+    assert "Invalid file paths." in resp.text
 
     assert client.get("/api/agreement/export/results").status_code == 400
     assert client.get("/api/agreement/export/raw").status_code == 400

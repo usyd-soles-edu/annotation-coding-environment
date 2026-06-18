@@ -2749,7 +2749,7 @@ def _clear_agreement_cache(state) -> None:
 @router.post("/agreement/compute")
 async def agreement_compute(
     request: Request,
-    paths: str = Form(...),
+    paths: str | None = Form(default=None),
 ):
     """Load files, compute agreement (off-thread), return minimalist results HTML.
 

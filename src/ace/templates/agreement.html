@@ -69,8 +69,10 @@
 
     _stopPoll();
     fetch("/api/agreement/clear", { method: "POST" })
-      .catch(function () { /* picker still works if cache clear already happened */ })
-      .then(function () {
+      .then(function (clearResponse) {
+        if (!clearResponse.ok) {
+          throw new Error("Could not clear cached agreement results");
+        }
         return fetch("/api/native/pick-files", {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
