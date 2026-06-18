@@ -8,7 +8,13 @@
   // layout flash. Shared with /code — same key, values round-trip between views.
   try {
     var _sw = localStorage.getItem("ace-sidebar-width");
-    if (_sw) document.documentElement.style.setProperty("--ace-sidebar-width", _sw + "px");
+    if (_sw) {
+      // Clamp to the 40%-of-viewport cap so a width saved on a large monitor
+      // (via /code) doesn't crush this view's text on a smaller screen.
+      var _swCap = window.innerWidth * 0.4;
+      var _swPx = Math.max(150, Math.min(parseInt(_sw, 10) || 360, _swCap));
+      document.documentElement.style.setProperty("--ace-sidebar-width", _swPx + "px");
+    }
   } catch (_) {}
 </script>
 <link rel="stylesheet" href="/static/css/coding.css">

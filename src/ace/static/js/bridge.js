@@ -848,6 +848,25 @@
       document.documentElement.style.setProperty("--ace-sidebar-width", "360px");
       localStorage.setItem("ace-sidebar-width", 360);
     });
+
+    // Re-clamp on viewport resize (mirrors the drag's 40% cap above) so
+    // shrinking the window never re-crushes the text — a width saved on a
+    // large monitor is clamped down here, and grows back if the window
+    // widens. Re-derives from the saved value each time; skipped during a
+    // drag. Runs once now to refine the pre-CSS restore (which used
+    // innerWidth as an approximation).
+    function clampToViewport() {
+      if (dragging) return;
+      // Use the real viewport, not the grid's own (possibly overflowing) box,
+      // so the cap always reflects actual available space.
+      const vw = document.documentElement.clientWidth;
+      if (!vw) return;
+      const saved = parseInt(localStorage.getItem("ace-sidebar-width") || "360", 10) || 360;
+      const px = Math.max(150, Math.min(saved, vw * 0.4));
+      document.documentElement.style.setProperty("--ace-sidebar-width", px + "px");
+    }
+    window.addEventListener("resize", clampToViewport);
+    clampToViewport();
   }
 
   function _initGridResize() {
