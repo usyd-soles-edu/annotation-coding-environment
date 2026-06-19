@@ -24,8 +24,8 @@ def _mock_result(returncode: int = 0, stdout: str = "") -> MagicMock:
     return result
 
 
-@patch("ace.routes.api.platform")
-@patch("ace.routes.api._run_osascript")
+@patch("ace.routes.api_project_import.platform")
+@patch("ace.routes.api_project_import._run_osascript")
 def test_pick_file_returns_path(mock_osascript, mock_platform):
     mock_platform.system.return_value = "Darwin"
     mock_osascript.return_value = _mock_result(0, "/tmp/test.ace\n")
@@ -40,8 +40,8 @@ def test_pick_file_returns_path(mock_osascript, mock_platform):
     assert 'of type {"ace"}' in script_arg
 
 
-@patch("ace.routes.api.platform")
-@patch("ace.routes.api._run_osascript")
+@patch("ace.routes.api_project_import.platform")
+@patch("ace.routes.api_project_import._run_osascript")
 def test_pick_file_returns_empty_on_cancel(mock_osascript, mock_platform):
     mock_platform.system.return_value = "Darwin"
     mock_osascript.return_value = _mock_result(1, "")
@@ -52,8 +52,8 @@ def test_pick_file_returns_empty_on_cancel(mock_osascript, mock_platform):
     assert response.json() == {"path": ""}
 
 
-@patch("ace.routes.api.platform")
-@patch("ace.routes.api._run_osascript")
+@patch("ace.routes.api_project_import.platform")
+@patch("ace.routes.api_project_import._run_osascript")
 def test_pick_folder_returns_path(mock_osascript, mock_platform):
     mock_platform.system.return_value = "Darwin"
     mock_osascript.return_value = _mock_result(0, "/tmp/my_folder/\n")
@@ -65,8 +65,8 @@ def test_pick_folder_returns_path(mock_osascript, mock_platform):
     mock_osascript.assert_called_once()
 
 
-@patch("ace.routes.api.platform")
-@patch("ace.routes.api._run_osascript")
+@patch("ace.routes.api_project_import.platform")
+@patch("ace.routes.api_project_import._run_osascript")
 def test_pick_files_returns_multiple_paths(mock_osascript, mock_platform):
     mock_platform.system.return_value = "Darwin"
     mock_osascript.return_value = _mock_result(
@@ -83,8 +83,8 @@ def test_pick_files_returns_multiple_paths(mock_osascript, mock_platform):
     assert 'of type {"csv", "xlsx"}' in script_arg
 
 
-@patch("ace.routes.api.platform")
-@patch("ace.routes.api._tk_pick_file", return_value="/tmp/test.ace")
+@patch("ace.routes.api_project_import.platform")
+@patch("ace.routes.api_project_import._tk_pick_file", return_value="/tmp/test.ace")
 def test_non_darwin_uses_tkinter_file(mock_tk, mock_platform):
     """Non-macOS platforms fall back to tkinter file picker."""
     mock_platform.system.return_value = "Linux"
@@ -93,8 +93,8 @@ def test_non_darwin_uses_tkinter_file(mock_tk, mock_platform):
     mock_tk.assert_called_once()
 
 
-@patch("ace.routes.api.platform")
-@patch("ace.routes.api._tk_pick_folder", return_value="/tmp/my_folder")
+@patch("ace.routes.api_project_import.platform")
+@patch("ace.routes.api_project_import._tk_pick_folder", return_value="/tmp/my_folder")
 def test_non_darwin_uses_tkinter_folder(mock_tk, mock_platform):
     """Non-macOS platforms fall back to tkinter folder picker."""
     mock_platform.system.return_value = "Linux"
@@ -103,8 +103,8 @@ def test_non_darwin_uses_tkinter_folder(mock_tk, mock_platform):
     mock_tk.assert_called_once()
 
 
-@patch("ace.routes.api.platform")
-@patch("ace.routes.api._tk_pick_files", return_value=["/tmp/a.csv", "/tmp/b.csv"])
+@patch("ace.routes.api_project_import.platform")
+@patch("ace.routes.api_project_import._tk_pick_files", return_value=["/tmp/a.csv", "/tmp/b.csv"])
 def test_non_darwin_uses_tkinter_files(mock_tk, mock_platform):
     """Non-macOS platforms fall back to tkinter multi-file picker."""
     mock_platform.system.return_value = "Linux"

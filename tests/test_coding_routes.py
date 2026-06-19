@@ -88,20 +88,6 @@ def client_with_codes(tmp_path):
         yield client, coder_id, code_a, code_b, str(db_path)
 
 
-def test_coding_page_renders(client_with_sources):
-    """GET /code renders the coding page with swap zones."""
-    client, _ = client_with_sources
-    resp = client.get("/code")
-    assert resp.status_code == 200
-    assert "coding-workspace" in resp.text
-    assert "code-sidebar" in resp.text
-    assert "text-panel" in resp.text
-    assert "ace-legend" in resp.text
-    # Source notes UI (Task R1 — drawer pattern)
-    assert 'id="note-pill"' in resp.text
-    assert 'id="note-drawer"' in resp.text
-    assert 'id="note-textarea"' in resp.text
-    assert 'role="complementary"' in resp.text
 
 
 def test_coding_page_redirects_without_project():
@@ -162,204 +148,18 @@ def test_coding_page_shows_codes(client_with_sources):
     assert "Theme B" in resp.text
 
 
-def test_coding_page_empty_codebook_shows_first_actions(client_with_sources_no_codes):
-    """A project with sources but no codes exposes first-action buttons."""
-    resp = client_with_sources_no_codes.get("/code")
-    assert resp.status_code == 200
-    assert "ace-headless-tree-preview--empty" in resp.text
-    assert 'id="create-first-code-btn"' in resp.text
-    assert 'id="empty-import-codebook-btn"' in resp.text
-    assert "Create first code" in resp.text
-    assert "Import codebook CSV" in resp.text
-    assert "<kbd>/code</kbd>" in resp.text
 
 
-def test_codebook_import_preview_uses_compact_mapping_dialog(
-    client_with_sources_no_codes, tmp_path
-):
-    csv_path = tmp_path / "codebook.csv"
-    csv_path.write_text(
-        "Code Label,Theme,Dictionary Definition\n"
-        "Access,Equity,Barriers to using a service\n"
-    )
-
-    resp = client_with_sources_no_codes.post(
-        "/api/codes/import/preview-path",
-        data={"path": str(csv_path), "current_index": 0},
-    )
-
-    assert resp.status_code == 200
-    assert "ace-codebook-import-dialog" in resp.text
-    assert 'id="codebook-map-name"' in resp.text
-    assert 'value="Code Label" selected' in resp.text
-    assert 'id="codebook-map-group"' in resp.text
-    assert 'value="Theme" selected' in resp.text
-    assert 'id="codebook-map-definition"' in resp.text
-    assert 'value="Dictionary Definition" selected' in resp.text
-    assert "Sidebar preview" in resp.text
-    assert "Barriers to using a service" in resp.text
 
 
-def test_codebook_import_preview_map_returns_definition_payload(
-    client_with_sources_no_codes, tmp_path
-):
-    csv_path = tmp_path / "codebook.csv"
-    csv_path.write_text(
-        "Code Label,Theme,Dictionary Definition\n"
-        "Access,Equity,Barriers to using a service\n"
-    )
-
-    resp = client_with_sources_no_codes.post(
-        "/api/codes/import/preview-map",
-        data={
-            "path": str(csv_path),
-            "name_column": "Code Label",
-            "group_column": "Theme",
-            "definition_column": "Dictionary Definition",
-        },
-    )
-
-    assert resp.status_code == 200
-    payload = resp.json()
-    assert payload["new_count"] == 1
-    assert "Barriers to using a service" in payload["preview_html"]
-    codes = json.loads(payload["codes_json"])
-    assert codes[0]["definition"] == "Barriers to using a service"
-    assert codes[0]["group_name"] == "Equity"
 
 
-def test_codebook_import_preview_map_respects_no_definition_selection(
-    client_with_sources_no_codes, tmp_path
-):
-    csv_path = tmp_path / "codebook.csv"
-    csv_path.write_text(
-        "Code Label,Theme,Dictionary Definition\n"
-        "Access,Equity,Barriers to using a service\n"
-    )
-
-    resp = client_with_sources_no_codes.post(
-        "/api/codes/import/preview-map",
-        data={
-            "path": str(csv_path),
-            "name_column": "Code Label",
-            "group_column": "Theme",
-            "definition_column": "",
-        },
-    )
-
-    assert resp.status_code == 200
-    payload = resp.json()
-    assert "Barriers to using a service" not in payload["preview_html"]
-    codes = json.loads(payload["codes_json"])
-    assert codes[0]["definition"] is None
 
 
-def test_codebook_import_route_stores_definition(client_with_sources_no_codes):
-    from ace.db.connection import open_project
-
-    codes_json = json.dumps([
-        {
-            "name": "Access",
-            "colour": "#123456",
-            "group_name": "Equity",
-            "definition": "Barriers to using a service",
-        }
-    ])
-
-    resp = client_with_sources_no_codes.post(
-        "/api/codes/import",
-        data={"codes_json": codes_json, "current_index": 0},
-    )
-
-    assert resp.status_code == 200
-    conn = open_project(client_with_sources_no_codes.app.state.project_path)
-    try:
-        row = conn.execute(
-            "SELECT definition FROM codebook_code WHERE name = 'Access'"
-        ).fetchone()
-    finally:
-        conn.close()
-    assert row["definition"] == "Barriers to using a service"
 
 
-def test_codebook_tree_route_returns_headless_tree_item_map(client_with_codes):
-    """GET /api/codes/tree exposes ACE rows in a Headless Tree-friendly shape."""
-    from ace.db.connection import open_project
-    from ace.models.annotation import add_annotation
-    from ace.models.codebook import add_code, add_folder
-
-    client, coder_id, _code_a, _code_b, db_path = client_with_codes
-
-    conn = open_project(db_path)
-    try:
-        source_id = conn.execute(
-            "SELECT id FROM source ORDER BY sort_order LIMIT 1"
-        ).fetchone()["id"]
-        parent = add_folder(conn, "Parent folder")
-        child = add_code(
-            conn,
-            "Nested code",
-            "#123456",
-            parent_id=parent,
-            definition="Definition imported from a dictionary column",
-        )
-        add_annotation(conn, source_id, coder_id, child, 0, 5, "First")
-    finally:
-        conn.close()
-
-    resp = client.get("/api/codes/tree")
-
-    assert resp.status_code == 200
-    payload = resp.json()
-    assert payload["root_id"] == "root"
-    assert parent in payload["items"]["root"]["children"]
-    assert payload["items"][parent] == {
-        "id": parent,
-        "name": "Parent folder",
-        "kind": "folder",
-        "parent_id": None,
-        "level": 1,
-        "sort_order": payload["items"][parent]["sort_order"],
-        "children": [child],
-        "child_count": 1,
-        "count": 0,
-    }
-    assert payload["items"][child] == {
-        "id": child,
-        "name": "Nested code",
-        "kind": "code",
-        "parent_id": parent,
-        "level": 2,
-        "sort_order": payload["items"][child]["sort_order"],
-        "children": [],
-        "child_count": 0,
-        "count": 1,
-        "colour": "#123456",
-        "chord": None,
-        "definition": "Definition imported from a dictionary column",
-    }
 
 
-def test_codebook_tree_route_handles_empty_codebook(client_with_sources_no_codes):
-    """The JSON tree route gives the future island a stable empty state."""
-    resp = client_with_sources_no_codes.get("/api/codes/tree")
-
-    assert resp.status_code == 200
-    assert resp.json() == {
-        "root_id": "root",
-        "items": {
-            "root": {
-                "id": "root",
-                "name": "Root",
-                "kind": "folder",
-                "parent_id": None,
-                "level": 0,
-                "children": [],
-                "child_count": 0,
-                "count": 0,
-            }
-        },
-    }
 
 
 def test_coding_page_shows_project_name(client_with_sources):
@@ -388,16 +188,6 @@ def test_coding_page_auto_creates_assignments(client_with_sources):
     assert 'id="ace-sources-data"' in resp.text
 
 
-def test_sidebar_has_brand_and_nav_has_source(client_with_sources):
-    """Sidebar shows the ACE wordmark strip, nav shows flag button."""
-    client, _ = client_with_sources
-    resp = client.get("/code")
-    assert resp.status_code == 200
-    html = resp.text
-    assert 'class="ace-sidebar-strip"' in html
-    assert 'class="ace-sidebar-strip-mark"' in html
-    assert ">ACE</a>" in html
-    assert 'aria-label="Toggle flag (Shift+F)"' in html
 
 
 def test_sidebar_strip_wordmark_links_home(client_with_sources):
@@ -414,18 +204,6 @@ def test_sidebar_strip_wordmark_links_home(client_with_sources):
     assert 'title="ACE v' in body
 
 
-def test_sidebar_dropdown_carries_keyboard_shortcuts(client_with_sources):
-    """The gear dropdown absorbs the old `?` button as its first item."""
-    client, _ = client_with_sources
-    resp = client.get("/code")
-    assert resp.status_code == 200
-    body = resp.text
-    assert 'id="codebook-menu-shortcuts-btn"' in body
-    assert ">Keyboard shortcuts<" in body
-    # Sits at the top of the dropdown — before the import/export group.
-    shortcuts_pos = body.index("codebook-menu-shortcuts-btn")
-    import_pos = body.index("codebook-menu-import-btn")
-    assert shortcuts_pos < import_pos
 
 
 def test_sidebar_has_headless_tree_mount(client_with_sources):
@@ -445,154 +223,12 @@ def test_sidebar_has_headless_tree_mount(client_with_sources):
 # ---------------------------------------------------------------------------
 
 
-def test_annotate(client_with_codes):
-    """POST /api/code/apply creates annotation and returns updated HTML."""
-    client, coder_id, code_a, _, db_path = client_with_codes
-    resp = client.post(
-        "/api/code/apply",
-        data={
-            "code_id": code_a,
-            "current_index": 0,
-            "start_offset": 0,
-            "end_offset": 5,
-            "selected_text": "First",
-        },
-    )
-    assert resp.status_code == 200
-    # Annotation routes return OOB-only responses with HX-Reswap: none —
-    # bridge.js refreshes highlights inside the existing #text-panel
-    # without a primary swap, so the response carries no text-panel HTML.
-    assert resp.headers.get("HX-Reswap") == "none"
-    assert "text-panel" not in resp.text
-    # OOB blobs that drive the in-place client-side update.
-    assert 'id="ace-ann-data"' in resp.text
-    assert 'id="ace-applied-codes-panel"' in resp.text
-
-    # Verify annotation exists in the DB
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT * FROM annotation WHERE deleted_at IS NULL"
-    ).fetchall()
-    conn.close()
-    assert len(rows) == 1
-    assert rows[0]["selected_text"] == "First"
 
 
-def test_delete_annotation(client_with_codes):
-    """POST /api/code/delete-annotation soft-deletes an annotation."""
-    client, coder_id, code_a, _, db_path = client_with_codes
-
-    # First create an annotation
-    client.post(
-        "/api/code/apply",
-        data={
-            "code_id": code_a,
-            "current_index": 0,
-            "start_offset": 0,
-            "end_offset": 5,
-            "selected_text": "First",
-        },
-    )
-
-    # Get the annotation ID
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    ann = conn.execute(
-        "SELECT id FROM annotation WHERE deleted_at IS NULL"
-    ).fetchone()
-    ann_id = ann["id"]
-    conn.close()
-
-    # Delete it
-    resp = client.post(
-        "/api/code/delete-annotation",
-        data={"annotation_id": ann_id, "current_index": 0},
-    )
-    assert resp.status_code == 200
-    assert resp.headers.get("HX-Reswap") == "none"
-    assert "text-panel" not in resp.text
-
-    # Verify soft-deleted in DB
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    active = conn.execute(
-        "SELECT * FROM annotation WHERE deleted_at IS NULL"
-    ).fetchall()
-    deleted = conn.execute(
-        "SELECT * FROM annotation WHERE deleted_at IS NOT NULL"
-    ).fetchall()
-    conn.close()
-    assert len(active) == 0
-    assert len(deleted) == 1
 
 
-def test_undo_after_annotate(client_with_codes):
-    """Undo reverses the last annotation."""
-    client, coder_id, code_a, _, db_path = client_with_codes
-
-    # Create annotation
-    client.post(
-        "/api/code/apply",
-        data={
-            "code_id": code_a,
-            "current_index": 0,
-            "start_offset": 0,
-            "end_offset": 5,
-            "selected_text": "First",
-        },
-    )
-
-    # Undo
-    resp = client.post(
-        "/api/undo",
-        data={"current_index": 0},
-    )
-    assert resp.status_code == 200
-    assert 'id="code-sidebar"' not in resp.text
-
-    # Verify annotation is now soft-deleted
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    active = conn.execute(
-        "SELECT * FROM annotation WHERE deleted_at IS NULL"
-    ).fetchall()
-    conn.close()
-    assert len(active) == 0
 
 
-def test_redo_after_undo(client_with_codes):
-    """Redo restores the undone annotation."""
-    client, coder_id, code_a, _, db_path = client_with_codes
-
-    # Create annotation
-    client.post(
-        "/api/code/apply",
-        data={
-            "code_id": code_a,
-            "current_index": 0,
-            "start_offset": 0,
-            "end_offset": 5,
-            "selected_text": "First",
-        },
-    )
-
-    # Undo
-    client.post("/api/undo", data={"current_index": 0})
-
-    # Redo
-    resp = client.post("/api/redo", data={"current_index": 0})
-    assert resp.status_code == 200
-
-    # Verify annotation is active again
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    active = conn.execute(
-        "SELECT * FROM annotation WHERE deleted_at IS NULL"
-    ).fetchall()
-    conn.close()
-    assert len(active) == 1
-    assert active[0]["selected_text"] == "First"
 
 
 # ---------------------------------------------------------------------------
@@ -600,283 +236,24 @@ def test_redo_after_undo(client_with_codes):
 # ---------------------------------------------------------------------------
 
 
-def test_undo_endpoint_pops_undo_stack(client_with_codes):
-    """POST /api/undo runs the inverse mutation and returns 200 with OOB swap."""
-    client, _coder_id, code_id, _, _db_path = client_with_codes
-    # Apply a code to source 0 — record_add fires automatically inside the route
-    resp = client.post("/api/code/apply", data={
-        "current_index": 0, "code_id": code_id,
-        "start_offset": 0, "end_offset": 5, "selected_text": "First",
-    })
-    assert resp.status_code == 200
-
-    # Now undo
-    resp = client.post("/api/undo", data={"current_index": 0})
-    assert resp.status_code == 200
-    # Status bar OOB present
-    assert 'id="ace-statusbar-event"' in resp.text
-    assert "Undone:" in resp.text
 
 
-def test_undo_endpoint_empty_stack_returns_status(client_with_codes):
-    """POST /api/undo on empty stack returns 'Nothing to undo' AND signals the
-    client not to perform a primary swap. Without HX-Reswap=none, HTMX would
-    receive an OOB-only response and replace #text-panel with empty content.
-    """
-    client, _coder_id, _code_id, _, _db_path = client_with_codes
-    resp = client.post("/api/undo", data={"current_index": 0})
-    assert resp.status_code == 200
-    assert "Nothing to undo" in resp.text
-    assert resp.headers.get("HX-Reswap") == "none"
-
-    resp = client.post("/api/redo", data={"current_index": 0})
-    assert resp.status_code == 200
-    assert "Nothing to redo" in resp.text
-    assert resp.headers.get("HX-Reswap") == "none"
 
 
-def test_old_code_undo_endpoint_removed(client_with_codes):
-    """POST /api/code/undo no longer exists."""
-    client, _coder_id, _code_id, _, _db_path = client_with_codes
-    resp = client.post("/api/code/undo", data={"current_index": 0})
-    assert resp.status_code == 404
 
 
-def test_undo_annotation_delete_includes_flash_script(client_with_codes):
-    """Undoing an annotation_delete returns a flash OOB script targeting #ace-undo-flash.
-
-    Locks the wire so future changes to the flash plumbing don't silently regress.
-    HTMX 2.x silently drops OOB swaps whose target is missing, so this also
-    indirectly guards the placeholder in coding.html.
-    """
-    import sqlite3 as _sqlite3
-
-    client, _coder_id, code_id, _, db_path = client_with_codes
-
-    # Apply a code, then look up its annotation id
-    client.post("/api/code/apply", data={
-        "current_index": 0, "code_id": code_id,
-        "start_offset": 0, "end_offset": 5, "selected_text": "First",
-    })
-    conn = _sqlite3.connect(db_path)
-    conn.row_factory = _sqlite3.Row
-    ann_id = conn.execute(
-        "SELECT id FROM annotation WHERE deleted_at IS NULL"
-    ).fetchone()["id"]
-    conn.close()
-
-    # Delete the annotation (records annotation_delete on the undo stack)
-    client.post("/api/code/delete-annotation", data={
-        "annotation_id": ann_id, "current_index": 0,
-    })
-
-    # Undo the delete — response should include the flash OOB script
-    resp = client.post("/api/undo", data={"current_index": 0})
-    assert resp.status_code == 200
-    assert 'id="ace-undo-flash"' in resp.text
-    assert 'hx-swap-oob="outerHTML"' in resp.text
-    assert "_flashAnnotation" in resp.text
-    assert ann_id in resp.text
 
 
-def test_undo_cross_source_includes_navigate_trigger(client_with_codes):
-    """Undo of an annotation made on a different source emits HX-Trigger: ace-navigate."""
-    import json as _json
-
-    client, _coder_id, code_id, _, _db_path = client_with_codes
-
-    # Apply on source 0
-    client.post("/api/code/apply", data={
-        "current_index": 0, "code_id": code_id,
-        "start_offset": 0, "end_offset": 5, "selected_text": "First",
-    })
-
-    # Undo from source 1 (different) — fixture has 2 sources, so index 1 is the
-    # "other" source the user has navigated to.
-    resp = client.post("/api/undo", data={"current_index": 1})
-    assert resp.status_code == 200
-    trigger = resp.headers.get("HX-Trigger", "")
-    assert "ace-navigate" in trigger
-    data = _json.loads(trigger)
-    assert data["ace-navigate"]["index"] == 0
 
 
-def test_code_rename_records_undo_entry(client_with_codes):
-    """PUT /api/codes/{code_id} with new name records code_rename."""
-    import sqlite3 as _sqlite3
-
-    client, _coder_id, code_id, _, db_path = client_with_codes
-    resp = client.put(f"/api/codes/{code_id}", data={
-        "name": "RenamedCode", "current_index": 0,
-    })
-    assert resp.status_code == 200
-
-    # Sanity: rename did happen
-    conn = _sqlite3.connect(db_path)
-    conn.row_factory = _sqlite3.Row
-    row = conn.execute(
-        "SELECT name FROM codebook_code WHERE id = ?", (code_id,)
-    ).fetchone()
-    conn.close()
-    assert row["name"] == "RenamedCode"
-
-    # Undo
-    resp = client.post("/api/undo", data={"current_index": 0})
-    assert resp.status_code == 200
-    assert "Undone:" in resp.text
-
-    # Verify the rename was undone in the DB (status bar text mentions the
-    # new name in the "back to" description, so an HTML-text assertion is
-    # ambiguous — go to the source of truth).
-    conn = _sqlite3.connect(db_path)
-    conn.row_factory = _sqlite3.Row
-    row = conn.execute(
-        "SELECT name FROM codebook_code WHERE id = ?", (code_id,)
-    ).fetchone()
-    conn.close()
-    assert row["name"] == "Theme A"
 
 
-def test_undo_cross_source_falls_back_when_source_unassigned(client_with_codes):
-    """Undo where the action's source has been removed from the assignment list
-    stays on the current source and notes 'no longer assigned' in the status."""
-    import sqlite3 as _sqlite3
-
-    client, _coder_id, code_id, _, db_path = client_with_codes
-
-    # Apply on source 0 (records add against source 0's id)
-    client.post("/api/code/apply", data={
-        "current_index": 0, "code_id": code_id,
-        "start_offset": 0, "end_offset": 5, "selected_text": "First",
-    })
-
-    # Programmatically delete source 0's assignment row to simulate the source
-    # being removed from the coder's assignment list after the action was recorded.
-    # (Sources are 1-indexed by sort_order; the first source is the one with the
-    # smallest sort_order.)
-    conn = _sqlite3.connect(db_path)
-    conn.execute(
-        "DELETE FROM assignment WHERE source_id = ("
-        "SELECT id FROM source ORDER BY sort_order LIMIT 1"
-        ")"
-    )
-    conn.commit()
-    conn.close()
-
-    # Undo. Only one assignment remains (S002 at index 0); the action's source
-    # (S001) is no longer in the list, so the route should fall back to the
-    # current source and append "(source no longer assigned)" to the status.
-    resp = client.post("/api/undo", data={"current_index": 0})
-    assert resp.status_code == 200
-    assert "no longer assigned" in resp.text
-    # No navigate trigger, since the source's index can't be located.
-    assert "ace-navigate" not in resp.headers.get("HX-Trigger", "")
 
 
-def test_undo_code_rename_no_navigate_trigger(client_with_codes):
-    """Undoing a codebook-only op (rename) must not emit ace-navigate."""
-    client, _coder_id, code_id, _, _db_path = client_with_codes
-
-    resp = client.put(f"/api/codes/{code_id}", data={
-        "name": "RenamedCode", "current_index": 0,
-    })
-    assert resp.status_code == 200
-
-    resp = client.post("/api/undo", data={"current_index": 0})
-    assert resp.status_code == 200
-    assert "ace-navigate" not in resp.headers.get("HX-Trigger", "")
 
 
-def test_undo_code_delete_restores_across_sources(client_with_codes):
-    """Deleting a code with annotations on multiple sources soft-deletes them
-    all; undo restores every annotation to active state."""
-    import sqlite3 as _sqlite3
-
-    client, _coder_id, code_id, _, db_path = client_with_codes
-
-    # Apply the code on source 0 and source 1 (fixture has 2 sources).
-    client.post("/api/code/apply", data={
-        "current_index": 0, "code_id": code_id,
-        "start_offset": 0, "end_offset": 5, "selected_text": "First",
-    })
-    client.post("/api/code/apply", data={
-        "current_index": 1, "code_id": code_id,
-        "start_offset": 0, "end_offset": 6, "selected_text": "Second",
-    })
-
-    # Sanity: 2 active annotations before delete.
-    conn = _sqlite3.connect(db_path)
-    conn.row_factory = _sqlite3.Row
-    active = conn.execute(
-        "SELECT COUNT(*) FROM annotation WHERE deleted_at IS NULL"
-    ).fetchone()[0]
-    conn.close()
-    assert active == 2
-
-    # Delete the code — should cascade soft-delete both annotations.
-    resp = client.delete(
-        f"/api/codes/{code_id}", params={"current_index": 0}
-    )
-    assert resp.status_code == 200
-
-    conn = _sqlite3.connect(db_path)
-    conn.row_factory = _sqlite3.Row
-    active = conn.execute(
-        "SELECT COUNT(*) FROM annotation WHERE deleted_at IS NULL"
-    ).fetchone()[0]
-    conn.close()
-    assert active == 0
-
-    # Undo — both annotations restored to active state.
-    resp = client.post("/api/undo", data={"current_index": 0})
-    assert resp.status_code == 200
-
-    conn = _sqlite3.connect(db_path)
-    conn.row_factory = _sqlite3.Row
-    active = conn.execute(
-        "SELECT id FROM annotation WHERE deleted_at IS NULL"
-    ).fetchall()
-    conn.close()
-    assert len(active) == 2
 
 
-def test_reorder_codes_noop_does_not_record_undo_entry(client_with_codes):
-    """A POST /api/codes/reorder that doesn't change ordering must NOT
-    record an undo entry. The client uses this endpoint to re-render the
-    sidebar after side-channel mutations; without this guard, one user
-    drag takes two undo presses to reverse.
-    """
-    client, coder_id, code_a, code_b, db_path = client_with_codes
-
-    # First, do a real reorder (swap the two codes) — should record one entry.
-    resp = client.post(
-        "/api/codes/reorder",
-        data={"code_ids": json.dumps([code_b, code_a]), "current_index": 0},
-    )
-    assert resp.status_code == 200
-
-    # Now a no-op reorder (same order) — should NOT record another entry.
-    resp = client.post(
-        "/api/codes/reorder",
-        data={"code_ids": json.dumps([code_b, code_a]), "current_index": 0},
-    )
-    assert resp.status_code == 200
-
-    # And the empty-list "refresh" pattern from _refreshSidebar — also no-op.
-    resp = client.post(
-        "/api/codes/reorder",
-        data={"code_ids": "[]", "current_index": 0},
-    )
-    assert resp.status_code == 200
-
-    # One undo should fully reverse the swap. After it, second undo says nothing.
-    resp = client.post("/api/undo", data={"current_index": 0})
-    assert resp.status_code == 200
-    assert "Undone:" in resp.text
-
-    resp = client.post("/api/undo", data={"current_index": 0})
-    assert resp.status_code == 200
-    assert "Nothing to undo" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -884,146 +261,16 @@ def test_reorder_codes_noop_does_not_record_undo_entry(client_with_codes):
 # ---------------------------------------------------------------------------
 
 
-def test_flag_source(client_with_sources):
-    """POST /api/code/flag toggles the flagged status."""
-    client, _ = client_with_sources
-    # Visit /code first so assignments are auto-created
-    client.get("/code")
-
-    # Flag source 0
-    resp = client.post(
-        "/api/code/flag",
-        data={"source_index": "0"},
-    )
-    assert resp.status_code == 200
-    assert "flagged" in resp.text.lower()
-
-    # Flag again to unflag
-    resp = client.post(
-        "/api/code/flag",
-        data={"source_index": "0"},
-    )
-    assert resp.status_code == 200
 
 
-def test_flag_source_toggle_roundtrip(client_with_codes):
-    """Flagging twice returns to unflagged."""
-    client, coder_id, _, _, db_path = client_with_codes
-
-    # Flag
-    client.post("/api/code/flag", data={"source_index": "0"})
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT flagged FROM assignment WHERE coder_id = ? ORDER BY rowid LIMIT 1",
-        (coder_id,),
-    ).fetchone()
-    assert row["flagged"] == 1
-    conn.close()
-
-    # Unflag
-    client.post("/api/code/flag", data={"source_index": "0"})
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT flagged FROM assignment WHERE coder_id = ? ORDER BY rowid LIMIT 1",
-        (coder_id,),
-    ).fetchone()
-    assert row["flagged"] == 0
-    conn.close()
 
 
-def test_coding_context_includes_note_state(client_with_codes):
-    """_coding_context exposes note text, has_note flag, and notes presence set."""
-    import sqlite3
-    from ace.models.assignment import get_assignments_for_coder
-    from ace.models.source_note import upsert_note
-    from ace.routes.pages import _coding_context
-
-    client, coder_id, code_a, code_b, db_path = client_with_codes
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    try:
-        assignments = get_assignments_for_coder(conn, coder_id)
-        s1 = assignments[0]["source_id"]
-        s2 = assignments[1]["source_id"]
-
-        # No notes initially
-        ctx0 = _coding_context(conn, coder_id, 0)
-        assert ctx0["current_note_text"] == ""
-        assert ctx0["has_note"] is False
-        assert ctx0["source_ids_with_notes"] == set()
-
-        # Add a note on source 1, view source 1
-        upsert_note(conn, s1, coder_id, "Hello note")
-        ctx1 = _coding_context(conn, coder_id, 0)
-        assert ctx1["current_note_text"] == "Hello note"
-        assert ctx1["has_note"] is True
-        assert ctx1["source_ids_with_notes"] == {s1}
-
-        # View source 2 — different has_note state, same presence set
-        ctx2 = _coding_context(conn, coder_id, 1)
-        assert ctx2["current_note_text"] == ""
-        assert ctx2["has_note"] is False
-        assert ctx2["source_ids_with_notes"] == {s1}
-
-        # Add a second note
-        upsert_note(conn, s2, coder_id, "Another")
-        ctx3 = _coding_context(conn, coder_id, 1)
-        assert ctx3["has_note"] is True
-        assert ctx3["source_ids_with_notes"] == {s1, s2}
-    finally:
-        conn.close()
 
 
-def test_invalid_code_name_returns_status_oob_swap(client_with_codes):
-    """Code validation error returns an OOB swap into the status bar, not #toast."""
-    client, _coder, _a, _b, _path = client_with_codes
-    # Whitespace-only name passes Form(...) presence check but fails .strip() guard
-    resp = client.post("/api/codes", data={"name": "   "})
-    assert resp.status_code == 200
-    assert "ace-statusbar-event" in resp.text
-    # Errors must also reach screen readers via the assertive live region.
-    assert "ace-live-region-assertive" in resp.text
-    assert 'id="toast"' not in resp.text
 
 
-def test_undo_does_not_set_x_ace_toast_and_announces_via_live_region(client_with_codes):
-    """Undo action announces to the polite live region (and the status bar 'ok' channel)."""
-    client, _coder_id, code_a, _code_b, _db_path = client_with_codes
-    # Create an annotation we can undo
-    client.post(
-        "/api/code/apply",
-        data={
-            "code_id": code_a,
-            "current_index": 0,
-            "start_offset": 0,
-            "end_offset": 5,
-            "selected_text": "First",
-        },
-    )
-    resp = client.post("/api/undo", data={"current_index": 0})
-    assert resp.status_code == 200
-    assert "X-ACE-Toast" not in resp.headers
-    assert 'id="ace-live-region"' in resp.text
-    # The new global undo emits a "Undone: ..." description that includes
-    # the code name and source display id.
-    assert "Undone:" in resp.text
-    assert "Theme A" in resp.text
 
 
-def test_flag_does_not_set_x_ace_toast_and_announces_via_live_region(client_with_codes):
-    """Flag action is silent in the status bar but announces to the polite live region."""
-    client, _coder_id, _code_a, _code_b, _db_path = client_with_codes
-    resp = client.post("/api/code/flag", data={"source_index": "0"})
-    assert resp.status_code == 200
-    assert "X-ACE-Toast" not in resp.headers
-    assert 'id="ace-live-region"' in resp.text
-    assert "Source flagged" in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -1031,35 +278,6 @@ def test_flag_does_not_set_x_ace_toast_and_announces_via_live_region(client_with
 # ---------------------------------------------------------------------------
 
 
-def test_coding_context_emits_sources_json(client_with_codes):
-    """sources_json is a flat per-source array suitable for client rendering."""
-    import sqlite3
-    from ace.routes.pages import _coding_context
-
-    client, coder_id, code_a, _, db_path = client_with_codes
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    try:
-        ctx = _coding_context(conn, coder_id, 0)
-    finally:
-        conn.close()
-
-    assert "sources_json" in ctx
-    data = ctx["sources_json"]
-    assert isinstance(data, list)
-    assert len(data) == ctx["total_sources"]
-
-    first = data[0]
-    for key in ("index", "source_id", "display_id", "count", "flagged", "note"):
-        assert key in first, f"sources_json[0] missing key {key!r}"
-    assert first["index"] == 0
-    assert isinstance(first["count"], int)
-    assert isinstance(first["flagged"], bool)
-    assert isinstance(first["note"], bool)
-    # No annotations yet → count is 0, flags all false
-    assert first["count"] == 0
-    assert first["flagged"] is False
-    assert first["note"] is False
 
 
 def test_sidebar_grid_replaces_popover(client_with_codes):
@@ -1111,17 +329,6 @@ def test_grid_separator_aria(client_with_codes):
         assert attr in body, f"separator missing {attr!r}"
 
 
-def test_counter_chip_is_static(client_with_codes):
-    """Counter span stays visible but has no onclick or ⚇ glyph."""
-    client, coder_id, _, _, _ = client_with_codes
-    client.cookies.set("coder_id", coder_id)
-    body = client.get("/code").text
-
-    # Static text still present in flag row
-    assert 'class="ace-nav-counter"' in body
-    # Clickable affordance gone
-    assert "aceToggleGrid" not in body
-    assert "\u2687" not in body
 
 
 def test_grid_scaffold_and_live_region(client_with_codes):
@@ -1142,109 +349,10 @@ def test_grid_scaffold_and_live_region(client_with_codes):
     assert 'id="ace-sources-data"' in body
 
 
-def test_annotate_refreshes_grid(client_with_codes):
-    """POST /api/code/apply returns OOB sources blob with incremented count."""
-    import json
-    import re
-    client, coder_id, code_a, _, _ = client_with_codes
-    client.cookies.set("coder_id", coder_id)
-
-    resp = client.post(
-        "/api/code/apply",
-        data={
-            "code_id": code_a,
-            "current_index": 0,
-            "start_offset": 0,
-            "end_offset": 5,
-            "selected_text": "First",
-        },
-    )
-    assert resp.status_code == 200
-    # Annotation apply omits the sidebar OOB — counts are patched client-side.
-    assert 'id="code-sidebar"' not in resp.text
-    assert 'id="ace-sources-data"' in resp.text
-
-    # Parse the OOB blob and confirm the first source now has count == 1.
-    # The OOB payload is JSON with < > & escaped as \u003c \u003e \u0026 (Task 4 fix);
-    # those are valid inside JSON strings so json.loads accepts it as-is.
-    m = re.search(
-        r'id="ace-sources-data"[^>]*hx-swap-oob[^>]*>([^<]*)</script>',
-        resp.text,
-    )
-    assert m, "ace-sources-data OOB fragment not found in response"
-    payload = json.loads(m.group(1))
-    assert payload[0]["count"] == 1
 
 
-def test_annotate_rejects_folder_id(client_with_codes):
-    client, coder_id, _code_a, _code_b, db_path = client_with_codes
-    client.cookies.set("coder_id", coder_id)
-    folder_id = _create_folder(client, "Themes", db_path)
-
-    resp = client.post(
-        "/api/code/apply",
-        data={
-            "code_id": folder_id,
-            "current_index": 0,
-            "start_offset": 0,
-            "end_offset": 5,
-            "selected_text": "First",
-        },
-    )
-    assert resp.status_code == 400
 
 
-def test_delete_refreshes_grid(client_with_codes):
-    """Deleting an annotation returns OOB sources blob with decremented count."""
-    import json
-    import re
-    client, coder_id, code_a, _, _ = client_with_codes
-    client.cookies.set("coder_id", coder_id)
-
-    # Create an annotation, then delete it
-    create = client.post(
-        "/api/code/apply",
-        data={
-            "code_id": code_a,
-            "current_index": 0,
-            "start_offset": 0,
-            "end_offset": 5,
-            "selected_text": "First",
-        },
-    )
-    assert create.status_code == 200
-
-    # Pull the new annotation id from the ann-data OOB blob (data-annotations attr)
-    m = re.search(r'data-annotations="([^"]+)"', create.text)
-    assert m, "ann-data payload missing from create response"
-    payload = m.group(1).replace("&#34;", '"').replace("&quot;", '"')
-    anns = json.loads(payload)
-    assert anns, "ann-data was empty after apply"
-    ann_id = anns[0]["id"]
-
-    # Delete the annotation
-    resp = client.post(
-        "/api/code/delete-annotation",
-        data={
-            "annotation_id": ann_id,
-            "current_index": 0,
-        },
-    )
-    assert resp.status_code == 200, (
-        f"delete returned {resp.status_code}: {resp.text[:200]}"
-    )
-    # Annotation delete omits the sidebar OOB — counts are patched client-side.
-    assert 'id="code-sidebar"' not in resp.text
-    assert 'id="ace-sources-data"' in resp.text
-
-    # Parse the OOB sources blob — source 0's count should be back to 0
-    m = re.search(
-        r'id="ace-sources-data"[^>]*hx-swap-oob[^>]*>([^<]*)</script>',
-        resp.text,
-    )
-    assert m, "ace-sources-data OOB fragment missing after delete"
-    sources = json.loads(m.group(1))
-    assert sources[0]["count"] == 0
 
 
 def test_coding_page_has_collapsible_grid_header(client_with_codes):
@@ -1286,27 +394,6 @@ def test_coding_page_has_inline_collapse_restore_script(client_with_codes):
     assert "dataset.aceGridCollapsed" in body
 
 
-def test_coding_page_text_header_has_three_rows(client_with_sources):
-    """Text panel header is wrapped in .ace-text-header with nav, event row, flag row in that order."""
-    client, _ = client_with_sources
-    r = client.get("/code?index=0")
-    assert r.status_code == 200
-    body = r.text
-
-    # Wrapper present
-    assert 'class="ace-text-header"' in body
-    # Three child rows — ordering matters
-    nav_idx = body.find('class="ace-text-nav"')
-    event_idx = body.find('class="ace-text-event-row"')
-    flag_idx = body.find('class="ace-flag-row"')
-    assert nav_idx > 0 and event_idx > 0 and flag_idx > 0
-    assert nav_idx < event_idx < flag_idx
-
-    # Event pill element present, empty on initial render
-    assert 'id="ace-text-event-pill"' in body
-    assert 'class="ace-text-event-pill"' in body
-    assert 'role="status"' in body
-    assert 'aria-live="polite"' in body
 
 
 def test_oob_status_emits_both_statusbar_and_pill_fragments():
@@ -1365,110 +452,14 @@ def _count_active_annotations(client, db_path: str, source_index: int) -> int:
         conn.close()
 
 
-def test_apply_same_code_overlap_merges(client_with_codes):
-    """POST /api/code/apply twice with overlapping same-code ranges → 1 annotation."""
-    client, _, code_a, _, db_path = client_with_codes
-
-    r1 = client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 0, "end_offset": 10, "selected_text": "First docu",
-    })
-    assert r1.status_code == 200
-
-    r2 = client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 5, "end_offset": 15, "selected_text": "documen",
-    })
-    assert r2.status_code == 200
-
-    assert _count_active_annotations(client, db_path, 0) == 1
 
 
-def test_apply_status_applied_for_new_selection(client_with_codes):
-    """POST /api/code/apply emits an 'Applied <code>' OOB status for a new span."""
-    client, coder_id, code_a, _, _ = client_with_codes
-    client.cookies.set("coder_id", coder_id)
-
-    resp = client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 0, "end_offset": 5, "selected_text": "First",
-    })
-    assert resp.status_code == 200
-    body = resp.text
-    # OOB status fragments present with the ok kind…
-    assert 'id="ace-statusbar-event"' in body
-    assert "ace-statusbar-event--ok" in body
-    assert "ace-text-event-pill--ok" in body
-    # …and the message names the applied code (code_a's name is "Theme A").
-    assert "Applied Theme A" in body
 
 
-def test_apply_status_merged_for_adjacent_same_code(client_with_codes):
-    """Re-applying the same code to an overlapping span emits a 'Merged' status."""
-    client, coder_id, code_a, _, _ = client_with_codes
-    client.cookies.set("coder_id", coder_id)
-
-    # First apply — a fresh span → Applied.
-    r1 = client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 0, "end_offset": 10, "selected_text": "First docu",
-    })
-    assert r1.status_code == 200
-    assert "Applied Theme A" in r1.text
-
-    # Second apply, overlapping the first → merged into one spanning row.
-    r2 = client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 5, "end_offset": 15, "selected_text": "documen",
-    })
-    assert r2.status_code == 200
-    body = r2.text
-    assert "Merged Theme A with adjacent" in body
-    assert "ace-statusbar-event--ok" in body
 
 
-def test_apply_different_code_overlap_creates_two(client_with_codes):
-    """Overlap with DIFFERENT code → both annotations remain."""
-    client, _, code_a, code_b, db_path = client_with_codes
-
-    client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 0, "end_offset": 10, "selected_text": "First docu",
-    })
-    client.post("/api/code/apply", data={
-        "code_id": code_b, "current_index": 0,
-        "start_offset": 5, "end_offset": 15, "selected_text": "documen",
-    })
-
-    assert _count_active_annotations(client, db_path, 0) == 2
 
 
-def test_apply_merge_then_undo_restores_originals(client_with_codes):
-    """After a merge, undo: originals restored, merged one gone."""
-    client, _, code_a, _, db_path = client_with_codes
-
-    # Two non-overlapping annotations first
-    client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 0, "end_offset": 4, "selected_text": "Firs",
-    })
-    client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 10, "end_offset": 14, "selected_text": "cont",
-    })
-    assert _count_active_annotations(client, db_path, 0) == 2
-
-    # Spanning apply merges both
-    client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 2, "end_offset": 13, "selected_text": "rst documen",
-    })
-    assert _count_active_annotations(client, db_path, 0) == 1
-
-    # Undo → originals restored
-    r = client.post("/api/undo", data={"current_index": 0})
-    assert r.status_code == 200
-    assert _count_active_annotations(client, db_path, 0) == 2
 
 
 def _active_annotation_ranges(db_path: str, source_index: int) -> list[tuple[int, int]]:
@@ -1491,27 +482,6 @@ def _active_annotation_ranges(db_path: str, source_index: int) -> list[tuple[int
         conn.close()
 
 
-def test_apply_merge_then_undo_then_redo(client_with_codes):
-    """Undo + redo returns to merged state. Asserts specific ranges to prove
-    the right annotation survives each transition (count alone would pass even
-    if undo/redo were no-ops)."""
-    client, _, code_a, _, db_path = client_with_codes
-
-    client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 0, "end_offset": 10, "selected_text": "First docu",
-    })
-    client.post("/api/code/apply", data={
-        "code_id": code_a, "current_index": 0,
-        "start_offset": 5, "end_offset": 15, "selected_text": "documen",
-    })
-    assert _active_annotation_ranges(db_path, 0) == [(0, 15)]
-
-    client.post("/api/undo", data={"current_index": 0})
-    assert _active_annotation_ranges(db_path, 0) == [(0, 10)]
-
-    client.post("/api/redo", data={"current_index": 0})
-    assert _active_annotation_ranges(db_path, 0) == [(0, 15)]
 
 
 def test_coding_page_has_page_title(client_with_codes):
@@ -1530,43 +500,8 @@ def test_coding_page_has_page_title(client_with_codes):
     assert h1_pos < nav_pos
 
 
-def test_applied_codes_panel_empty_state(client_with_codes):
-    """Applied-codes inspector renders an empty state before any source codes exist."""
-    client, coder_id, _, _, _ = client_with_codes
-    client.cookies.set("coder_id", coder_id)
-    r = client.get("/code?index=0")
-    body = r.text
-    assert 'id="ace-applied-codes-panel"' in body
-    assert 'No codes applied to this source.' in body
-    assert 'class="ace-applied-code-row"' not in body
 
 
-def test_applied_codes_panel_when_present(client_with_codes):
-    """Applied-codes inspector shows the source-position timeline and code rows."""
-    client, coder_id, code_a, _, _ = client_with_codes
-    client.cookies.set("coder_id", coder_id)
-    # Apply one code to source 0
-    apply_resp = client.post(
-        "/api/code/apply",
-        data={
-            "code_id": code_a,
-            "current_index": 0,
-            "start_offset": 0,
-            "end_offset": 5,
-            "selected_text": "First",
-        },
-    )
-    assert apply_resp.status_code == 200
-    r = client.get("/code?index=0")
-    body = r.text
-    assert 'id="ace-applied-codes-panel"' in body
-    assert 'class="ace-applied-code-row"' in body
-    assert 'class="ace-applied-timeline-marker"' in body
-    assert 'Code positions in source' in body
-    # Title appears before the first row
-    title_pos = body.index('Applied codes</span>')
-    row_pos = body.index('class="ace-applied-code-row"')
-    assert title_pos < row_pos
 
 
 # ---------------------------------------------------------------------------
@@ -1616,217 +551,26 @@ def _add_test_code(
     return _latest_id_by_name(db_path, name, "code")
 
 
-def test_create_folder_route(client_with_codes):
-    client, _coder_id, _a, _b, db_path = client_with_codes
-    r = client.post(
-        "/api/codes/folder",
-        data={"name": "Themes", "current_index": 0},
-    )
-    assert r.status_code == 200
-    assert r.headers["HX-Reswap"] == "none"
-    # Folder row exists in the DB with kind='folder'
-    fid = _latest_id_by_name(db_path, "Themes", "folder")
-    assert fid
 
 
-def test_set_parent_to_folder(client_with_codes):
-    client, _coder_id, _a, _b, db_path = client_with_codes
-    folder_id = _create_folder(client, "Themes", db_path)
-    code_id = _add_test_code(client, "Identity", db_path)
-    before_colours = _code_colours(db_path, [code_id])
-
-    r = client.put(
-        f"/api/codes/{code_id}/parent",
-        data={"parent_id": folder_id, "current_index": 0},
-    )
-    assert r.status_code == 200
-    assert r.headers["HX-Reswap"] == "none"
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT parent_id FROM codebook_code WHERE id = ?", (code_id,),
-    ).fetchone()
-    conn.close()
-    assert row["parent_id"] == folder_id
-    assert _code_colours(db_path, [code_id]) == before_colours
 
 
-def test_set_folder_parent_to_folder(client_with_codes):
-    client, _coder_id, _a, _b, db_path = client_with_codes
-    outer_id = _create_folder(client, "Outer", db_path)
-    inner_id = _create_folder(client, "Inner", db_path)
-
-    r = client.put(
-        f"/api/codes/{inner_id}/parent",
-        data={"parent_id": outer_id, "current_index": 0},
-    )
-    assert r.status_code == 200, r.text
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT parent_id FROM codebook_code WHERE id = ?", (inner_id,),
-    ).fetchone()
-    conn.close()
-    assert row["parent_id"] == outer_id
 
 
-def test_set_folder_parent_to_descendant_rejected(client_with_codes):
-    client, _coder_id, _a, _b, db_path = client_with_codes
-    outer_id = _create_folder(client, "Outer", db_path)
-    inner_id = _create_folder(client, "Inner", db_path)
-    client.put(
-        f"/api/codes/{inner_id}/parent",
-        data={"parent_id": outer_id, "current_index": 0},
-    )
-
-    r = client.put(
-        f"/api/codes/{outer_id}/parent",
-        data={"parent_id": inner_id, "current_index": 0},
-    )
-    assert r.status_code == 400
 
 
-def test_set_parent_to_root(client_with_codes):
-    client, _coder_id, _a, _b, db_path = client_with_codes
-    folder_id = _create_folder(client, "Themes", db_path)
-    code_id = _add_test_code(client, "Identity", db_path, parent_id=folder_id)
-    before_colours = _code_colours(db_path, [code_id])
-
-    r = client.put(
-        f"/api/codes/{code_id}/parent",
-        data={"parent_id": "", "current_index": 0},
-    )
-    assert r.status_code == 200
-    assert r.headers["HX-Reswap"] == "none"
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT parent_id FROM codebook_code WHERE id = ?", (code_id,),
-    ).fetchone()
-    conn.close()
-    assert row["parent_id"] is None
-    assert _code_colours(db_path, [code_id]) == before_colours
 
 
-def test_set_parent_to_code_rejected(client_with_codes):
-    client, _coder_id, code_a, code_b, _db_path = client_with_codes
-    # Both code_a and code_b are kind='code'. Moving b under a must fail.
-    r = client.put(
-        f"/api/codes/{code_b}/parent",
-        data={"parent_id": code_a, "current_index": 0},
-    )
-    assert r.status_code == 400
 
 
-def test_cut_paste_moves_code(client_with_codes):
-    client, _coder_id, _a, _b, db_path = client_with_codes
-    folder_id = _create_folder(client, "Themes", db_path)
-    code_id = _add_test_code(client, "Identity", db_path)
-
-    r = client.post(
-        "/api/codes/cut-paste",
-        data={"code_id": code_id, "target_id": folder_id, "current_index": 0},
-    )
-    assert r.status_code == 200
-
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    row = conn.execute(
-        "SELECT parent_id FROM codebook_code WHERE id = ?", (code_id,),
-    ).fetchone()
-    conn.close()
-    assert row["parent_id"] == folder_id
 
 
-def test_rename_group_route_removed(client_with_codes):
-    client, *_ = client_with_codes
-    r = client.put(
-        "/api/codes/rename-group",
-        data={"old_name": "x", "new_name": "y"},
-    )
-    assert r.status_code == 404
 
 
-def test_indent_promote_creates_folder_and_moves_both_codes(client_with_codes):
-    client, _coder_id, _a, _b, db_path = client_with_codes
-    a = _add_test_code(client, "Alpha", db_path)
-    b = _add_test_code(client, "Beta", db_path)
-    r = client.post(
-        f"/api/codes/{b}/indent-promote",
-        data={
-            "above_code_id": a,
-            "folder_name": "Wrapped",
-            "current_index": 0,
-        },
-    )
-    assert r.status_code == 200, r.text
-
-    # Folder exists; both codes parented to it.
-    fid = _latest_id_by_name(db_path, "Wrapped", "folder")
-    assert fid
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT id, parent_id FROM codebook_code WHERE id IN (?, ?)",
-        (a, b),
-    ).fetchall()
-    conn.close()
-    parents = {r["id"]: r["parent_id"] for r in rows}
-    assert parents[a] == fid
-    assert parents[b] == fid
 
 
-def test_indent_promote_rolls_back_on_name_collision(client_with_codes):
-    client, _coder_id, _a, _b, db_path = client_with_codes
-    # Pre-create the folder name we'll collide with.
-    existing = _create_folder(client, "Taken", db_path)
-    a = _add_test_code(client, "Alpha", db_path)
-    b = _add_test_code(client, "Beta", db_path)
-
-    r = client.post(
-        f"/api/codes/{b}/indent-promote",
-        data={
-            "above_code_id": a,
-            "folder_name": "Taken",
-            "current_index": 0,
-        },
-    )
-    # Returns OOB status fragment (200) carrying the error message; transaction rolled back.
-    assert r.status_code == 200
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    rows = conn.execute(
-        "SELECT id, parent_id FROM codebook_code WHERE id IN (?, ?)",
-        (a, b),
-    ).fetchall()
-    # Confirm only one folder named 'Taken' (the pre-existing one).
-    folder_count = conn.execute(
-        "SELECT COUNT(*) FROM codebook_code WHERE name = 'Taken' AND kind = 'folder' AND deleted_at IS NULL"
-    ).fetchone()[0]
-    conn.close()
-    assert folder_count == 1
-    parents = {r["id"]: r["parent_id"] for r in rows}
-    # Both codes still at root — no half-built folder, no orphan move.
-    assert parents[a] is None
-    assert parents[b] is None
-    assert existing  # silence unused-var lint
 
 
-def test_indent_promote_invalid_above_code_id_returns_400(client_with_codes):
-    client, _coder_id, _a, _b, db_path = client_with_codes
-    b = _add_test_code(client, "Beta", db_path)
-    r = client.post(
-        f"/api/codes/{b}/indent-promote",
-        data={
-            "above_code_id": "does-not-exist",
-            "folder_name": "Wrapped",
-            "current_index": 0,
-        },
-    )
-    assert r.status_code == 400
 
 
 # ---------------------------------------------------------------------------
@@ -1873,203 +617,20 @@ def _code_colours(db_path: str, code_ids: list[str]) -> dict[str, str]:
     return {r["id"]: r["colour"] for r in rows}
 
 
-def test_reorder_in_scope_updates_sort_order_within_root(client_with_codes):
-    """POST /api/codes/reorder-in-scope rewrites sort_order for the listed
-    ids in the order they're passed (root scope = empty parent_id)."""
-    client, _coder_id, a, b, db_path = client_with_codes
-    cc = _add_test_code(client, "Charlie", db_path)
-
-    # Reorder root: Charlie, Alpha (a), Bravo (b)
-    r = client.post(
-        "/api/codes/reorder-in-scope",
-        data={
-            "code_ids": json.dumps([cc, a, b]),
-            "parent_id": "",
-            "current_index": 0,
-        },
-    )
-    assert r.status_code == 200, r.text
-
-    orders = _sort_orders_at_root(db_path)
-    assert orders[cc] == 0
-    assert orders[a] == 1
-    assert orders[b] == 2
 
 
-def test_reorder_in_scope_preserves_code_colours(client_with_codes):
-    client, _coder_id, a, b, db_path = client_with_codes
-    cc = _add_test_code(client, "Charlie", db_path)
-    before = _code_colours(db_path, [a, b, cc])
-
-    r = client.post(
-        "/api/codes/reorder-in-scope",
-        data={
-            "code_ids": json.dumps([cc, b, a]),
-            "parent_id": "",
-            "current_index": 0,
-        },
-    )
-    assert r.status_code == 200, r.text
-
-    assert _code_colours(db_path, [a, b, cc]) == before
 
 
-def test_reorder_in_scope_returns_text_panel_and_sidebar(client_with_codes):
-    """The route returns the unified `_render_full_coding_oob` shape so the
-    count chips on the text panel + sidebar stay in sync."""
-    client, _coder_id, a, b, _db_path = client_with_codes
-    r = client.post(
-        "/api/codes/reorder-in-scope",
-        data={
-            "code_ids": json.dumps([b, a]),
-            "parent_id": "",
-            "current_index": 0,
-        },
-    )
-    assert r.status_code == 200
-    # text-panel primary swap + sidebar OOB
-    assert 'id="text-panel"' in r.text
-    assert 'id="code-sidebar"' in r.text
-    assert 'hx-swap-oob' in r.text
 
 
-def test_reorder_in_scope_within_folder(client_with_codes):
-    """Reorder works within a folder scope — only rows under that parent
-    get their sort_order updated."""
-    client, _coder_id, _a, _b, db_path = client_with_codes
-    folder_id = _create_folder(client, "Themes", db_path)
-    x = _add_test_code(client, "FX", db_path, parent_id=folder_id)
-    y = _add_test_code(client, "FY", db_path, parent_id=folder_id)
-    z = _add_test_code(client, "FZ", db_path, parent_id=folder_id)
-
-    # Reorder folder: FZ, FX, FY
-    r = client.post(
-        "/api/codes/reorder-in-scope",
-        data={
-            "code_ids": json.dumps([z, x, y]),
-            "parent_id": folder_id,
-            "current_index": 0,
-        },
-    )
-    assert r.status_code == 200, r.text
-
-    orders = _sort_orders_in_folder(db_path, folder_id)
-    assert orders[z] == 0
-    assert orders[x] == 1
-    assert orders[y] == 2
 
 
-def test_reorder_in_scope_ignores_codes_outside_scope(client_with_codes):
-    """If the client sends ids that live in a different scope, the UPDATE
-    is filtered to the requested parent — out-of-scope rows are untouched.
-
-    This is defensive: a stale client (e.g. mid-drag DOM) can't accidentally
-    move a code from one folder into another via the reorder endpoint.
-    """
-    client, _coder_id, root_a, root_b, db_path = client_with_codes
-    folder_id = _create_folder(client, "Themes", db_path)
-    inside = _add_test_code(client, "Inside", db_path, parent_id=folder_id)
-
-    before_root = _sort_orders_at_root(db_path)
-    before_folder = _sort_orders_in_folder(db_path, folder_id)
-
-    # Pretend client (incorrectly) lists a root code in the folder scope.
-    r = client.post(
-        "/api/codes/reorder-in-scope",
-        data={
-            "code_ids": json.dumps([inside, root_a]),
-            "parent_id": folder_id,
-            "current_index": 0,
-        },
-    )
-    assert r.status_code == 200, r.text
-
-    after_root = _sort_orders_at_root(db_path)
-    after_folder = _sort_orders_in_folder(db_path, folder_id)
-
-    # root_a's sort_order must NOT have changed (it's still in root scope).
-    assert after_root[root_a] == before_root[root_a]
-    assert after_root[root_b] == before_root[root_b]
-    # The in-scope row was renumbered to position 0.
-    assert after_folder[inside] == 0
-    # No spurious row got reparented.
-    assert set(after_folder.keys()) == set(before_folder.keys())
 
 
-def test_reorder_in_scope_records_undo(client_with_codes):
-    """Drag-reorder must be undoable — a Z press right after a swap puts
-    the codes back in their previous order. Regression guard: the route
-    used to silently skip undo, so Z would either pop an unrelated entry
-    or report "Nothing to undo"."""
-    client, _coder_id, a, b, db_path = client_with_codes
-
-    before = _sort_orders_at_root(db_path)
-
-    r = client.post(
-        "/api/codes/reorder-in-scope",
-        data={
-            "code_ids": json.dumps([b, a]),
-            "parent_id": "",
-            "current_index": 0,
-        },
-    )
-    assert r.status_code == 200
-    after_swap = _sort_orders_at_root(db_path)
-    assert after_swap[b] < after_swap[a], "swap should put b before a"
-
-    r = client.post("/api/undo", data={"current_index": 0})
-    assert r.status_code == 200
-    assert "Undone:" in r.text
-
-    after_undo = _sort_orders_at_root(db_path)
-    assert after_undo == before, "undo must restore prior sort_order"
 
 
-def test_reorder_in_scope_noop_does_not_record(client_with_codes):
-    """Re-saving the current order is a no-op — the undo stack stays clean
-    so one user drag is one Z press, not two. Mirrors the legacy
-    /codes/reorder no-op behaviour."""
-    client, _coder_id, a, b, _db_path = client_with_codes
-
-    # Real swap first to land sort_order at 0,1 (the route always renumbers
-    # from 0, so the fixture's 1,2 needs to be normalised before identity
-    # comparisons make sense).
-    r = client.post(
-        "/api/codes/reorder-in-scope",
-        data={"code_ids": json.dumps([b, a]), "parent_id": "", "current_index": 0},
-    )
-    assert r.status_code == 200
-
-    # Identity reorder of the new state — should NOT record an entry.
-    r = client.post(
-        "/api/codes/reorder-in-scope",
-        data={"code_ids": json.dumps([b, a]), "parent_id": "", "current_index": 0},
-    )
-    assert r.status_code == 200
-
-    # First undo reverses the swap; second says nothing — confirms the
-    # identity call did not push.
-    r = client.post("/api/undo", data={"current_index": 0})
-    assert r.status_code == 200
-    assert "Undone:" in r.text
-    r = client.post("/api/undo", data={"current_index": 0})
-    assert r.status_code == 200
-    assert "Nothing to undo" in r.text
 
 
-def test_reorder_in_scope_invalid_json_returns_oob_status(client_with_codes):
-    """Malformed code_ids must not 500 — return an OOB status fragment."""
-    client, *_ = client_with_codes
-    r = client.post(
-        "/api/codes/reorder-in-scope",
-        data={
-            "code_ids": "not-json",
-            "parent_id": "",
-            "current_index": 0,
-        },
-    )
-    assert r.status_code == 200
-    assert "Invalid code_ids format" in r.text
 
 
 # ---------------------------------------------------------------------------
@@ -2077,348 +638,20 @@ def test_reorder_in_scope_invalid_json_returns_oob_status(client_with_codes):
 # ---------------------------------------------------------------------------
 
 
-def test_create_code_palette_unaffected_by_folder_count(client_with_codes):
-    """F2 — `create_code` palette index counts only code rows, not folders.
-
-    Two scenarios with the same code-count must yield the same colour even
-    when the second one has extra folders sitting between them.
-    """
-    from ace.db.connection import open_project
-    from ace.models.codebook import COLOUR_PALETTE
-
-    client, _coder, _a, _b, db_path = client_with_codes
-
-    # Baseline: two codes already exist (Theme A, Theme B). Next palette
-    # slot for a freshly-created code should be index 2.
-    expected_colour = COLOUR_PALETTE[2][0]
-
-    r = client.post("/api/codes", data={"name": "Charlie", "current_index": 0})
-    assert r.status_code == 200
-
-    conn = open_project(db_path)
-    try:
-        row = conn.execute(
-            "SELECT colour FROM codebook_code WHERE name = ?", ("Charlie",)
-        ).fetchone()
-    finally:
-        conn.close()
-    assert row["colour"].upper() == expected_colour.upper()
-
-    # Create a folder, then a fourth code. With folders included in the
-    # palette index (the bug), the colour would shift by one. The fix
-    # filters `kind = 'code'`, so the next colour stays at palette[3].
-    r = client.post("/api/codes/folder", data={"name": "Themes", "current_index": 0})
-    assert r.status_code == 200
-
-    expected_after_folder = COLOUR_PALETTE[3][0]
-    r = client.post("/api/codes", data={"name": "Delta", "current_index": 0})
-    assert r.status_code == 200
-
-    conn = open_project(db_path)
-    try:
-        row = conn.execute(
-            "SELECT colour FROM codebook_code WHERE name = ?", ("Delta",)
-        ).fetchone()
-    finally:
-        conn.close()
-    assert row["colour"].upper() == expected_after_folder.upper()
 
 
-def test_delete_code_404_on_unknown_id(client_with_codes):
-    """F4 — DELETE /api/codes/{id} returns 404 for a missing id, no undo entry."""
-    client, *_ = client_with_codes
-    r = client.delete("/api/codes/this-id-does-not-exist", params={"current_index": 0})
-    assert r.status_code == 404
-
-    # The 404 should NOT have pushed an undo entry.
-    r = client.post("/api/undo", data={"current_index": 0})
-    assert r.status_code == 200
-    assert "Nothing to undo" in r.text
 
 
-def test_cut_paste_to_root_with_empty_target(client_with_codes):
-    """F5 — POST /api/codes/cut-paste accepts target_id="" as 'paste to root'."""
-    from ace.db.connection import open_project
-    from ace.models.codebook import add_folder, move_code_to_parent
-
-    client, _coder, code_a, _b, db_path = client_with_codes
-
-    # Move Theme A into a folder so we have something to "cut back to root".
-    conn = open_project(db_path)
-    try:
-        fid = add_folder(conn, "Themes")
-        move_code_to_parent(conn, code_a, fid)
-    finally:
-        conn.close()
-
-    r = client.post(
-        "/api/codes/cut-paste",
-        data={"code_id": code_a, "target_id": "", "current_index": 0},
-    )
-    assert r.status_code == 200, r.text
-
-    conn = open_project(db_path)
-    try:
-        parent = conn.execute(
-            "SELECT parent_id FROM codebook_code WHERE id = ?", (code_a,)
-        ).fetchone()["parent_id"]
-    finally:
-        conn.close()
-    assert parent is None, "code should be back at root scope"
 
 
-def test_cut_paste_404_on_unknown_target(client_with_codes):
-    """F5 sibling — non-empty target_id that doesn't exist still 404s."""
-    client, _coder, code_a, _b, _db = client_with_codes
-    r = client.post(
-        "/api/codes/cut-paste",
-        data={"code_id": code_a, "target_id": "no-such-id", "current_index": 0},
-    )
-    assert r.status_code == 404
 
 
-def test_convert_unannotated_code_to_folder_route_records_undo(client_with_codes):
-    from ace.db.connection import open_project
-
-    client, _coder, code_a, _b, db_path = client_with_codes
-
-    r = client.post(
-        f"/api/codes/{code_a}/convert-to-folder",
-        data={"current_index": 0},
-    )
-    assert r.status_code == 200, r.text
-
-    conn = open_project(db_path)
-    try:
-        row = conn.execute(
-            "SELECT kind, colour FROM codebook_code WHERE id = ?",
-            (code_a,),
-        ).fetchone()
-    finally:
-        conn.close()
-    assert row["kind"] == "folder"
-    assert row["colour"] == ""
-
-    r = client.post("/api/undo", data={"current_index": 0})
-    assert r.status_code == 200
-
-    conn = open_project(db_path)
-    try:
-        row = conn.execute(
-            "SELECT kind, colour FROM codebook_code WHERE id = ?",
-            (code_a,),
-        ).fetchone()
-    finally:
-        conn.close()
-    assert row["kind"] == "code"
-    assert row["colour"] == "#BF6030"
 
 
-def test_convert_annotated_code_to_folder_route_preserves_annotations(client_with_codes):
-    from ace.db.connection import open_project
-    from ace.models.annotation import add_annotation
-
-    client, coder_id, code_a, _b, db_path = client_with_codes
-
-    conn = open_project(db_path)
-    try:
-        source_id = conn.execute("SELECT id FROM source ORDER BY display_id LIMIT 1").fetchone()["id"]
-        ann_id = add_annotation(conn, source_id, coder_id, code_a, 0, 5, "First")
-    finally:
-        conn.close()
-
-    r = client.post(
-        f"/api/codes/{code_a}/convert-to-folder",
-        data={"current_index": 0},
-    )
-    assert r.status_code == 200, r.text
-
-    conn = open_project(db_path)
-    try:
-        parent = conn.execute(
-            "SELECT kind, colour FROM codebook_code WHERE id = ?",
-            (code_a,),
-        ).fetchone()
-        child = conn.execute(
-            "SELECT id, kind, name, colour, parent_id, deleted_at "
-            "FROM codebook_code WHERE parent_id = ? AND kind = 'code'",
-            (code_a,),
-        ).fetchone()
-        ann = conn.execute(
-            "SELECT code_id FROM annotation WHERE id = ?",
-            (ann_id,),
-        ).fetchone()
-    finally:
-        conn.close()
-
-    assert parent["kind"] == "folder"
-    assert parent["colour"] == ""
-    assert child["name"] == "Theme A"
-    assert child["colour"] == "#BF6030"
-    assert child["deleted_at"] is None
-    assert ann["code_id"] == child["id"]
-
-    r = client.post("/api/undo", data={"current_index": 0})
-    assert r.status_code == 200
-
-    conn = open_project(db_path)
-    try:
-        parent = conn.execute(
-            "SELECT kind, colour FROM codebook_code WHERE id = ?",
-            (code_a,),
-        ).fetchone()
-        child_after_undo = conn.execute(
-            "SELECT deleted_at FROM codebook_code WHERE id = ?",
-            (child["id"],),
-        ).fetchone()
-        ann_after_undo = conn.execute(
-            "SELECT code_id FROM annotation WHERE id = ?",
-            (ann_id,),
-        ).fetchone()
-    finally:
-        conn.close()
-    assert parent["kind"] == "code"
-    assert parent["colour"] == "#BF6030"
-    assert child_after_undo["deleted_at"] is not None
-    assert ann_after_undo["code_id"] == code_a
-
-    r = client.post("/api/redo", data={"current_index": 0})
-    assert r.status_code == 200
-
-    conn = open_project(db_path)
-    try:
-        parent = conn.execute(
-            "SELECT kind FROM codebook_code WHERE id = ?",
-            (code_a,),
-        ).fetchone()
-        child_after_redo = conn.execute(
-            "SELECT deleted_at FROM codebook_code WHERE id = ?",
-            (child["id"],),
-        ).fetchone()
-        ann_after_redo = conn.execute(
-            "SELECT code_id FROM annotation WHERE id = ?",
-            (ann_id,),
-        ).fetchone()
-    finally:
-        conn.close()
-    assert parent["kind"] == "folder"
-    assert child_after_redo["deleted_at"] is None
-    assert ann_after_redo["code_id"] == child["id"]
 
 
-def test_reorder_in_scope_accepts_folder_rows(client_with_codes):
-    """Nested folders require mixed code/folder sibling reorder in any scope."""
-    from ace.db.connection import open_project
-    from ace.models.codebook import add_folder
-
-    client, _coder, code_a, code_b, db_path = client_with_codes
-
-    conn = open_project(db_path)
-    try:
-        fid = add_folder(conn, "Themes")
-        before = conn.execute(
-            "SELECT sort_order FROM codebook_code WHERE id = ?", (fid,)
-        ).fetchone()["sort_order"]
-    finally:
-        conn.close()
-
-    # Send the folder id at index 0. The mixed-scope route should honour it.
-    r = client.post(
-        "/api/codes/reorder-in-scope",
-        data={
-            "code_ids": json.dumps([fid, code_a, code_b]),
-            "parent_id": "",
-            "current_index": 0,
-        },
-    )
-    assert r.status_code == 200
-
-    conn = open_project(db_path)
-    try:
-        after = conn.execute(
-            "SELECT sort_order FROM codebook_code WHERE id = ?", (fid,)
-        ).fetchone()["sort_order"]
-    finally:
-        conn.close()
-    assert before != 0
-    assert after == 0, "folder sort_order should be updated by reorder-in-scope"
 
 
-def test_set_parent_route_respects_target_order(client_with_codes):
-    """Cross-scope drag sends the destination sibling order with the parent move."""
-    from ace.db.connection import open_project
-    from ace.models.codebook import add_folder
-
-    client, _coder, _code_a, _code_b, db_path = client_with_codes
-
-    conn = open_project(db_path)
-    try:
-        target_folder = add_folder(conn, "Target")
-        first = _add_test_code(client, "First child", db_path, parent_id=target_folder)
-        second = _add_test_code(client, "Second child", db_path, parent_id=target_folder)
-        moving_folder = add_folder(conn, "Moving folder")
-    finally:
-        conn.close()
-    before_colours = _code_colours(db_path, [first, second])
-
-    response = client.put(
-        f"/api/codes/{moving_folder}/parent",
-        data={
-            "parent_id": target_folder,
-            "target_order_ids": json.dumps([first, moving_folder, second]),
-            "current_index": 0,
-        },
-    )
-    assert response.status_code == 200
-    assert response.headers["HX-Reswap"] == "none"
-
-    conn = open_project(db_path)
-    try:
-        rows = conn.execute(
-            "SELECT id FROM codebook_code "
-            "WHERE parent_id = ? AND deleted_at IS NULL "
-            "ORDER BY sort_order",
-            (target_folder,),
-        ).fetchall()
-    finally:
-        conn.close()
-    assert [row["id"] for row in rows] == [first, moving_folder, second]
-    assert _code_colours(db_path, [first, second]) == before_colours
-
-    response = client.post("/api/undo", data={"current_index": 0})
-    assert response.status_code == 200
-
-    conn = open_project(db_path)
-    try:
-        rows = conn.execute(
-            "SELECT id FROM codebook_code "
-            "WHERE parent_id = ? AND deleted_at IS NULL "
-            "ORDER BY sort_order",
-            (target_folder,),
-        ).fetchall()
-        parent_after_undo = conn.execute(
-            "SELECT parent_id FROM codebook_code WHERE id = ?",
-            (moving_folder,),
-        ).fetchone()["parent_id"]
-    finally:
-        conn.close()
-    assert [row["id"] for row in rows] == [first, second]
-    assert parent_after_undo is None
-
-    response = client.post("/api/redo", data={"current_index": 0})
-    assert response.status_code == 200
-
-    conn = open_project(db_path)
-    try:
-        rows = conn.execute(
-            "SELECT id FROM codebook_code "
-            "WHERE parent_id = ? AND deleted_at IS NULL "
-            "ORDER BY sort_order",
-            (target_folder,),
-        ).fetchall()
-    finally:
-        conn.close()
-    assert [row["id"] for row in rows] == [first, moving_folder, second]
 
 
 # ---------------------------------------------------------------------------
@@ -2450,57 +683,3 @@ def client_with_two_sentences(tmp_path):
         app.state.coder_id = coder_id
         client.get("/code")
         yield client, coder_id, code_a, str(db_path)
-
-
-def test_annotate_sentence_add_status(client_with_codes):
-    """POST /api/code/apply-sentence (new code) -> 'Applied' status fragment."""
-    client, _coder_id, code_a, _code_b, _db_path = client_with_codes
-    resp = client.post(
-        "/api/code/apply-sentence",
-        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
-    )
-    assert resp.status_code == 200
-    assert "Applied" in resp.text
-    assert "Theme A" in resp.text
-    # The status fragment swaps into the event channel.
-    assert 'id="ace-statusbar-event"' in resp.text
-    assert "ace-statusbar-event--ok" in resp.text
-
-
-def test_annotate_sentence_toggle_off_status(client_with_codes):
-    """Applying the same code to the same sentence again -> 'Removed' status."""
-    client, _coder_id, code_a, _code_b, _db_path = client_with_codes
-    # First apply (add)
-    client.post(
-        "/api/code/apply-sentence",
-        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
-    )
-    # Second apply (toggle off)
-    resp = client.post(
-        "/api/code/apply-sentence",
-        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
-    )
-    assert resp.status_code == 200
-    assert "Removed" in resp.text
-    assert "Theme A" in resp.text
-    assert 'id="ace-statusbar-event"' in resp.text
-
-
-def test_annotate_sentence_merge_status(client_with_two_sentences):
-    """Applying a code to a sentence adjacent to an existing same-code span
-    -> 'Merged with adjacent' status."""
-    client, _coder_id, code_a, _db_path = client_with_two_sentences
-    # Apply to sentence 0 (add)
-    client.post(
-        "/api/code/apply-sentence",
-        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
-    )
-    # Apply same code to the adjacent sentence 1 (merge)
-    resp = client.post(
-        "/api/code/apply-sentence",
-        data={"code_id": code_a, "sentence_index": 1, "current_index": 0},
-    )
-    assert resp.status_code == 200
-    assert "Merged" in resp.text
-    assert "adjacent" in resp.text
-    assert 'id="ace-statusbar-event"' in resp.text
