@@ -927,3 +927,26 @@ def test_annotate_sentence_merge_status(client_with_two_sentences):
     assert "Merged" in resp.text
     assert "adjacent" in resp.text
     assert 'id="ace-statusbar-event"' in resp.text
+
+
+def test_undo_after_annotate_sentence_merge_restores_original_sentence(
+    client_with_two_sentences,
+):
+    """Undoing an adjacent sentence merge keeps the original sentence annotation."""
+    client, _coder_id, code_a, db_path = client_with_two_sentences
+    client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
+    )
+    original = _active_annotation_ranges(db_path, 0)
+
+    client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 1, "current_index": 0},
+    )
+    assert _active_annotation_ranges(db_path, 0) != original
+
+    resp = client.post("/api/undo", data={"current_index": 0})
+
+    assert resp.status_code == 200
+    assert _active_annotation_ranges(db_path, 0) == original

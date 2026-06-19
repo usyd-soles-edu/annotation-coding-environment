@@ -277,7 +277,7 @@ async def annotate_sentence(
     Otherwise, add a new annotation alongside any existing codes.
     """
     from ace.models.annotation import (
-        add_annotation, delete_annotation, expand_annotation, get_annotations_for_source,
+        add_annotation, delete_annotation, get_annotations_for_source,
     )
     from ace.models.codebook import code_name
     from ace.models.source import get_source_content
@@ -338,12 +338,17 @@ async def annotate_sentence(
                     break
 
             if neighbour:
-                # Expand the existing annotation to include this sentence
+                # Replace adjacent same-code rows with a merged annotation so
+                # undo can restore the original row instead of deleting it.
                 new_start = min(neighbour["start_offset"], start)
                 new_end = max(neighbour["end_offset"], end)
                 new_text = source_text[new_start:new_end]
-                expand_annotation(conn, neighbour["id"], new_start, new_end, new_text)
-                undo.record_add(source_id, neighbour["id"])
+                from ace.models.annotation import add_annotation_merging
+                ann_id, replaced_ids = add_annotation_merging(
+                    conn, source_id, coder_id, code_id,
+                    new_start, new_end, new_text,
+                )
+                undo.record_merge_add(source_id, ann_id, replaced_ids)
                 status_msg = f"Merged {name} with adjacent"
             else:
                 try:

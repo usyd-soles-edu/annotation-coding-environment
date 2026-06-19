@@ -38,6 +38,7 @@ function _noteEls() {
 function _isDrawerOpen() {
   return document.documentElement.dataset.aceNoteOpen === "1";
 }
+window.aceIsNoteDrawerOpen = _isDrawerOpen;
 
 function _isEditing() {
   return document.activeElement?.id === "note-textarea";

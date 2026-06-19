@@ -1,5 +1,6 @@
-from pathlib import Path
 import subprocess
+import sys
+from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -8,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_headless_tree_distribution_matches_source():
     result = subprocess.run(
         [
-            "python3",
+            sys.executable,
             str(ROOT / "scripts" / "check_headless_tree_sync.py"),
         ],
         cwd=ROOT,
@@ -34,3 +35,10 @@ def test_notes_module_exposes_lifecycle_contract():
     )
     assert "window.aceInitNotes = aceInitNotes" in notes
     assert 'document.addEventListener("htmx:load"' in notes
+
+
+def test_notes_module_exposes_drawer_state_contract():
+    notes = (ROOT / "src" / "ace" / "static" / "js" / "ace_notes.js").read_text(
+        encoding="utf-8"
+    )
+    assert "window.aceIsNoteDrawerOpen = _isDrawerOpen" in notes

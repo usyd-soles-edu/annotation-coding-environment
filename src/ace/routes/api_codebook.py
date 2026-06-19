@@ -20,6 +20,7 @@ from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
 )
+from starlette.background import BackgroundTask
 
 
 router = APIRouter(prefix="/api")
@@ -490,6 +491,7 @@ async def export_codebook(request: Request):
         tmp.name,
         media_type="text/csv",
         filename="codebook.csv",
+        background=BackgroundTask(Path(tmp.name).unlink, missing_ok=True),
     )
 
 

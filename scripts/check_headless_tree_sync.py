@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 import subprocess
 
@@ -10,10 +11,23 @@ DIST = ROOT / "src" / "ace" / "static" / "js" / "codebook_headless_tree.js"
 BUILD = ROOT / "scripts" / "build_codebook_tree.sh"
 
 
-def main() -> int:
+def _check_files_exist() -> int:
     if not SOURCE.exists() or not DIST.exists() or not BUILD.exists():
         print("missing headless-tree source, distribution, or build script")
         return 1
+    if "src/ace/static/js/codebook_headless_tree_source.js" not in DIST.read_text(
+        encoding="utf-8"
+    ):
+        print("codebook_headless_tree.js does not include the source module marker")
+        return 1
+    print("headless-tree-contract-ok")
+    return 0
+
+
+def _check_rebuild_matches() -> int:
+    missing = _check_files_exist()
+    if missing:
+        return missing
 
     original_dist = DIST.read_text(encoding="utf-8")
     try:
@@ -41,6 +55,19 @@ def main() -> int:
         return 1
     print("headless-tree-sync-ok")
     return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--rebuild",
+        action="store_true",
+        help="rebuild the bundled JS and compare it with the committed file",
+    )
+    args = parser.parse_args()
+    if args.rebuild:
+        return _check_rebuild_matches()
+    return _check_files_exist()
 
 
 if __name__ == "__main__":

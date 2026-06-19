@@ -1,6 +1,7 @@
 import json
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -272,6 +273,35 @@ def test_codebook_import_preview_uses_compact_mapping_dialog(
     assert 'value="Dictionary Definition" selected' in resp.text
     assert "Sidebar preview" in resp.text
     assert "Barriers to using a service" in resp.text
+
+
+def test_codebook_export_removes_temp_file(client_with_sources, tmp_path, monkeypatch):
+    """The codebook export route removes its temporary CSV after serving it."""
+    import tempfile
+
+    import ace.routes.api_codebook as api_codebook
+
+    client, _coder_id = client_with_sources
+    temp_paths = []
+    original_named_temporary_file = tempfile.NamedTemporaryFile
+
+    def _named_temp_in_tmp_path(*args, **kwargs):
+        kwargs["dir"] = tmp_path
+        tmp = original_named_temporary_file(*args, **kwargs)
+        temp_paths.append(tmp.name)
+        return tmp
+
+    monkeypatch.setattr(
+        api_codebook.tempfile,
+        "NamedTemporaryFile",
+        _named_temp_in_tmp_path,
+    )
+
+    resp = client.get("/api/codes/export")
+
+    assert resp.status_code == 200
+    assert temp_paths
+    assert not any(Path(path).exists() for path in temp_paths)
 
 
 def test_codebook_import_preview_map_returns_definition_payload(
