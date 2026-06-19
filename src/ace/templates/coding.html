@@ -97,6 +97,7 @@ rect.ace-flash-{{ code["id"] }} {
       <div class="ace-sidebar-vsplit"
            role="separator"
            aria-orientation="horizontal"
+           aria-label="Resize source map"
            aria-controls="ace-sidebar-grid"
            aria-valuemin="10" aria-valuemax="70" aria-valuenow="35"
            aria-valuetext="35 percent of viewport height"
@@ -316,9 +317,11 @@ rect.ace-flash-{{ code["id"] }} {
           </header>
           <textarea id="note-textarea"
                     class="ace-note-textarea"
+                    aria-label="Source note"
                     placeholder="Write anything about this source…"
                     data-source-id="{{ current_source['id'] if current_source else '' }}"
-                    tabindex="-1">{{ current_note_text }}</textarea>
+                    tabindex="-1"
+                    {% if not open_note_drawer|default(false) %}disabled{% endif %}>{{ current_note_text }}</textarea>
         </aside>
       </aside>
       {% endblock %}

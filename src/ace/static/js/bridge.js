@@ -4208,8 +4208,7 @@
       btn.addEventListener("click", function (e) {
         e.preventDefault();
         e.stopPropagation();
-        const codebookDropdown = document.getElementById("codebook-dropdown");
-        if (codebookDropdown) codebookDropdown.style.display = "none";
+        _setCodebookMenuOpen(false);
         const open = btn.getAttribute("aria-expanded") !== "true";
         _setCodingTextMenuOpen(open);
       });
@@ -4264,19 +4263,48 @@
    * 18. Codebook menu
    * ================================================================ */
 
+  function _setCodebookMenuOpen(open, opts) {
+    const btn = document.getElementById("codebook-menu-btn");
+    const dropdown = document.getElementById("codebook-dropdown");
+    if (!btn || !dropdown) return;
+    const options = opts || {};
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    dropdown.hidden = !open;
+    if (open) {
+      const firstItem = dropdown.querySelector("button:not([disabled])");
+      if (firstItem) firstItem.focus();
+    } else if (options.restoreFocus) {
+      btn.focus();
+    }
+  }
+
+  function _codebookMenuItems() {
+    const dropdown = document.getElementById("codebook-dropdown");
+    if (!dropdown) return [];
+    return Array.from(dropdown.querySelectorAll('[role="menuitem"]:not([disabled])'));
+  }
+
+  function _focusCodebookMenuItem(delta) {
+    const items = _codebookMenuItems();
+    if (!items.length) return;
+    const index = items.indexOf(document.activeElement);
+    const nextIndex = index < 0 ? 0 : (index + delta + items.length) % items.length;
+    items[nextIndex].focus();
+  }
+
   // Codebook menu: toggle, import, export, shortcuts
   document.addEventListener("click", function (e) {
     const dropdown = document.getElementById("codebook-dropdown");
 
     // Keyboard shortcuts (absorbed from the old `?` button)
     if (e.target.closest("#codebook-menu-shortcuts-btn")) {
-      if (dropdown) dropdown.style.display = "none";
+      _setCodebookMenuOpen(false);
       _toggleCheatSheet();
       return;
     }
 
     if (e.target.closest("#create-first-code-btn")) {
-      if (dropdown) dropdown.style.display = "none";
+      _setCodebookMenuOpen(false);
       const input = document.getElementById("code-search-input");
       if (input) {
         _clearSearchFilter();
@@ -4294,7 +4322,7 @@
 
     // Import button
     if (e.target.closest("#codebook-menu-import-btn")) {
-      if (dropdown) dropdown.style.display = "none";
+      _setCodebookMenuOpen(false);
       fetch("/api/native/pick-file", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -4314,7 +4342,7 @@
 
     // Export codebook button
     if (e.target.closest("#codebook-export-btn")) {
-      if (dropdown) dropdown.style.display = "none";
+      _setCodebookMenuOpen(false);
       window.location.href = "/api/codes/export";
       window._setStatus("Exported", "ok");
       return;
@@ -4322,7 +4350,7 @@
 
     // Export all annotations button
     if (e.target.closest("#export-annotations-btn")) {
-      if (dropdown) dropdown.style.display = "none";
+      _setCodebookMenuOpen(false);
       window.location.href = "/api/export/annotations";
       window._setStatus("Exported", "ok");
       return;
@@ -4330,7 +4358,7 @@
 
     // Export source notes button
     if (e.target.closest("#export-notes-btn")) {
-      if (dropdown) dropdown.style.display = "none";
+      _setCodebookMenuOpen(false);
       window.location.href = "/api/export/notes";
       window._setStatus("Exported", "ok");
       return;
@@ -4338,7 +4366,7 @@
 
     // Fullscreen toggle button
     if (e.target.closest("#fullscreen-btn")) {
-      if (dropdown) dropdown.style.display = "none";
+      _setCodebookMenuOpen(false);
       _toggleFullscreen();
       return;
     }
@@ -4346,14 +4374,16 @@
     // Toggle button
     if (e.target.closest("#codebook-menu-btn")) {
       _setCodingTextMenuOpen(false);
-      if (dropdown) dropdown.style.display = dropdown.style.display === "none" ? "" : "none";
+      const btn = document.getElementById("codebook-menu-btn");
+      const open = btn && btn.getAttribute("aria-expanded") !== "true";
+      _setCodebookMenuOpen(open);
       e.stopPropagation();
       return;
     }
 
     // Click outside — close if open
-    if (dropdown && dropdown.style.display !== "none") {
-      dropdown.style.display = "none";
+    if (dropdown && !dropdown.hidden) {
+      _setCodebookMenuOpen(false);
     }
   });
 
@@ -4361,12 +4391,41 @@
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") {
       const dropdown = document.getElementById("codebook-dropdown");
-      if (dropdown && dropdown.style.display !== "none") {
-        dropdown.style.display = "none";
+      if (dropdown && !dropdown.hidden) {
+        _setCodebookMenuOpen(false, { restoreFocus: true });
+        e.preventDefault();
         e.stopPropagation();
       }
+      return;
     }
-  });
+    const dropdown = document.getElementById("codebook-dropdown");
+    if (!dropdown || dropdown.hidden) return;
+    if (!e.target.closest("#codebook-menu-wrapper")) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      e.stopPropagation();
+      _focusCodebookMenuItem(1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      e.stopPropagation();
+      _focusCodebookMenuItem(-1);
+    } else if (e.key === "Home") {
+      const first = _codebookMenuItems()[0];
+      if (first) {
+        e.preventDefault();
+        e.stopPropagation();
+        first.focus();
+      }
+    } else if (e.key === "End") {
+      const items = _codebookMenuItems();
+      const last = items[items.length - 1];
+      if (last) {
+        e.preventDefault();
+        e.stopPropagation();
+        last.focus();
+      }
+    }
+  }, true);
 
   // Fullscreen toggle
   function _toggleFullscreen() {
@@ -4948,6 +5007,17 @@
     }
   }
 
+  function _syncNoteDrawerA11y() {
+    const { drawer, textarea } = _noteEls();
+    const open = _isDrawerOpen();
+    if (drawer) drawer.setAttribute("aria-hidden", open ? "false" : "true");
+    if (!textarea) return;
+    textarea.disabled = !open;
+    if (!open) {
+      textarea.setAttribute("tabindex", "-1");
+    }
+  }
+
   function _flushAndBlurTextarea() {
     if (_noteSaveTimer) {
       clearTimeout(_noteSaveTimer);
@@ -4976,6 +5046,7 @@
     document.documentElement.dataset.aceNoteOpen = "1";
     drawer.setAttribute("aria-hidden", "false");
     if (pill) pill.setAttribute("aria-expanded", "true");
+    _syncNoteDrawerA11y();
     _syncAppliedPanelForNoteState();
     try { localStorage.setItem("ace-note-open", "1"); } catch (_) {}
     // No focus change — READ mode leaves focus where it was so shortcuts stay live.
@@ -5007,6 +5078,7 @@
     delete document.documentElement.dataset.aceNoteOpen;
     drawer.setAttribute("aria-hidden", "true");
     if (pill) pill.setAttribute("aria-expanded", "false");
+    _syncNoteDrawerA11y();
     _syncAppliedPanelForNoteState();
     try { localStorage.removeItem("ace-note-open"); } catch (_) {}
     _restoreDrawerFocus();
@@ -5183,6 +5255,7 @@
       const open = _isDrawerOpen();
       if (drawer) drawer.setAttribute("aria-hidden", open ? "false" : "true");
       if (pill) pill.setAttribute("aria-expanded", open ? "true" : "false");
+      _syncNoteDrawerA11y();
       _syncAppliedPanelForNoteState();
     }
   });
@@ -5194,6 +5267,7 @@
       if (drawer) drawer.setAttribute("aria-hidden", "false");
       if (pill) pill.setAttribute("aria-expanded", "true");
     }
+    _syncNoteDrawerA11y();
     _syncAppliedPanelForNoteState();
   });
 
