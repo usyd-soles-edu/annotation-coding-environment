@@ -4278,6 +4278,20 @@
     }
   }
 
+  function _codebookMenuItems() {
+    const dropdown = document.getElementById("codebook-dropdown");
+    if (!dropdown) return [];
+    return Array.from(dropdown.querySelectorAll('[role="menuitem"]:not([disabled])'));
+  }
+
+  function _focusCodebookMenuItem(delta) {
+    const items = _codebookMenuItems();
+    if (!items.length) return;
+    const index = items.indexOf(document.activeElement);
+    const nextIndex = index < 0 ? 0 : (index + delta + items.length) % items.length;
+    items[nextIndex].focus();
+  }
+
   // Codebook menu: toggle, import, export, shortcuts
   document.addEventListener("click", function (e) {
     const dropdown = document.getElementById("codebook-dropdown");
@@ -4381,6 +4395,34 @@
         _setCodebookMenuOpen(false, { restoreFocus: true });
         e.preventDefault();
         e.stopPropagation();
+      }
+      return;
+    }
+    const dropdown = document.getElementById("codebook-dropdown");
+    if (!dropdown || dropdown.hidden) return;
+    if (!e.target.closest("#codebook-menu-wrapper")) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      e.stopPropagation();
+      _focusCodebookMenuItem(1);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      e.stopPropagation();
+      _focusCodebookMenuItem(-1);
+    } else if (e.key === "Home") {
+      const first = _codebookMenuItems()[0];
+      if (first) {
+        e.preventDefault();
+        e.stopPropagation();
+        first.focus();
+      }
+    } else if (e.key === "End") {
+      const items = _codebookMenuItems();
+      const last = items[items.length - 1];
+      if (last) {
+        e.preventDefault();
+        e.stopPropagation();
+        last.focus();
       }
     }
   }, true);

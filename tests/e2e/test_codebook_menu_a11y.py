@@ -28,6 +28,18 @@ def test_codebook_menu_reports_state_and_moves_focus(ace_server, browser_name):
             assert dropdown.evaluate("el => el.hidden") is False
             assert page.evaluate("document.activeElement.id") == "codebook-menu-shortcuts-btn"
 
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "codebook-menu-import-btn"
+
+            page.keyboard.press("ArrowUp")
+            assert page.evaluate("document.activeElement.id") == "codebook-menu-shortcuts-btn"
+
+            page.keyboard.press("End")
+            assert page.evaluate("document.activeElement.id") == "fullscreen-btn"
+
+            page.keyboard.press("Home")
+            assert page.evaluate("document.activeElement.id") == "codebook-menu-shortcuts-btn"
+
             page.keyboard.press("Escape")
 
             assert menu_button.get_attribute("aria-expanded") == "false"
