@@ -7,17 +7,17 @@
 {% endblock %}
 
 {% block content %}
-<div class="ace-agreement-page">
+<main class="ace-agreement-page">
   <a href="/" class="ace-back">← Home</a>
 
   <div id="agreement-results">
-    <h1 class="ace-agreement-title">Inter-Coder Agreement</h1>
+    <h1 id="ace-agreement-title" class="ace-agreement-title" tabindex="-1">Inter-Coder Agreement</h1>
     <div class="ace-agreement-empty">
       <p>Select 2 or more .ace files to compute agreement</p>
-      <button class="ace-agreement-choose-btn" onclick="acePickAndCompute()">Choose files</button>
+      <button class="ace-agreement-choose-btn" data-agreement-pick-start onclick="acePickAndCompute()">Choose files</button>
     </div>
   </div>
-</div>
+</main>
 {% endblock %}
 
 {% block scripts %}
@@ -25,7 +25,7 @@
 (function() {
   "use strict";
 
-  var _HEADING = '<h1 class="ace-agreement-title">Inter-Coder Agreement</h1>';
+  var _HEADING = '<h1 id="ace-agreement-title" class="ace-agreement-title" tabindex="-1">Inter-Coder Agreement</h1>';
   // Snapshot the server-rendered pick state so the under-2-files branch can
   // restore it verbatim instead of re-typing the markup.
   var _initialResults = (document.getElementById("agreement-results") || {}).innerHTML || "";
@@ -49,7 +49,11 @@
     var fill = document.getElementById("ace-agreement-progress-fill");
     var label = document.getElementById("ace-agreement-progress-label");
     var sub = document.getElementById("ace-agreement-progress-sub");
-    if (fill) { fill.classList.add("is-error"); fill.style.width = "100%"; }
+    if (fill) {
+      fill.classList.add("is-error");
+      fill.style.width = "100%";
+      fill.setAttribute("aria-valuenow", "100");
+    }
     if (label) { label.classList.add("is-error"); label.textContent = labelText; }
     if (sub && subText) { sub.textContent = subText; }
   }
@@ -75,8 +79,25 @@
       _HEADING +
       '<div class="ace-agreement-error">' +
       '<p>Something went wrong. Please try again.</p>' +
-      '<button class="ace-agreement-choose-btn" onclick="acePickAndCompute()">Choose different files</button>' +
+      '<button class="ace-agreement-choose-btn" data-agreement-pick-start onclick="acePickAndCompute()">Choose different files</button>' +
       '</div>';
+    _focusAgreementTitle();
+  }
+
+  function _focusAgreementTitle() {
+    var title = document.querySelector("#agreement-results .ace-agreement-title");
+    if (title) {
+      title.focus({ preventScroll: true });
+    }
+  }
+
+  function _focusAgreementChoose() {
+    var choose = document.querySelector("[data-agreement-pick-start], [data-agreement-choose-again]");
+    if (choose) {
+      choose.focus({ preventScroll: true });
+      return;
+    }
+    _focusAgreementTitle();
   }
 
   function _selectedAgreementPaths() {
@@ -95,6 +116,10 @@
 
   function _setAgreementReviewBusy(busy) {
     _agreementPreviewPending = busy;
+    var results = document.getElementById("agreement-results");
+    if (results) {
+      results.dataset.agreementPreviewPending = busy ? "true" : "false";
+    }
     document.querySelectorAll("[data-agreement-remove], [data-agreement-compute]").forEach(function (button) {
       if (busy) {
         button.dataset.agreementWasDisabled = button.disabled ? "1" : "0";
@@ -130,6 +155,7 @@
     if (!paths || paths.length < 2) {
       _setAgreementReviewBusy(false);
       results.innerHTML = _initialResults;
+      _focusAgreementChoose();
       return Promise.resolve();
     }
 
@@ -149,7 +175,11 @@
         if (seq !== _agreementPreviewSeq) { return; }
         results.innerHTML = html;
         _setAgreementReviewBusy(false);
-        _restoreAgreementFocus(opts.focusRemoveIndex);
+        if (typeof opts.focusRemoveIndex === "number") {
+          _restoreAgreementFocus(opts.focusRemoveIndex);
+        } else {
+          _focusAgreementTitle();
+        }
       });
   }
 
@@ -160,7 +190,7 @@
       '<div class="ace-agreement-loading" role="status" aria-live="polite" style="text-align:left">' +
         '<div class="ace-agreement-progress">' +
           '<div class="ace-agreement-progress-bar">' +
-            '<div class="ace-agreement-progress-fill" id="ace-agreement-progress-fill" style="width:0%"></div>' +
+            '<div class="ace-agreement-progress-fill" id="ace-agreement-progress-fill" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="-1" style="width:0%"></div>' +
           '</div>' +
           '<div class="ace-agreement-progress-label" id="ace-agreement-progress-label">Computing agreement\u2026</div>' +
           '<div class="ace-agreement-progress-sub" id="ace-agreement-progress-sub"></div>' +
@@ -181,6 +211,7 @@
           return;
         }
         fill.style.width = p.percent + "%";
+        fill.setAttribute("aria-valuenow", String(p.percent));
         label.textContent = "Computing agreement\u2026 " + p.percent + "%";
         sub.textContent = p.stage || "";
       }).catch(function () { /* swallow \u2014 poll retries */ });
@@ -196,6 +227,10 @@
     }
 
     _showAgreementLoading();
+    var progress = document.getElementById("ace-agreement-progress-fill");
+    if (progress) {
+      progress.focus({ preventScroll: true });
+    }
     htmx.ajax("POST", "/api/agreement/compute", {
       values: { paths: JSON.stringify(paths) },
       target: "#agreement-results",
@@ -211,6 +246,7 @@
       var paths = _selectedAgreementPaths();
       var idx = Number(removeBtn.getAttribute("data-index"));
       if (Number.isInteger(idx) && idx >= 0 && idx < paths.length) {
+        _setAgreementReviewBusy(true);
         paths.splice(idx, 1);
         _renderAgreementPreview(paths, { focusRemoveIndex: idx }).catch(_showGenericAgreementError);
       }
@@ -220,7 +256,9 @@
     var computeBtn = e.target.closest && e.target.closest("[data-agreement-compute]");
     if (computeBtn) {
       e.preventDefault();
-      if (!computeBtn.disabled) {
+      var results = document.getElementById("agreement-results");
+      var previewPending = results && results.dataset.agreementPreviewPending === "true";
+      if (!computeBtn.disabled && !previewPending) {
         _startAgreementCompute();
       }
       return;
@@ -234,31 +272,37 @@
   });
 
   window.acePickAndCompute = function() {
-    fetch("/api/agreement/clear", { method: "POST" })
-      .then(function (clearResponse) {
-        if (!clearResponse.ok) {
-          throw new Error("Could not clear cached agreement results");
-        }
-        return fetch("/api/native/pick-files", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: "accept=.ace"
-        });
-      })
+    fetch("/api/native/pick-files", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "accept=.ace"
+    })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.paths || data.paths.length < 2) {
-          // Fewer than 2 files: re-show the pick state instead of failing
-          // silently. Also stop any poll left from an abandoned in-flight
-          // compute so it can't fire one extra /progress request.
-          _stopPoll();
-          document.getElementById("agreement-results").innerHTML = _initialResults;
+          _focusAgreementChoose();
           return;
         }
-        return _renderAgreementPreview(data.paths);
+        return fetch("/api/agreement/clear", { method: "POST" })
+          .then(function (clearResponse) {
+            if (!clearResponse.ok) {
+              throw new Error("Could not clear cached agreement results");
+            }
+            return _renderAgreementPreview(data.paths);
+          });
       })
       .catch(_showGenericAgreementError);
   };
+
+  document.addEventListener("htmx:afterSettle", function (e) {
+    if (!e.detail || !e.detail.target || e.detail.target.id !== "agreement-results") {
+      return;
+    }
+    var resultTitle = document.getElementById("ace-agreement-results-title");
+    if (resultTitle) {
+      resultTitle.focus({ preventScroll: true });
+    }
+  });
 })();
 </script>
 {% endblock %}

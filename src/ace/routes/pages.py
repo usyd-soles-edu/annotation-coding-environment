@@ -40,6 +40,12 @@ async def landing(request: Request):
     return templates.TemplateResponse(request, "landing.html")
 
 
+@router.get("/new-project", response_class=HTMLResponse)
+async def new_project_page(request: Request):
+    templates = request.app.state.templates
+    return templates.TemplateResponse(request, "new_project.html")
+
+
 @router.get("/import", response_class=HTMLResponse)
 async def import_page(request: Request):
     project_path: str | None = getattr(request.app.state, "project_path", None)

@@ -2,8 +2,30 @@
 
 .ace-agreement-page {
   max-width: 820px;
+  min-height: 100vh;
   margin: 0 auto;
   padding: 32px 24px;
+}
+
+.ace-agreement-page:has(.ace-agreement-empty),
+.ace-agreement-page:has(.ace-agreement-loading),
+.ace-agreement-page:has(.ace-agreement-error) {
+  display: grid;
+  align-content: center;
+}
+
+.ace-agreement-page:has(.ace-agreement-empty) #agreement-results,
+.ace-agreement-page:has(.ace-agreement-loading) #agreement-results,
+.ace-agreement-page:has(.ace-agreement-error) #agreement-results {
+  display: grid;
+  justify-items: center;
+  gap: var(--ace-space-4);
+}
+
+.ace-agreement-page:has(.ace-agreement-empty) .ace-agreement-title,
+.ace-agreement-page:has(.ace-agreement-loading) .ace-agreement-title,
+.ace-agreement-page:has(.ace-agreement-error) .ace-agreement-title {
+  text-align: center;
 }
 
 .ace-agreement-title {
@@ -386,8 +408,11 @@ th.col-num { text-align: right; }
 .ace-agreement-empty,
 .ace-agreement-loading,
 .ace-agreement-error {
+  display: grid;
+  align-content: center;
+  justify-items: center;
   text-align: center;
-  padding: 80px 24px;
+  padding: 0 24px;
   color: var(--ace-text-muted);
 }
 

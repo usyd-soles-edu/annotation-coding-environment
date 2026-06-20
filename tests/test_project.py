@@ -32,10 +32,11 @@ def tmp_project(tmp_path):
 # ── Create ──────────────────────────────────────────────────────────────
 
 
-def test_landing_project_form_is_hidden_and_keyboard_named(client):
+def test_landing_project_actions_are_keyboard_named(client):
     resp = client.get("/")
     assert resp.status_code == 200
-    assert '<button id="new-project-link"' in resp.text
+    assert '<a id="new-project-link"' in resp.text
+    assert 'href="/new-project"' in resp.text
     assert "<button" in resp.text and "Open project" in resp.text
     assert 'id="open-existing-btn"' in resp.text
     assert 'id="open-existing-btn" class="ace-home-action"' in resp.text
@@ -55,15 +56,36 @@ def test_landing_project_form_is_hidden_and_keyboard_named(client):
     assert '<span class="ace-home-shortcut-pair"><kbd>n</kbd><span>New</span></span>' in resp.text
     assert '<span class="ace-home-shortcut-pair"><kbd>o</kbd><span>Open</span></span>' in resp.text
     assert '<span class="ace-home-shortcut-pair"><kbd>a</kbd><span>Agreement</span></span>' in resp.text
-    assert 'id="new-project-form" class="ace-home-form" aria-labelledby="new-project-title"' in resp.text
-    assert 'id="cancel-new-project-btn" class="ace-home-back"' in resp.text
-    assert "Back" in resp.text
-    assert "hidden" in resp.text
+    assert 'id="ace-home-message"' in resp.text
+    assert 'id="new-project-form"' not in resp.text
+    assert "Cloud-synced folders" not in resp.text
+
+
+def test_new_project_page_is_minimal_and_keyboard_named(client):
+    resp = client.get("/new-project")
+    assert resp.status_code == 200
+    assert '<main class="ace-task-page ace-task-page--narrow">' in resp.text
+    assert 'href="/" class="ace-back" aria-keyshortcuts="Escape"' in resp.text
+    assert '<h1 id="new-project-title" class="ace-task-title">New project</h1>' in resp.text
+    assert 'id="new-project-form"' in resp.text
     assert 'id="new-project-input"' in resp.text
     assert 'id="choose-project-folder-btn"' in resp.text
-    assert 'id="new-project-path-preview"' in resp.text
-    assert 'id="ace-home-message"' in resp.text
-    assert "Cloud-synced folders" not in resp.text
+    assert 'id="create-project-btn"' in resp.text
+    assert 'id="ace-task-message"' in resp.text
+    assert "Annotation Coding Environment" not in resp.text.split('<main class="ace-task-page', 1)[1]
+
+
+def test_agreement_page_has_task_landmarks_and_progress_state(client):
+    resp = client.get("/agreement")
+    assert resp.status_code == 200
+    assert '<main class="ace-agreement-page">' in resp.text
+    assert 'id="ace-agreement-title" class="ace-agreement-title" tabindex="-1"' in resp.text
+    assert "data-agreement-pick-start" in resp.text
+    assert 'id="ace-agreement-progress-fill"' in resp.text
+    assert 'role="progressbar"' in resp.text
+    assert 'aria-valuemin="0"' in resp.text
+    assert 'aria-valuemax="100"' in resp.text
+    assert 'aria-valuenow="0"' in resp.text
 
 
 def test_create_project(client, tmp_path):

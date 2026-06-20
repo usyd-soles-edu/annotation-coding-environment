@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+
+{% block title %}New project - ACE{% endblock %}
+
+{% block content %}
+<main class="ace-task-page ace-task-page--narrow">
+  <a href="/" class="ace-back" aria-keyshortcuts="Escape">← Home</a>
+
+  <h1 id="new-project-title" class="ace-task-title">New project</h1>
+
+  <form id="new-project-form" class="ace-task-form" aria-labelledby="new-project-title">
+    <label class="ace-task-field">
+      <span class="ace-task-label">Project name</span>
+      <input id="new-project-input"
+             class="ace-task-input"
+             name="name"
+             autocomplete="off"
+             placeholder="Untitled project">
+    </label>
+
+    <div class="ace-task-location">
+      <span class="ace-task-label">Location</span>
+      <button id="choose-project-folder-btn" class="ace-btn" type="button">
+        Choose folder
+      </button>
+      <span id="new-project-folder-label" class="ace-task-path">No folder chosen</span>
+      <input id="new-project-folder" name="folder" type="hidden" value="">
+    </div>
+
+    <p id="new-project-path-preview" class="ace-task-path-preview" aria-live="polite"></p>
+    <p id="ace-task-message" class="ace-task-message" role="status" aria-live="polite"></p>
+
+    <div class="ace-task-actions">
+      <button id="create-project-btn" class="ace-btn ace-btn--primary" type="submit" disabled>
+        Create project
+      </button>
+    </div>
+  </form>
+
+  <div id="modal-container"></div>
+</main>
+{% endblock %}
+
+{% block pre_bridge_scripts %}
+<script>
+window.addEventListener("keydown", function(event) {
+  if (event.altKey || event.ctrlKey || event.metaKey) return;
+  if (event.key === "Escape" && document.getElementById("new-project-form")) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.location.href = "/";
+  }
+}, true);
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  "use strict";
+
+  var STORAGE_KEY = "ace-recent-files";
+  var selectedFolder = "";
+  var pendingOverwrite = false;
+  var pendingRecentPath = "";
+
+  var form = document.getElementById("new-project-form");
+  var nameInput = document.getElementById("new-project-input");
+  var folderInput = document.getElementById("new-project-folder");
+  var folderLabel = document.getElementById("new-project-folder-label");
+  var chooseFolderBtn = document.getElementById("choose-project-folder-btn");
+  var pathPreview = document.getElementById("new-project-path-preview");
+  var createBtn = document.getElementById("create-project-btn");
+  var message = document.getElementById("ace-task-message");
+  var modal = document.getElementById("modal-container");
+
+  function setMessage(text, kind) {
+    message.textContent = text || "";
+    message.dataset.kind = kind || "";
+    var live = document.getElementById(kind === "err" ? "ace-live-region-assertive" : "ace-live-region");
+    if (live) live.textContent = text || "";
+  }
+
+  function projectName() {
+    return nameInput.value.trim();
+  }
+
+  function projectPath() {
+    if (!selectedFolder || !projectName()) return "";
+    return selectedFolder.replace(/\/$/, "") + "/" + projectName().replace(/\.ace$/, "") + ".ace";
+  }
+
+  function updateFormState() {
+    var path = projectPath();
+    folderInput.value = selectedFolder;
+    folderLabel.textContent = selectedFolder || "No folder chosen";
+    pathPreview.textContent = path ? "Project file: " + path : "";
+    createBtn.disabled = !(projectName() && selectedFolder);
+  }
+
+  function selectedPath(value) {
+    if (!value) return "";
+    if (Array.isArray(value)) return value[0] || "";
+    if (typeof value === "string") return value;
+    return value.path || String(value);
+  }
+
+  function pathFromNativeSelection(value) {
+    var path = selectedPath(value);
+    if (!path || path.indexOf("file://") !== 0) return path;
+    try {
+      var parsed = new URL(path);
+      var decoded = decodeURIComponent(parsed.pathname);
+      return decoded.match(/^\/[A-Za-z]:\//) ? decoded.slice(1) : decoded;
+    } catch (_) {
+      return path;
+    }
+  }
+
+  function pickFolderPath() {
+    return fetch("/api/native/pick-folder", { method: "POST" })
+      .then(function(r) { return r.json(); })
+      .then(function(data) { return pathFromNativeSelection(data.path || ""); });
+  }
+
+  function handlePickerFailure() {
+    chooseFolderBtn.disabled = false;
+    chooseFolderBtn.textContent = "Choose folder";
+    setMessage("Could not open the folder picker. Try again.", "err");
+  }
+
+  function migrateRecent(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.map(function(item) {
+      if (typeof item === "string") return { path: item, openedAt: 0 };
+      if (item && typeof item.path === "string") return item;
+      return null;
+    }).filter(Boolean);
+  }
+
+  function getRecent() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      return migrateRecent(raw);
+    } catch(e) { return []; }
+  }
+
+  function addRecent(path) {
+    var list = getRecent().filter(function(item) { return item.path !== path; });
+    list.unshift({ path: path, openedAt: Date.now() });
+    if (list.length > 5) list = list.slice(0, 5);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  }
+
+  function getResponseHeader(xhr, name) {
+    if (!xhr) return "";
+    return xhr.getResponseHeader(name) || xhr.getResponseHeader(name.toLowerCase()) || "";
+  }
+
+  function getOobErrorText(body) {
+    if (!body || body.indexOf("ace-statusbar-event--err") === -1) return null;
+    var template = document.createElement("template");
+    template.innerHTML = body;
+    var event = template.content.querySelector("#ace-statusbar-event.ace-statusbar-event--err");
+    return event ? event.textContent.trim() : "Could not complete request.";
+  }
+
+  nameInput.addEventListener("input", updateFormState);
+  form.addEventListener("keydown", function(e) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      window.location.href = "/";
+    }
+  });
+
+  chooseFolderBtn.addEventListener("click", function() {
+    setMessage("", "");
+    chooseFolderBtn.disabled = true;
+    chooseFolderBtn.textContent = "Choosing folder...";
+    pickFolderPath()
+      .then(function(path) {
+        chooseFolderBtn.disabled = false;
+        chooseFolderBtn.textContent = "Choose folder";
+        if (!path) {
+          createBtn.focus({ preventScroll: true });
+          return;
+        }
+        selectedFolder = path;
+        updateFormState();
+        if (!createBtn.disabled) {
+          createBtn.focus({ preventScroll: true });
+        }
+      })
+      .catch(handlePickerFailure);
+  });
+
+  form.addEventListener("submit", function(e) {
+    e.preventDefault();
+    var path = projectPath();
+    if (!path) return;
+    setMessage("Creating project...", "");
+    createBtn.disabled = true;
+    pendingRecentPath = path;
+    Promise.resolve(htmx.ajax("POST", "/api/project/create", {
+      values: { name: projectName(), path: path, overwrite: pendingOverwrite ? "true" : "false" },
+      target: "#modal-container",
+      swap: "innerHTML"
+    })).finally(function() {
+      createBtn.disabled = false;
+      updateFormState();
+    });
+  });
+
+  window._aceConfirmOverwrite = function() {
+    pendingOverwrite = true;
+    form.requestSubmit();
+  };
+
+  window._aceChooseAnotherFolder = function() {
+    pendingOverwrite = false;
+    pendingRecentPath = "";
+    modal.innerHTML = "";
+    chooseFolderBtn.focus();
+  };
+
+  document.addEventListener("htmx:afterRequest", function(evt) {
+    var pathInfo = evt.detail.pathInfo || {};
+    var requestConfig = evt.detail.requestConfig || {};
+    var path = pathInfo.requestPath || pathInfo.finalRequestPath || requestConfig.path;
+    if (path !== "/api/project/create") return;
+    var xhr = evt.detail.xhr;
+    var body = (xhr && xhr.responseText) || "";
+    var redirected = getResponseHeader(xhr, "HX-Redirect");
+    var errorText = getOobErrorText(body);
+    var is2xx = xhr && xhr.status >= 200 && xhr.status < 300;
+    if (errorText !== null) {
+      setMessage(errorText, "err");
+      pendingRecentPath = "";
+      return;
+    }
+    if (is2xx && redirected && pendingRecentPath) {
+      addRecent(pendingRecentPath);
+    }
+    if (redirected || body.indexOf("project-overwrite-dialog") === -1) {
+      pendingRecentPath = "";
+      setMessage("", "");
+    }
+  });
+
+  nameInput.focus({ preventScroll: true });
+  updateFormState();
+})();
+</script>
+{% endblock %}
