@@ -75,6 +75,40 @@ def test_landing_keyboard_shortcuts_open_primary_actions(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_landing_keyboard_shortcuts_open_resume_and_agreement(
+    ace_server, tmp_path, browser_name
+):
+    project = tmp_path / "Recent Shortcut.ace"
+    conn = create_project(str(project), "Recent Shortcut")
+    conn.close()
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/")
+            page.evaluate(
+                """
+                (path) => localStorage.setItem(
+                  "ace-recent-files",
+                  JSON.stringify([{ path, openedAt: 1 }])
+                )
+                """,
+                str(project),
+            )
+            page.reload()
+
+            page.keyboard.press("r")
+            page.wait_for_url("**/import", timeout=5000)
+
+            page.goto(f"{ace_server}/")
+            page.keyboard.press("a")
+            page.wait_for_url("**/agreement", timeout=5000)
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_landing_arrow_keys_cycle_visible_actions_without_recent(
     ace_server, browser_name
 ):
@@ -128,8 +162,10 @@ def test_landing_arrow_keys_include_recent_project(
 
             page.keyboard.press("ArrowDown")
             assert page.evaluate(
-                "() => document.activeElement.closest('#resume-link') !== null"
+                "() => document.activeElement.id === 'resume-project-link'"
             )
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "resume-clear-btn"
             page.keyboard.press("ArrowDown")
             assert page.evaluate("document.activeElement.id") == "new-project-link"
             page.keyboard.press("ArrowDown")
@@ -141,6 +177,50 @@ def test_landing_arrow_keys_include_recent_project(
 
             page.keyboard.press("ArrowUp")
             assert page.evaluate("document.activeElement.id") == "open-existing-btn"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_landing_arrow_keys_and_enter_activate_open_project_and_agreement(
+    ace_server, tmp_path, browser_name
+):
+    project = tmp_path / "Arrow Open.ace"
+    conn = create_project(str(project), "Arrow Open")
+    conn.close()
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-file",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body='{"path": "%s"}' % str(project).replace('\\', '\\\\'),
+                ),
+            )
+
+            page.goto(f"{ace_server}/")
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "new-project-link"
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "open-existing-btn"
+            page.keyboard.press("Enter")
+            page.wait_for_url("**/import", timeout=5000)
+
+            page.goto(f"{ace_server}/")
+            page.evaluate('localStorage.removeItem("ace-recent-files")')
+            page.reload()
+            page.keyboard.press("ArrowDown")
+            page.keyboard.press("ArrowDown")
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate(
+                "() => document.activeElement.classList.contains('ace-home-tool-link')"
+            )
+            page.keyboard.press("Enter")
+            page.wait_for_url("**/agreement", timeout=5000)
         finally:
             browser.close()
 
@@ -184,9 +264,40 @@ def test_landing_dismisses_last_recent_project(ace_server, browser_name):
             resume = page.locator("#resume-link")
             assert resume.is_visible()
 
-            page.locator(".ace-home-resume-close").click()
+            page.locator("#resume-clear-btn").click()
 
             assert not resume.is_visible()
+            assert page.evaluate('localStorage.getItem("ace-recent-files")') is None
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_landing_arrow_keys_can_focus_and_enter_clear_recent(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/")
+            page.evaluate(
+                """
+                localStorage.setItem(
+                  "ace-recent-files",
+                  JSON.stringify([{ path: "/tmp/example.ace", openedAt: 1 }])
+                );
+                """
+            )
+            page.reload()
+
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "resume-project-link"
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "resume-clear-btn"
+            page.keyboard.press("Enter")
+
+            assert not page.locator("#resume-link").is_visible()
             assert page.evaluate('localStorage.getItem("ace-recent-files")') is None
         finally:
             browser.close()

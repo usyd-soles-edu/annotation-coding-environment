@@ -12,22 +12,23 @@
       <p class="ace-home-subtitle">Annotation Coding Environment</p>
     </div>
 
-    <!-- Resume (conditional, rendered by JS) -->
-    <div id="resume-link" class="ace-home-resume" hidden></div>
+    <!-- Quick resume (conditional, rendered by JS) -->
+    <section id="resume-link"
+             class="ace-home-section ace-home-section--resume ace-home-tight"
+             aria-label="Quick resume"
+             hidden></section>
 
     <!-- Actions -->
-    <div class="ace-home-actions" aria-label="Project actions">
-      <button id="new-project-link" class="ace-home-action ace-home-action-primary"
+    <nav class="ace-home-section ace-home-actions" aria-label="Project actions">
+      <button id="new-project-link" class="ace-home-action"
               type="button" aria-keyshortcuts="n" title="New project">
-        <span class="ace-home-keycap" aria-hidden="true">n</span>
         <span class="ace-home-action-label">New project</span>
       </button>
-      <button id="open-existing-btn" class="ace-home-action ace-home-action-secondary"
-              type="button" aria-keyshortcuts="o" title="Open existing project">
-        <span class="ace-home-keycap" aria-hidden="true">o</span>
-        <span class="ace-home-action-label">Open existing</span>
+      <button id="open-existing-btn" class="ace-home-action"
+              type="button" aria-keyshortcuts="o" title="Open project">
+        <span class="ace-home-action-label">Open project</span>
       </button>
-    </div>
+    </nav>
 
     <form id="new-project-form" class="ace-home-form" aria-labelledby="new-project-title" hidden>
       <div class="ace-home-form-head">
@@ -65,9 +66,20 @@
 
 
     <!-- Tools -->
-    <div class="ace-home-tools">
-      <p class="ace-home-section-label">Tools</p>
-      <a class="ace-home-tool-link" href="/agreement">Inter-Coder Agreement</a>
+    <section class="ace-home-section ace-home-tools ace-home-tight" aria-labelledby="tools-title">
+      <h2 id="tools-title" class="ace-home-section-title">Tools</h2>
+      <a class="ace-home-tool-link" href="/agreement" aria-keyshortcuts="a">
+        <span class="ace-home-tool-label">Inter-coder agreement</span>
+      </a>
+    </section>
+
+    <div id="ace-home-shortcuts" class="ace-home-shortcuts">
+      <span class="ace-home-shortcuts-title">Shortcuts</span>
+      <span class="ace-home-shortcuts-strip">
+        <span class="ace-home-shortcut-pair"><kbd>n</kbd><span>New</span></span>
+        <span class="ace-home-shortcut-pair"><kbd>o</kbd><span>Open</span></span>
+        <span class="ace-home-shortcut-pair"><kbd>a</kbd><span>Agreement</span></span>
+      </span>
     </div>
 
     <div id="modal-container"></div>
@@ -114,7 +126,7 @@
 
   function landingNavItems() {
     return Array.from(document.querySelectorAll(
-      "#resume-link:not([hidden]) a, #new-project-link, #open-existing-btn, .ace-home-tool-link"
+      "#resume-link:not([hidden]) a, #resume-link:not([hidden]) button, #new-project-link, #open-existing-btn, .ace-home-tool-link"
     )).filter(function(el) {
       return !el.disabled && el.offsetParent !== null;
     });
@@ -289,7 +301,7 @@
       .finally(function() {
         openExistingBtn.disabled = false;
         openExistingBtn.removeAttribute("aria-busy");
-        openExistingLabel.textContent = "Open existing";
+        openExistingLabel.textContent = "Open project";
       });
   }
 
@@ -343,19 +355,37 @@
     var el = document.getElementById("resume-link");
     if (!list.length) {
       el.hidden = true;
+      document.getElementById("ace-home-shortcuts").innerHTML =
+        '<span class="ace-home-shortcuts-title">Shortcuts</span>' +
+        '<span class="ace-home-shortcuts-strip">' +
+          '<span class="ace-home-shortcut-pair"><kbd>n</kbd><span>New</span></span>' +
+          '<span class="ace-home-shortcut-pair"><kbd>o</kbd><span>Open</span></span>' +
+          '<span class="ace-home-shortcut-pair"><kbd>a</kbd><span>Agreement</span></span>' +
+        '</span>';
       return;
     }
     var parts = list[0].path.split("/");
     var filename = parts.pop();
     var path = list[0].path;
-    el.innerHTML = '<a href="#">' + escapeHtml(filename) + '</a>' +
-      '<button class="ace-home-resume-close" type="button" title="Dismiss recent project" aria-label="Dismiss recent project">\u00d7</button>';
-    el.querySelector("a").addEventListener("click", function(event) {
+    el.innerHTML = '<h2 class="ace-home-section-title">Quick resume</h2>' +
+      '<span class="ace-home-resume-line">' +
+        '<a id="resume-project-link" class="ace-home-resume-link" href="#" aria-keyshortcuts="r">' + escapeHtml(filename) + '</a>' +
+        '<button id="resume-clear-btn" class="ace-home-resume-close" type="button" title="Clear quick resume" aria-label="Clear quick resume">\u00d7</button>' +
+      '</span>';
+    el.querySelector("#resume-project-link").addEventListener("click", function(event) {
       event.preventDefault();
       openProject(path);
     });
-    el.querySelector("button").addEventListener("click", clearResume);
+    el.querySelector("#resume-clear-btn").addEventListener("click", clearResume);
     el.hidden = false;
+    document.getElementById("ace-home-shortcuts").innerHTML =
+      '<span class="ace-home-shortcuts-title">Shortcuts</span>' +
+      '<span class="ace-home-shortcuts-strip">' +
+        '<span class="ace-home-shortcut-pair"><kbd>r</kbd><span>Resume</span></span>' +
+        '<span class="ace-home-shortcut-pair"><kbd>n</kbd><span>New</span></span>' +
+        '<span class="ace-home-shortcut-pair"><kbd>o</kbd><span>Open</span></span>' +
+        '<span class="ace-home-shortcut-pair"><kbd>a</kbd><span>Agreement</span></span>' +
+      '</span>';
   }
 
   openExistingBtn.addEventListener("click", openExisting);
@@ -374,12 +404,22 @@
       moveLandingFocus(event.key === "ArrowDown" ? 1 : -1);
       return;
     }
-    if (event.key.toLowerCase() === "n") {
+    var key = event.key.toLowerCase();
+    if (key === "r") {
+      var resume = document.getElementById("resume-project-link");
+      if (resume && !document.getElementById("resume-link").hidden) {
+        event.preventDefault();
+        resume.click();
+      }
+    } else if (key === "n") {
       event.preventDefault();
       showNewProjectForm();
-    } else if (event.key.toLowerCase() === "o") {
+    } else if (key === "o") {
       event.preventDefault();
       openExisting();
+    } else if (key === "a") {
+      event.preventDefault();
+      window.location.href = "/agreement";
     }
   });
 

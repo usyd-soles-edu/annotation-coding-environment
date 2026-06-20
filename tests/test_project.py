@@ -36,17 +36,25 @@ def test_landing_project_form_is_hidden_and_keyboard_named(client):
     resp = client.get("/")
     assert resp.status_code == 200
     assert '<button id="new-project-link"' in resp.text
-    assert "<button" in resp.text and "Open existing" in resp.text
+    assert "<button" in resp.text and "Open project" in resp.text
     assert 'id="open-existing-btn"' in resp.text
-    assert 'id="open-existing-btn" class="ace-home-action ace-home-action-secondary"' in resp.text
-    assert 'id="open-existing-btn" class="ace-home-action ace-home-action-secondary"\n              type="button" aria-keyshortcuts="o"' in resp.text
+    assert 'id="open-existing-btn" class="ace-home-action"' in resp.text
+    assert 'type="button" aria-keyshortcuts="o"' in resp.text
     assert 'id="open-existing-btn"' in resp.text and "disabled" not in resp.text.split('id="open-existing-btn"', 1)[1].split(">", 1)[0]
-    assert '<span class="ace-home-action-label">Open existing</span>' in resp.text
-    assert '<span class="ace-home-keycap" aria-hidden="true">o</span>' in resp.text
-    assert 'id="new-project-link" class="ace-home-action ace-home-action-primary"' in resp.text
+    assert '<span class="ace-home-action-label">Open project</span>' in resp.text
+    assert 'id="new-project-link" class="ace-home-action"' in resp.text
     assert 'aria-keyshortcuts="n"' in resp.text
     assert '<span class="ace-home-action-label">New project</span>' in resp.text
-    assert '<span class="ace-home-keycap" aria-hidden="true">n</span>' in resp.text
+    assert 'id="resume-link"' in resp.text
+    assert "ace-home-section--resume" in resp.text
+    assert "Quick resume" in resp.text
+    assert 'id="tools-title" class="ace-home-section-title">Tools</h2>' in resp.text
+    assert 'aria-keyshortcuts="a"' in resp.text
+    assert 'id="ace-home-shortcuts" class="ace-home-shortcuts"' in resp.text
+    assert '<span class="ace-home-shortcuts-title">Shortcuts</span>' in resp.text
+    assert '<span class="ace-home-shortcut-pair"><kbd>n</kbd><span>New</span></span>' in resp.text
+    assert '<span class="ace-home-shortcut-pair"><kbd>o</kbd><span>Open</span></span>' in resp.text
+    assert '<span class="ace-home-shortcut-pair"><kbd>a</kbd><span>Agreement</span></span>' in resp.text
     assert 'id="new-project-form" class="ace-home-form" aria-labelledby="new-project-title"' in resp.text
     assert 'id="cancel-new-project-btn" class="ace-home-back"' in resp.text
     assert "Back" in resp.text
