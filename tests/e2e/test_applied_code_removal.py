@@ -23,6 +23,9 @@ def _apply_annotation(page, code_index: int, start: int, end: int, text: str):
               current_index: window.__aceCurrentIndex || 0,
             },
           });
+          await new Promise((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+          });
         }
         """,
         {"codeIndex": code_index, "start": start, "end": end, "text": text},

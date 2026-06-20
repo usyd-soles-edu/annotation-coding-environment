@@ -150,6 +150,9 @@
     });
   }
 
+  window.aceGetSentences = _getSentences;
+  window.aceFocusSentence = _focusSentence;
+
   /* ================================================================
    * 3. Folder collapse / expand
    * ================================================================ */
@@ -438,7 +441,7 @@
     if (_codeApplicationDisabled()) return false;
     if (!Number.isFinite(window.__aceFocusIndex) || window.__aceFocusIndex < 0) return false;
 
-    htmx.ajax("POST", "/api/code/apply-sentence", {
+    const request = htmx.ajax("POST", "/api/code/apply-sentence", {
       target: "#text-panel",
       swap: "outerHTML",
       values: {
@@ -453,7 +456,7 @@
 
     window.__aceLastCodeId = codeId;
     _flashCodeRow(codeId);
-    return true;
+    return request;
   }
 
   function _applyCodeToSelection(codeId, afterApply) {
@@ -461,7 +464,7 @@
     const sel = window.__aceLastSelection;
     if (!sel) return false;
 
-    htmx.ajax("POST", "/api/code/apply", {
+    const request = htmx.ajax("POST", "/api/code/apply", {
       target: "#text-panel",
       swap: "outerHTML",
       values: {
@@ -480,7 +483,7 @@
     window.__aceLastSelection = null;
     window.getSelection().removeAllRanges();
     _flashCodeRow(codeId);
-    return true;
+    return request;
   }
 
   function _deleteSentenceAnnotation() {
@@ -508,6 +511,9 @@
       },
     }).then(_restoreFocus);
   }
+
+  window.aceDeleteSentenceAnnotation = _deleteSentenceAnnotation;
+  window.aceDeleteAppliedAnnotation = _deleteAppliedAnnotation;
 
   function _flashCodeRow(codeId) {
     document.querySelectorAll(
@@ -573,32 +579,6 @@
     // Skip remaining if modifier keys held
     if (ctrl || e.altKey) return;
 
-    // ↓ — Navigate to next sentence (or focus first if none focused)
-    if (key === "ArrowDown") {
-      e.preventDefault();
-      const sentences = _getSentences();
-      if (sentences.length === 0) return;
-      if (window.__aceFocusIndex < 0) {
-        _focusSentence(0);
-      } else if (window.__aceFocusIndex < sentences.length - 1) {
-        _focusSentence(window.__aceFocusIndex + 1);
-      }
-      return;
-    }
-
-    // ↑ — Navigate to previous sentence (or focus last if none focused)
-    if (key === "ArrowUp") {
-      e.preventDefault();
-      const sentencesUp = _getSentences();
-      if (sentencesUp.length === 0) return;
-      if (window.__aceFocusIndex < 0) {
-        _focusSentence(sentencesUp.length - 1);
-      } else if (window.__aceFocusIndex > 0) {
-        _focusSentence(window.__aceFocusIndex - 1);
-      }
-      return;
-    }
-
     // Shift+← / Shift+→ — Navigate between sources
     if (key === "ArrowLeft" && shift) {
       e.preventDefault();
@@ -608,32 +588,6 @@
     if (key === "ArrowRight" && shift) {
       e.preventDefault();
       window.aceNavigate(window.__aceCurrentIndex + 1);
-      return;
-    }
-
-    // ← / → (unmodified) — Aliases for ↑ / ↓ when reading. Text panel has no
-    // character cursor, so the horizontal arrows are free. "Forward / back"
-    // reads more naturally than strict "up / down" for sequential content.
-    if (key === "ArrowRight" && !shift) {
-      e.preventDefault();
-      const sentencesR = _getSentences();
-      if (sentencesR.length === 0) return;
-      if (window.__aceFocusIndex < 0) {
-        _focusSentence(0);
-      } else if (window.__aceFocusIndex < sentencesR.length - 1) {
-        _focusSentence(window.__aceFocusIndex + 1);
-      }
-      return;
-    }
-    if (key === "ArrowLeft" && !shift) {
-      e.preventDefault();
-      const sentencesL = _getSentences();
-      if (sentencesL.length === 0) return;
-      if (window.__aceFocusIndex < 0) {
-        _focusSentence(sentencesL.length - 1);
-      } else if (window.__aceFocusIndex > 0) {
-        _focusSentence(window.__aceFocusIndex - 1);
-      }
       return;
     }
 
@@ -771,11 +725,14 @@
     card.innerHTML =
       '<h3 style="margin:0 0 12px;font-size:15px;font-weight:600;">Keyboard shortcuts</h3>' +
       '<table style="width:100%;border-collapse:collapse;">' +
+      _shortcutRow("←", "Move from source to codebook") +
       _shortcutRow("↑ / ↓", "Navigate sentences") +
+      _shortcutRow("→", "Move from source to applied codes") +
       _shortcutRow("Shift + ← / →", "Previous / next source") +
       _shortcutRow("1 – 9, 0, a–y (not q v x z n)", "Apply code") +
       _shortcutRow("; then two letters", "Apply a two-key shortcut") +
       _shortcutRow("Q", "Repeat last code") +
+      _shortcutRow("Delete / ⌫", "Delete focused sentence code or choose one") +
       _shortcutRow("X", "Remove code from sentence") +
       _shortcutRow("Z", "Undo") +
       _shortcutRow("Ctrl/⌘ + Z", "Undo") +
@@ -783,6 +740,9 @@
       _shortcutRow("Shift + F", "Flag/unflag source") +
       _shortcutRow("N", "Open / close note panel") +
       _shortcutRow("V", "View coded text") +
+      _shortcutRow("Applied ↑ / ↓", "Move through applied codes") +
+      _shortcutRow("Applied ← / Esc", "Return to source") +
+      _shortcutRow("Applied Delete", "Delete the focused annotation") +
       _shortcutRow("Tab", "Cycle source → search → tree → source") +
       _shortcutRow("⌥ + →", "Move item into the folder above") +
       _shortcutRow("⌥ + ⇧ + →", "Wrap two sibling codes into a new folder") +
@@ -791,7 +751,7 @@
       _shortcutRow("⌘/Ctrl + V", "Paste cut item into focused folder/row") +
       _shortcutRow("Shift + Enter (in filter)", "Create new folder at root") +
       _shortcutRow("F2", "Rename code or folder (in sidebar)") +
-      _shortcutRow("Delete / ⌫", "Delete code or folder (in sidebar; Z to undo)") +
+      _shortcutRow("Codebook Delete / ⌫", "Delete code or folder (Z to undo)") +
       _shortcutRow("?", "Toggle this cheat sheet") +
       _shortcutRow("Esc", "Codebook → source · cancel cut · clear filter") +
       "</table>";
@@ -1461,6 +1421,7 @@
       const idx = parseInt(sentence.dataset.idx, 10);
       if (!isNaN(idx)) {
         _focusSentence(idx);
+        _focusTextPanel();
         // Clear custom selection if this was a simple click (not drag)
         if (!window.__aceLastSelection) {
           window.getSelection().removeAllRanges();
@@ -3163,6 +3124,10 @@
     _renderAppliedCodePreviewRects(matching);
   }
 
+  window.aceSetAppliedCodePreview = _setAppliedCodePreview;
+  window.aceSetAppliedAnnotationPreview = _setAppliedAnnotationPreview;
+  window.aceClearAppliedCodePreview = _clearAppliedCodePreview;
+
   /**
    * Attach the (lazy) ResizeObserver to the current .ace-text-body element.
    * After OOB swaps replace #text-panel, this is called with the new body;
@@ -3898,7 +3863,14 @@
         const codeId3 = _itemIdFromTreeElement(active);
         if (codeId3) {
           _clearSearchFilter();
-          _applyCode(codeId3);
+          const applied = _applyCode(codeId3);
+          if (applied && typeof applied.then === "function") {
+            applied.then(function () {
+              window.aceCodingKeyboard?.returnToSource?.();
+            });
+          } else if (applied) {
+            window.aceCodingKeyboard?.returnToSource?.();
+          }
         }
       } else {
         // On a folder row: toggle expand/collapse
