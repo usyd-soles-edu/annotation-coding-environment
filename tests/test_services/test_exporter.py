@@ -65,6 +65,63 @@ def test_export_annotations_csv(tmp_db, tmp_path):
     conn.close()
 
 
+def test_export_annotations_prefixes_metadata_columns_that_collide_with_fixed_fields(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "export-test")
+    source_id = add_source(
+        conn,
+        display_id="P001",
+        content_text="The quick brown fox.",
+        source_type="row",
+        metadata={
+            "code_name": "metadata code",
+            "memo": "metadata memo",
+            "participant_group": "control",
+        },
+    )
+    code_id = add_code(conn, name="Theme-A", colour="#FF0000")
+    coder_id = uuid.uuid4().hex
+    conn.execute("INSERT INTO coder (id, name) VALUES (?, ?)", (coder_id, "Alice"))
+    conn.commit()
+    add_annotation(
+        conn,
+        source_id=source_id,
+        coder_id=coder_id,
+        code_id=code_id,
+        start_offset=0,
+        end_offset=9,
+        selected_text="The quick",
+        memo="annotation memo",
+    )
+
+    output_csv = tmp_path / "export.csv"
+    export_annotations_csv(conn, output_csv, merge_adjacent=False)
+
+    with open(output_csv, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
+
+    assert reader.fieldnames == [
+        "source_id",
+        "display_id",
+        "coder_name",
+        "code_name",
+        "selected_text",
+        "start_offset",
+        "end_offset",
+        "memo",
+        "metadata_code_name",
+        "metadata_memo",
+        "participant_group",
+    ]
+    row = rows[0]
+    assert row["code_name"] == "Theme-A"
+    assert row["memo"] == "annotation memo"
+    assert row["metadata_code_name"] == "metadata code"
+    assert row["metadata_memo"] == "metadata memo"
+    assert row["participant_group"] == "control"
+    conn.close()
+
+
 def test_merge_no_annotations():
     assert merge_adjacent_annotations([]) == []
 

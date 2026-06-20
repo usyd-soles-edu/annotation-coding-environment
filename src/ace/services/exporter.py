@@ -37,6 +37,21 @@ _FIXED_COLUMNS = [
 ]
 
 
+def _metadata_fieldname(key: str, used: set[str]) -> str:
+    name = f"metadata_{key}" if key in used else key
+    if name not in used:
+        used.add(name)
+        return name
+
+    base = name
+    suffix = 2
+    while f"{base}_{suffix}" in used:
+        suffix += 1
+    name = f"{base}_{suffix}"
+    used.add(name)
+    return name
+
+
 def merge_adjacent_annotations(annotations: list[dict]) -> list[dict]:
     """Merge adjacent same-code annotations into single entries.
 
@@ -88,7 +103,12 @@ def export_annotations_csv(
                     meta_keys.append(key)
                     seen.add(key)
 
-    fieldnames = _FIXED_COLUMNS + meta_keys
+    used_fieldnames = set(_FIXED_COLUMNS)
+    meta_fieldnames = {
+        key: _metadata_fieldname(key, used_fieldnames)
+        for key in meta_keys
+    }
+    fieldnames = _FIXED_COLUMNS + [meta_fieldnames[key] for key in meta_keys]
 
     # Convert rows to dicts for processing
     dicts: list[dict] = []
@@ -98,7 +118,7 @@ def export_annotations_csv(
         if raw:
             meta = json.loads(raw)
             for key in meta_keys:
-                out[key] = meta.get(key, "")
+                out[meta_fieldnames[key]] = meta.get(key, "")
         dicts.append(out)
 
     if merge_adjacent:
