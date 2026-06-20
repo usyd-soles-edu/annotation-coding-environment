@@ -14,6 +14,7 @@
   let deletePickMode = false;
   let deleteCandidateIds = new Set();
   let appliedFocusToken = 0;
+  let lastCodebookItemId = "";
 
   function codingPage() {
     return !!document.getElementById("text-panel");
@@ -54,6 +55,24 @@
     else if (sourceAnchorIndex < 0) sourceAnchorIndex = 0;
   }
 
+  function codebookItems() {
+    return Array.from(document.querySelectorAll("#code-sidebar [role='treeitem']"));
+  }
+
+  function activeCodebookItem() {
+    const active = document.activeElement;
+    if (active?.closest) {
+      const row = active.closest("#code-sidebar [role='treeitem']");
+      if (row) return row;
+    }
+    return document.querySelector("#code-sidebar [role='treeitem'][tabindex='0']");
+  }
+
+  function rememberCodebookItem() {
+    const item = activeCodebookItem();
+    if (item?.dataset?.itemId) lastCodebookItemId = item.dataset.itemId;
+  }
+
   function getSentences() {
     if (typeof window.aceGetSentences === "function") {
       return Array.from(window.aceGetSentences());
@@ -79,6 +98,7 @@
 
   function returnToSource() {
     const idx = sourceAnchorIndex >= 0 ? sourceAnchorIndex : Number(window.__aceFocusIndex || 0);
+    rememberCodebookItem();
     appliedFocusToken += 1;
     clearDeletePickMode();
     focusSentence(idx);
@@ -103,13 +123,21 @@
 
   function focusCodebook() {
     rememberSourceAnchor();
-    const item = firstCodebookItem();
+    const items = codebookItems();
+    let item = lastCodebookItemId
+      ? items.find(function (row) { return row.dataset.itemId === lastCodebookItemId; })
+      : null;
+    if (!item) item = activeCodebookItem();
+    if (!item) item = firstCodebookItem();
     if (!item) {
       if (typeof window._setStatus === "function") window._setStatus("No codebook item to focus", "err");
       return;
     }
-    item.setAttribute("tabindex", "0");
+    items.forEach(function (row) {
+      row.setAttribute("tabindex", row === item ? "0" : "-1");
+    });
     item.focus({ preventScroll: true });
+    rememberCodebookItem();
     setZone("codebook");
   }
 
@@ -426,6 +454,7 @@
       }
       setZone("applied");
     } else if (target.closest("#code-sidebar")) {
+      rememberCodebookItem();
       setZone("codebook");
     } else if (target.closest("#text-panel, #text-scroll, #content-scroll")) {
       setZone("source");
@@ -443,6 +472,8 @@
       else clearDeletePickMode();
     }
   });
+
+  document.addEventListener("ace:apply-code", rememberCodebookItem);
 
   document.addEventListener("DOMContentLoaded", function () {
     syncAppliedFocusables();
