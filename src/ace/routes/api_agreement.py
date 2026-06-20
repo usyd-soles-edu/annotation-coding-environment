@@ -123,16 +123,13 @@ async def agreement_export_results(request: Request):
 
     output = io.StringIO()
 
-    # Metadata comment header
     file_names = ", ".join(f["filename"] for f in loader._files)
     coder_labels = ", ".join(c.label for c in dataset.coders)
-    output.write(f"# ACE agreement summary — {date.today().isoformat()}\n")
-    output.write(f"# Files: {file_names}\n")
-    output.write(f"# Coders: {coder_labels}\n")
-    output.write(f"# Sources: {result.n_sources}, Codes: {result.n_codes}\n")
+    export_date = date.today().isoformat()
 
     writer = csv.writer(output)
     writer.writerow([
+        "export_date", "files", "coders",
         "code", "percent_agreement",
         "krippendorffs_alpha", "cohens_kappa", "fleiss_kappa",
         "congers_kappa", "gwets_ac1", "brennan_prediger",
@@ -145,6 +142,9 @@ async def agreement_export_results(request: Request):
     for code_name in sorted(result.per_code):
         m = result.per_code[code_name]
         writer.writerow([
+            export_date,
+            file_names,
+            coder_labels,
             code_name,
             _fmt(m.percent_agreement),
             _fmt(m.krippendorffs_alpha),
@@ -160,6 +160,9 @@ async def agreement_export_results(request: Request):
     # Overall row
     o = result.overall
     writer.writerow([
+        export_date,
+        file_names,
+        coder_labels,
         "Overall",
         _fmt(o.percent_agreement),
         _fmt(o.krippendorffs_alpha),
@@ -193,18 +196,38 @@ async def agreement_export_raw(request: Request):
 
     output = io.StringIO()
     coder_labels = ", ".join(c.label for c in dataset.coders)
-    output.write(f"# ACE raw agreement data — {date.today().isoformat()}\n")
-    output.write(f"# Coders: {coder_labels}\n")
-    output.write(f"# Sources: {len(dataset.sources)}, Codes: {len(dataset.codes)}\n")
+    export_date = date.today().isoformat()
+    n_sources = len(dataset.sources)
+    n_codes = len(dataset.codes)
 
     writer = csv.writer(output)
-    writer.writerow(["source_id", "start_offset", "end_offset", "coder_id", "code_name"])
+    writer.writerow([
+        "export_date",
+        "coders",
+        "n_sources",
+        "n_codes",
+        "source_id",
+        "start_offset",
+        "end_offset",
+        "coder_id",
+        "code_name",
+    ])
 
     source_lookup = {s.content_hash: s.display_id for s in dataset.sources}
 
     for ann in sorted(dataset.annotations, key=lambda a: (a.source_hash, a.start_offset, a.coder_id)):
         source_id = source_lookup.get(ann.source_hash, ann.source_hash)
-        writer.writerow([source_id, ann.start_offset, ann.end_offset, ann.coder_id, ann.code_name])
+        writer.writerow([
+            export_date,
+            coder_labels,
+            n_sources,
+            n_codes,
+            source_id,
+            ann.start_offset,
+            ann.end_offset,
+            ann.coder_id,
+            ann.code_name,
+        ])
 
     return Response(
         content=output.getvalue(),

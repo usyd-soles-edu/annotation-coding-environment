@@ -1,6 +1,9 @@
 """Tests for agreement page and API routes."""
 
+import csv
 import json
+from io import StringIO
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -518,15 +521,16 @@ def test_export_csv(client, ace_file_a, ace_file_b):
 
 
 def test_export_summary_csv_has_metadata_and_overall(client_with_agreement_files):
-    """Summary CSV includes metadata header, n_sources column, and Overall row."""
+    """Summary CSV includes metadata columns, n_sources column, and Overall row."""
     client, paths = client_with_agreement_files
     client.post("/api/agreement/compute", data={"paths": json.dumps(paths)})
     resp = client.get("/api/agreement/export/results")
     assert resp.status_code == 200
-    text = resp.text
-    assert text.startswith("#")
-    assert "n_sources" in text
-    assert "Overall" in text
+    reader = csv.DictReader(StringIO(resp.text))
+    rows = list(reader)
+    assert reader.fieldnames[:4] == ["export_date", "files", "coders", "code"]
+    assert "n_sources" in reader.fieldnames
+    assert any(row["code"] == "Overall" for row in rows)
 
 
 def test_export_raw_data_csv(client_with_agreement_files):
@@ -536,12 +540,20 @@ def test_export_raw_data_csv(client_with_agreement_files):
     resp = client.get("/api/agreement/export/raw")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/csv")
-    text = resp.text
-    assert "source_id" in text
-    assert "start_offset" in text
-    assert "end_offset" in text
-    assert "coder_id" in text
-    assert "code_name" in text
+    reader = csv.DictReader(StringIO(resp.text))
+    rows = list(reader)
+    assert reader.fieldnames == [
+        "export_date",
+        "coders",
+        "n_sources",
+        "n_codes",
+        "source_id",
+        "start_offset",
+        "end_offset",
+        "coder_id",
+        "code_name",
+    ]
+    assert rows
 
 
 def test_clear_agreement_cache_invalidates_cached_exports(client_with_agreement_files):
