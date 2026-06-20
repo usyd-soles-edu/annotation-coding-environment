@@ -3914,6 +3914,14 @@
 
     const items = _getTreeItems();
     const idx = items.indexOf(active);
+    if (key === "ArrowRight" && !alt && !shift && !_isFolderRow(active)) {
+      e.preventDefault();
+      if (typeof window.aceCodingKeyboard?.returnToSource === "function") {
+        window.aceCodingKeyboard.returnToSource();
+      }
+      return;
+    }
+
     const plainNavigationKey = !alt && !shift && !e.ctrlKey && !e.metaKey
       && (key === "ArrowDown"
           || key === "ArrowUp"

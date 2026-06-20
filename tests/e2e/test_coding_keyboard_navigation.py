@@ -109,6 +109,32 @@ def test_codebook_enter_applies_and_returns_to_source(ace_server, browser_name):
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_codebook_right_returns_to_source_without_applying(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+
+            _click_source_sentence(page)
+            page.keyboard.press("ArrowDown")
+            assert _focused_sentence_index(page) == 1
+            page.keyboard.press("ArrowLeft")
+            page.wait_for_function(
+                "() => document.activeElement?.matches("
+                "\"#ace-headless-tree-mount .ace-ht-row--code\")"
+            )
+
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("() => document.body.dataset.activeZone === 'source'")
+            assert _focused_sentence_index(page) == 1
+            assert _annotation_data(page) == []
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_applied_codes_keyboard_navigation_and_delete(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
