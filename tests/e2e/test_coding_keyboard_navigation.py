@@ -135,6 +135,82 @@ def test_codebook_right_returns_to_source_without_applying(ace_server, browser_n
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_codebook_left_restores_single_previous_code_focus(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+
+            _click_source_sentence(page)
+            page.keyboard.press("ArrowLeft")
+            page.wait_for_function("() => document.body.dataset.activeZone === 'codebook'")
+            page.keyboard.press("ArrowDown")
+            page.wait_for_function(
+                "() => document.activeElement?.querySelector('.ace-ht-label')"
+                "?.textContent?.trim() === 'Bravo'"
+            )
+
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("() => document.body.dataset.activeZone === 'source'")
+            page.keyboard.press("ArrowLeft")
+            page.wait_for_function("() => document.body.dataset.activeZone === 'codebook'")
+
+            focused_labels = page.evaluate(
+                """
+                () => Array.from(
+                  document.querySelectorAll("#ace-headless-tree-mount .ace-ht-row[tabindex='0']")
+                ).map((row) => row.querySelector(".ace-ht-label")?.textContent?.trim())
+                """
+            )
+            assert focused_labels == ["Bravo"]
+            assert page.evaluate(
+                "() => document.activeElement?.querySelector('.ace-ht-label')"
+                "?.textContent?.trim()"
+            ) == "Bravo"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_codebook_right_returns_to_source_from_folder(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+            page.evaluate(
+                """
+                async () => {
+                  const body = new URLSearchParams({
+                    name: "Folder",
+                    current_index: String(window.__aceCurrentIndex || 0),
+                  });
+                  const response = await fetch("/api/codes/folder", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/x-www-form-urlencoded"},
+                    body,
+                  });
+                  if (!response.ok) throw new Error(`folder create failed: ${response.status}`);
+                }
+                """
+            )
+            page.reload()
+            page.wait_for_selector(".ace-ht-row--folder")
+
+            _click_source_sentence(page, 1)
+            page.locator(".ace-ht-row--folder").first.click()
+            page.wait_for_function("() => document.body.dataset.activeZone === 'codebook'")
+            page.keyboard.press("ArrowRight")
+            page.wait_for_function("() => document.body.dataset.activeZone === 'source'")
+            assert _focused_sentence_index(page) == 1
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_applied_codes_keyboard_navigation_and_delete(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()

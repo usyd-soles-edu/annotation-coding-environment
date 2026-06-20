@@ -607,6 +607,19 @@ import {
       return true;
     }
     itemProps.onKeyDown = function (event) {
+      if (
+        event.key === "ArrowRight"
+        && !event.altKey
+        && !event.shiftKey
+        && !event.ctrlKey
+        && !event.metaKey
+        && typeof window.aceCodingKeyboard?.returnToSource === "function"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        window.aceCodingKeyboard.returnToSource();
+        return;
+      }
       if (event.key === "Enter" && data.kind === "code") {
         event.preventDefault();
         event.stopPropagation();
