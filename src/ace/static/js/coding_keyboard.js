@@ -79,8 +79,10 @@
 
   function returnToSource() {
     const idx = sourceAnchorIndex >= 0 ? sourceAnchorIndex : Number(window.__aceFocusIndex || 0);
+    appliedFocusToken += 1;
     clearDeletePickMode();
     focusSentence(idx);
+    syncAppliedFocusables();
   }
 
   function moveSentence(delta) {
@@ -140,12 +142,13 @@
     });
   }
 
-  function rowAnnotationId(row) {
+  function rowAnnotationId(row, annotations) {
     if (!row) return "";
     if (row.dataset.annotationId) return row.dataset.annotationId;
     const codeId = row.dataset.codeId;
     if (!codeId) return "";
-    const matches = annotationData().filter(function (ann) {
+    const source = annotations || annotationData();
+    const matches = source.filter(function (ann) {
       return String(ann.code_id) === String(codeId);
     });
     return matches.length === 1 ? String(matches[0].id) : "";
@@ -160,9 +163,10 @@
 
   function syncAppliedFocusables() {
     const rows = appliedRows();
+    const appliedActive = document.body.dataset.activeZone === "applied";
     rows.forEach(function (row, idx) {
       row.tabIndex = idx === appliedFocusIndex ? 0 : -1;
-      row.classList.toggle("ace-applied-row--keyboard", idx === appliedFocusIndex && activeZone() === "applied");
+      row.classList.toggle("ace-applied-row--keyboard", idx === appliedFocusIndex && appliedActive);
     });
   }
 
@@ -246,8 +250,9 @@
     clearDeletePickMode();
     deletePickMode = true;
     deleteCandidateIds = new Set(annotations.map(function (ann) { return String(ann.id); }));
+    const allAnnotations = annotationData();
     document.querySelectorAll(".ace-applied-code-row, .ace-applied-annotation-row").forEach(function (row) {
-      const id = rowAnnotationId(row);
+      const id = rowAnnotationId(row, allAnnotations);
       if (id && deleteCandidateIds.has(String(id))) {
         row.classList.add("ace-applied-delete-candidate");
       }
@@ -410,11 +415,22 @@
 
   document.addEventListener("focusin", function (event) {
     const target = event.target;
+    if (!codingPage()) return;
     if (!target || !target.closest) return;
     if (target.closest(".ace-applied-codes-panel")) {
+      const row = target.closest(".ace-applied-code-row, .ace-applied-annotation-row");
+      if (row) {
+        const rows = appliedRows();
+        const idx = rows.indexOf(row);
+        if (idx >= 0) appliedFocusIndex = idx;
+      }
       setZone("applied");
-      syncAppliedFocusables();
+    } else if (target.closest("#code-sidebar")) {
+      setZone("codebook");
+    } else if (target.closest("#text-panel, #text-scroll, #content-scroll")) {
+      setZone("source");
     }
+    syncAppliedFocusables();
   });
 
   document.addEventListener("htmx:afterSettle", function () {

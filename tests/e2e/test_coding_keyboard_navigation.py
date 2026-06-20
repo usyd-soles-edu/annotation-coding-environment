@@ -76,6 +76,7 @@ def test_source_right_enters_applied_codes_and_left_returns_to_sentence(
             page.keyboard.press("ArrowLeft")
             page.wait_for_function("() => document.body.dataset.activeZone === 'source'")
             assert _focused_sentence_index(page) == 0
+            assert page.locator(".ace-applied-row--keyboard").count() == 0
         finally:
             browser.close()
 

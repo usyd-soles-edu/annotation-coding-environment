@@ -1545,8 +1545,8 @@ rect.ace-code-preview {
 
 .ace-applied-delete-candidate {
   box-shadow:
-    inset 0 0 0 1px #8b1e1e,
-    inset 4px 0 0 #8b1e1e;
+    inset 0 0 0 1px var(--ace-danger-dark),
+    inset 4px 0 0 var(--ace-danger-dark);
 }
 
 .ace-applied-annotation-index {
