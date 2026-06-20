@@ -46,6 +46,7 @@
 window.addEventListener("keydown", function(event) {
   if (event.altKey || event.ctrlKey || event.metaKey) return;
   if (event.key === "Escape" && document.getElementById("new-project-form")) {
+    if (document.querySelector("dialog[open]")) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     window.location.href = "/";
@@ -59,7 +60,6 @@ window.addEventListener("keydown", function(event) {
 (function() {
   "use strict";
 
-  var STORAGE_KEY = "ace-recent-files";
   var selectedFolder = "";
   var pendingOverwrite = false;
   var pendingRecentPath = "";
@@ -129,27 +129,8 @@ window.addEventListener("keydown", function(event) {
     setMessage("Could not open the folder picker. Try again.", "err");
   }
 
-  function migrateRecent(raw) {
-    if (!Array.isArray(raw)) return [];
-    return raw.map(function(item) {
-      if (typeof item === "string") return { path: item, openedAt: 0 };
-      if (item && typeof item.path === "string") return item;
-      return null;
-    }).filter(Boolean);
-  }
-
-  function getRecent() {
-    try {
-      var raw = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
-      return migrateRecent(raw);
-    } catch(e) { return []; }
-  }
-
   function addRecent(path) {
-    var list = getRecent().filter(function(item) { return item.path !== path; });
-    list.unshift({ path: path, openedAt: Date.now() });
-    if (list.length > 5) list = list.slice(0, 5);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    if (window.ACE_RECENTS) window.ACE_RECENTS.add(path);
   }
 
   function getResponseHeader(xhr, name) {
@@ -166,13 +147,6 @@ window.addEventListener("keydown", function(event) {
   }
 
   nameInput.addEventListener("input", updateFormState);
-  form.addEventListener("keydown", function(e) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      window.location.href = "/";
-    }
-  });
-
   chooseFolderBtn.addEventListener("click", function() {
     setMessage("", "");
     chooseFolderBtn.disabled = true;

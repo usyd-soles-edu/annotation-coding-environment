@@ -388,7 +388,7 @@ body {
 .ace-home-actions {
   display: grid;
   justify-items: center;
-  gap: var(--ace-space-2);
+  gap: 2px;
 }
 .ace-home-resume-close {
   position: absolute;
