@@ -9,14 +9,16 @@
 
 .ace-agreement-page:has(.ace-agreement-empty),
 .ace-agreement-page:has(.ace-agreement-loading),
-.ace-agreement-page:has(.ace-agreement-error) {
+.ace-agreement-page:has(.ace-agreement-error),
+.ace-agreement-page:has(.ace-agreement-review) {
   display: grid;
   align-content: center;
 }
 
 .ace-agreement-page:has(.ace-agreement-empty) #agreement-results,
 .ace-agreement-page:has(.ace-agreement-loading) #agreement-results,
-.ace-agreement-page:has(.ace-agreement-error) #agreement-results {
+.ace-agreement-page:has(.ace-agreement-error) #agreement-results,
+.ace-agreement-page:has(.ace-agreement-review) #agreement-results {
   display: grid;
   justify-items: center;
   gap: var(--ace-space-4);
@@ -24,7 +26,8 @@
 
 .ace-agreement-page:has(.ace-agreement-empty) .ace-agreement-title,
 .ace-agreement-page:has(.ace-agreement-loading) .ace-agreement-title,
-.ace-agreement-page:has(.ace-agreement-error) .ace-agreement-title {
+.ace-agreement-page:has(.ace-agreement-error) .ace-agreement-title,
+.ace-agreement-page:has(.ace-agreement-review) .ace-agreement-title {
   text-align: center;
 }
 
@@ -440,7 +443,7 @@ th.col-num { text-align: right; }
 .ace-agreement-choose-btn:hover { background: var(--ace-border-light); }
 
 .ace-agreement-review {
-  margin-top: 24px;
+  width: 100%;
 }
 
 .ace-agreement-review-head {

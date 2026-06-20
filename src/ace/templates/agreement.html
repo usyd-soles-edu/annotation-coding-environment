@@ -36,6 +36,9 @@
   var _agreementSelectedPaths = [];
   var _agreementPreviewSeq = 0;
   var _agreementPreviewPending = false;
+  var _agreementReviewState = null;
+  var _suppressAgreementHistory = false;
+  var _agreementReviewRestoredFromHistory = false;
 
   function _stopPoll() {
     if (_agreementPoll) { clearInterval(_agreementPoll); _agreementPoll = null; }
@@ -98,6 +101,54 @@
       return;
     }
     _focusAgreementTitle();
+  }
+
+  function _agreementState(html, paths) {
+    return {
+      aceAgreement: true,
+      html: html,
+      paths: Array.isArray(paths) ? paths.slice() : [],
+    };
+  }
+
+  function _replaceAgreementHistory(html, paths) {
+    if (!window.history || !window.history.replaceState) { return; }
+    window.history.replaceState(_agreementState(html, paths), "", window.location.href);
+  }
+
+  function _pushAgreementHistory(html, paths) {
+    if (!window.history || !window.history.pushState) { return; }
+    window.history.pushState(_agreementState(html, paths), "", window.location.href);
+  }
+
+  function _rememberAgreementReview(html, paths) {
+    _agreementReviewState = _agreementState(html, paths);
+    if (_suppressAgreementHistory) {
+      return;
+    }
+    if (_agreementReviewRestoredFromHistory) {
+      _pushAgreementHistory(html, paths);
+      _agreementReviewRestoredFromHistory = false;
+    } else {
+      _replaceAgreementHistory(html, paths);
+    }
+  }
+
+  function _restoreAgreementState(state) {
+    if (!state || state.aceAgreement !== true || typeof state.html !== "string") {
+      return false;
+    }
+    var results = document.getElementById("agreement-results");
+    _stopPoll();
+    _setAgreementReviewBusy(false);
+    _agreementSelectedPaths = Array.isArray(state.paths) ? state.paths.slice() : [];
+    results.innerHTML = state.html;
+    if (results.querySelector(".ace-agreement-review")) {
+      _agreementReviewState = _agreementState(state.html, _agreementSelectedPaths);
+      _agreementReviewRestoredFromHistory = true;
+    }
+    _focusAgreementTitle();
+    return true;
   }
 
   function _selectedAgreementPaths() {
@@ -175,6 +226,7 @@
         if (seq !== _agreementPreviewSeq) { return; }
         results.innerHTML = html;
         _setAgreementReviewBusy(false);
+        _rememberAgreementReview(html, _agreementSelectedPaths);
         if (typeof opts.focusRemoveIndex === "number") {
           _restoreAgreementFocus(opts.focusRemoveIndex);
         } else {
@@ -226,7 +278,14 @@
       return;
     }
 
+    if (_agreementReviewState && !_suppressAgreementHistory) {
+      _replaceAgreementHistory(_agreementReviewState.html, _agreementReviewState.paths);
+      _agreementReviewRestoredFromHistory = false;
+    }
     _showAgreementLoading();
+    if (_agreementReviewState && !_suppressAgreementHistory) {
+      _pushAgreementHistory(document.getElementById("agreement-results").innerHTML, paths);
+    }
     var progress = document.getElementById("ace-agreement-progress-fill");
     if (progress) {
       progress.focus({ preventScroll: true });
@@ -300,7 +359,20 @@
     }
     var resultTitle = document.getElementById("ace-agreement-results-title");
     if (resultTitle) {
+      if (!_suppressAgreementHistory) {
+        _replaceAgreementHistory(e.detail.target.innerHTML, _selectedAgreementPaths());
+      }
       resultTitle.focus({ preventScroll: true });
+    }
+  });
+
+  window.addEventListener("popstate", function (e) {
+    if (!e.state || e.state.aceAgreement !== true) { return; }
+    _suppressAgreementHistory = true;
+    try {
+      _restoreAgreementState(e.state);
+    } finally {
+      _suppressAgreementHistory = false;
     }
   });
 })();
