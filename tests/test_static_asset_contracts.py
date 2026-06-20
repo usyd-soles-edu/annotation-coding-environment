@@ -42,3 +42,21 @@ def test_notes_module_exposes_drawer_state_contract():
         encoding="utf-8"
     )
     assert "window.aceIsNoteDrawerOpen = _isDrawerOpen" in notes
+
+
+def test_coding_keyboard_module_loads_before_bridge():
+    base = (ROOT / "src" / "ace" / "templates" / "base.html").read_text(
+        encoding="utf-8"
+    )
+    keyboard_idx = base.index("/static/js/coding_keyboard.js")
+    bridge_idx = base.index("/static/js/bridge.js")
+    assert keyboard_idx < bridge_idx
+
+
+def test_source_horizontal_sentence_aliases_removed():
+    bridge = (ROOT / "src" / "ace" / "static" / "js" / "bridge.js").read_text(
+        encoding="utf-8"
+    )
+    assert "Aliases for ↑ / ↓" not in bridge
+    assert "sentencesR" not in bridge
+    assert "sentencesL" not in bridge

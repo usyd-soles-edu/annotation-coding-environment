@@ -1433,6 +1433,7 @@ rect.ace-code-preview {
 
 .ace-applied-code-row:hover,
 .ace-applied-code-row:focus-visible,
+.ace-applied-code-row.ace-applied-row--keyboard,
 .ace-applied-code-row.is-code-preview {
   background: var(--ace-bg);
   box-shadow:
@@ -1442,11 +1443,13 @@ rect.ace-code-preview {
 
 .ace-applied-code-row:hover::before,
 .ace-applied-code-row:focus-visible::before,
+.ace-applied-code-row.ace-applied-row--keyboard::before,
 .ace-applied-code-row.is-code-preview::before {
   width: 5px;
 }
 
-.ace-applied-code-row:focus-visible {
+.ace-applied-code-row:focus-visible,
+.ace-applied-code-row.ace-applied-row--keyboard {
   outline: 2px solid var(--ace-focus);
   outline-offset: -2px;
 }
@@ -1530,9 +1533,20 @@ rect.ace-code-preview {
 
 .ace-applied-annotation-row:hover,
 .ace-applied-annotation-row:focus-visible,
+.ace-applied-annotation-row.ace-applied-row--keyboard,
 .ace-applied-annotation-row.is-code-preview {
   background: var(--ace-bg);
   outline: none;
+}
+
+.ace-applied-annotation-row.ace-applied-row--keyboard {
+  box-shadow: inset 0 0 0 2px var(--ace-focus);
+}
+
+.ace-applied-delete-candidate {
+  box-shadow:
+    inset 0 0 0 1px var(--ace-danger-dark),
+    inset 4px 0 0 var(--ace-danger-dark);
 }
 
 .ace-applied-annotation-index {
