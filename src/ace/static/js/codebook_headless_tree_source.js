@@ -666,59 +666,55 @@ import {
     });
   }
 
-  function commitSlashCommand(value) {
-    const parts = value.trim().match(/^\/(\S+)\s+(.+)$/);
-    if (!parts) return false;
-    const command = parts[1].toLowerCase();
-    const name = parts[2].trim();
-    if (!name) return false;
-    if ("code".startsWith(command)) {
-      createCode(name);
-      return true;
+  function availableCreateActions() {
+    const name = searchRaw.trim();
+    if (!name || chordFilterActive || codeApplicationDisabled() || firstVisibleCodeItem()) return [];
+
+    const actions = [];
+    if (!findDuplicateName("code", name)) {
+      actions.push({ label: `Create code "${name}"`, name, hint: "Enter", create: createCode });
     }
-    if ("folder".startsWith(command)) {
-      createFolder(name);
-      return true;
+    if (!findDuplicateName("folder", name)) {
+      actions.push({ label: `Create folder "${name}"`, name, hint: "Shift Enter", create: createFolder });
     }
-    setStatus("Unknown command");
-    return true;
+    return actions;
   }
 
-  function createSearchRow() {
-    const name = searchRaw.trim();
-    if (chordFilterActive) return null;
-    if (!name || name.startsWith("/") || firstVisibleCodeItem()) return null;
-    const row = document.createElement("div");
-    row.className = "ace-ht-create-row";
-    row.setAttribute("role", "button");
-    row.tabIndex = 0;
-    row.setAttribute("aria-label", `Create code ${name}`);
+  function renderCreateActions() {
+    const mount = document.getElementById("ace-code-create-actions");
+    if (!mount) return;
 
-    const plus = document.createElement("span");
-    plus.className = "ace-ht-create-plus";
-    plus.textContent = "+";
-    row.append(plus);
-
-    const label = document.createElement("span");
-    label.className = "ace-ht-create-label";
-    label.textContent = `Create code '${name}'`;
-    row.append(label);
-
-    const hint = document.createElement("span");
-    hint.className = "ace-ht-create-hint";
-    hint.textContent = "Enter";
-    row.append(hint);
-
-    function commit(event) {
-      event.preventDefault();
-      event.stopPropagation();
-      createCode(name);
+    const actions = availableCreateActions();
+    if (!actions.length) {
+      mount.replaceChildren();
+      return;
     }
-    row.addEventListener("click", commit);
-    row.addEventListener("keydown", function (event) {
-      if (event.key === "Enter") commit(event);
-    });
-    return row;
+
+    function button(action) {
+      const control = document.createElement("button");
+      control.type = "button";
+      control.tabIndex = 0;
+      control.className = "ace-code-create-action";
+      control.setAttribute("aria-label", action.label);
+
+      const label = document.createElement("span");
+      label.className = "ace-code-create-label";
+      label.textContent = action.label;
+      control.append(label);
+
+      const hint = document.createElement("span");
+      hint.className = "ace-code-create-hint";
+      hint.setAttribute("aria-hidden", "true");
+      hint.textContent = action.hint;
+      control.append(hint);
+
+      control.addEventListener("click", function () {
+        action.create(action.name);
+      });
+      return control;
+    }
+
+    mount.replaceChildren(...actions.map(button));
   }
 
   function rowForItem(item) {
@@ -1026,9 +1022,8 @@ import {
     if (!mount || !tree) return;
 
     const rows = visibleTreeItems().map(rowForItem);
-    const createRow = createSearchRow();
-    if (createRow) rows.push(createRow);
     mount.replaceChildren(...rows);
+    renderCreateActions();
     const dragLine = document.createElement("div");
     dragLine.className = "ace-ht-drag-line";
     Object.assign(dragLine.style, tree.getDragLineStyle?.() || { display: "none" });
@@ -1407,11 +1402,6 @@ import {
       createFolder(value);
       return;
     }
-    if (value.startsWith("/")) {
-      if (!commitSlashCommand(value)) setStatus("Type /code Name or /folder Name");
-      return;
-    }
-
     const match = firstVisibleCodeItem();
     if (match) {
       clearSearchInput();
@@ -1426,7 +1416,7 @@ import {
     event.stopImmediatePropagation();
     const value = event.target.value || "";
     searchRaw = value.trim();
-    searchText = searchRaw.startsWith("/") ? "" : searchRaw.toLowerCase();
+    searchText = searchRaw.toLowerCase();
     scheduleRender();
   }, true);
 

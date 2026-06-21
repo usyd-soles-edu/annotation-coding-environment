@@ -279,7 +279,17 @@ def test_coding_page_empty_codebook_shows_first_actions(client_with_sources_no_c
     assert 'id="empty-import-codebook-btn"' in resp.text
     assert "Create first code" in resp.text
     assert "Import codebook CSV" in resp.text
-    assert "<kbd>/code</kbd>" in resp.text
+    assert "Type a code name" in resp.text
+    assert "<kbd>Shift</kbd> + <kbd>Enter</kbd>" in resp.text
+
+
+def test_coding_sidebar_declares_coding_mode(client_with_codes):
+    """Code sidebar renders with explicit coding mode in the coding route."""
+    client, *_ = client_with_codes
+    resp = client.get("/code")
+    assert resp.status_code == 200
+    assert 'data-codebook-mode="coding"' in resp.text
+    assert "Press Enter to apply" in resp.text
 
 
 def test_coding_sidebar_declares_coding_mode(client_with_codes):

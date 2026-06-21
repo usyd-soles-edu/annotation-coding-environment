@@ -623,8 +623,9 @@
 
 .ace-code-name[contenteditable="true"] {
   outline: 1px solid var(--ace-focus);
-  white-space: normal;
-  overflow: visible;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: clip;
   text-overflow: clip;
   padding: 0 2px;
   user-select: text;
@@ -914,46 +915,60 @@ body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-label,
   background: var(--ace-bg-muted);
 }
 
-.ace-ht-create-row {
-  display: grid;
-  grid-template-columns: 18px 1fr auto;
-  align-items: center;
-  column-gap: 6px;
-  min-height: 24px;
-  margin: 2px 8px;
-  padding: 0 8px;
-  border: 1px dashed var(--ace-border);
+.ace-code-create-actions {
+  margin: 4px 8px 8px;
+  border: 1px solid var(--ace-border-light);
   border-radius: var(--ace-radius);
-  color: var(--ace-text-muted);
-  font-size: var(--ace-font-size-2xs);
-  cursor: default;
-  user-select: none;
-  -webkit-user-select: none;
+  overflow: hidden;
+  background: var(--ace-bg);
 }
 
-.ace-ht-create-row:hover,
-.ace-ht-create-row:focus-visible {
-  border-color: var(--ace-focus);
+.ace-code-create-actions:empty {
+  display: none;
+}
+
+.ace-code-create-action {
+  width: 100%;
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 8px;
+  border: 0;
+  border-top: 1px solid var(--ace-border-light);
+  padding: 0 10px;
+  background: var(--ace-bg);
   color: var(--ace-text);
-  outline: none;
+  font: inherit;
+  font-size: var(--ace-font-size-2xs);
+  text-align: left;
 }
 
-.ace-ht-create-plus {
-  font-family: var(--ace-font-mono);
-  text-align: center;
-}
-
-.ace-ht-create-label {
+.ace-code-create-label {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ace-ht-create-hint {
-  font-family: var(--ace-font-mono);
-  font-size: 11px;
+.ace-code-create-hint {
   color: var(--ace-text-muted);
+  font-family: var(--ace-font-mono);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.ace-code-create-action:first-child {
+  border-top: 0;
+}
+
+.ace-code-create-action:hover {
+  background: var(--ace-bg-muted);
+}
+
+.ace-code-create-action:focus-visible {
+  outline: 2px solid var(--ace-focus);
+  outline-offset: -2px;
 }
 
 .ace-ht-rename {
@@ -1597,9 +1612,8 @@ rect.ace-code-preview {
   font-size: var(--ace-font-size-2xs);
   color: rgba(43, 48, 56, 0.40);
   letter-spacing: 0.3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
   pointer-events: none;
   user-select: none;
   z-index: 1;
@@ -1735,39 +1749,6 @@ dialog::backdrop {
 .ace-sidebar-search-wrap {
   position: relative;
   width: 100%;
-}
-
-.ace-sidebar-search-hint-line {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  column-gap: 10px;
-  row-gap: 4px;
-  padding: 0 2px;
-  font-size: 11px;
-  color: var(--ace-text-muted);
-  line-height: 1.4;
-}
-
-.ace-search-hint-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.ace-sidebar-search-hint-line kbd {
-  font-family: var(--ace-font-mono);
-  font-size: 10px;
-  padding: 1px 5px;
-  background: var(--ace-bg);
-  border: 1px solid var(--ace-border);
-  border-radius: var(--ace-radius);
-  color: var(--ace-text);
-  font-weight: 500;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  height: 16px;
 }
 
 /* Platform-aware modifier glyph for the create-code hint. The handler
@@ -2708,71 +2689,6 @@ body[data-active-zone="codebook"]:has(#text-panel) .ace-code-folder-row[tabindex
 .ace-code-peek-meta strong {
   font-weight: 600;
   color: var(--ace-text);
-}
-
-/* ============================================================
-   Search input — slash command mode + zero-match create row
-   ============================================================ */
-
-.ace-sidebar-search.slash-active {
-  background: var(--ace-bg);
-  border: 1px solid var(--ace-text);
-  font-family: var(--ace-font-mono);
-}
-
-.ace-slash-mode {
-  padding: 8px 14px 4px;
-  font-size: 11px;
-  color: var(--ace-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
-  font-weight: 600;
-}
-.ace-slash-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  column-gap: 8px;
-  padding: 6px 14px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--ace-text);
-}
-.ace-slash-item:hover { background: var(--ace-bg-muted); }
-.ace-slash-item[data-selected="true"] {
-  background: #1a1d27;
-  color: #fff;
-}
-.ace-slash-item .cmd {
-  font-family: var(--ace-font-mono);
-  font-size: 12px;
-  font-weight: 500;
-}
-.ace-slash-item .cmd .arg {
-  color: var(--ace-text-muted);
-  font-style: italic;
-}
-.ace-slash-item[data-selected="true"] .cmd .arg { color: rgba(255, 255, 255, 0.6); }
-.ace-slash-item .desc {
-  font-size: 11px;
-  color: var(--ace-text-muted);
-}
-.ace-slash-item[data-selected="true"] .desc { color: rgba(255, 255, 255, 0.7); }
-.ace-slash-item .commit-hint {
-  font-family: var(--ace-font-mono);
-  font-size: 10px;
-  padding: 1px 5px;
-  background: var(--ace-bg);
-  border: 1px solid var(--ace-border);
-  border-radius: var(--ace-radius);
-  height: 16px;
-  display: inline-flex;
-  align-items: center;
-}
-.ace-slash-item[data-selected="true"] .commit-hint {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.3);
-  color: #fff;
 }
 
 .ace-create-row {

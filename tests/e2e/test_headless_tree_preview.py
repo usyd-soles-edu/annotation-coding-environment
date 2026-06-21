@@ -587,7 +587,7 @@ def test_headless_tree_candidate_creates_code_from_empty_search(ace_server, brow
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_headless_tree_default_slash_commands_create_items(ace_server, browser_name):
+def test_headless_tree_no_match_create_actions_are_visible(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
         try:
@@ -598,24 +598,238 @@ def test_headless_tree_default_slash_commands_create_items(ace_server, browser_n
             )
 
             search = page.locator("#code-search-input")
-            search.fill("/folder Headless folder")
-            search.press("Enter")
+            search.fill("No Match Candidate")
+            expect(
+                page.get_by_role("button", name='Create code "No Match Candidate"')
+            ).to_be_visible()
+            expect(
+                page.get_by_role("button", name='Create folder "No Match Candidate"')
+            ).to_be_visible()
+            expect(page.locator("#ace-headless-tree-mount .ace-ht-row--code")).to_have_count(0)
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_tree_matching_code_hides_create_actions(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_function(
+                "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
+            )
+
+            search = page.locator("#code-search-input")
+            search.fill("Alp")
             expect(
                 page.locator(
-                    "#ace-headless-tree-mount .ace-ht-row--folder",
-                    has_text="Headless folder",
+                    "#ace-headless-tree-mount .ace-ht-row--code",
+                    has_text="Alpha",
                 )
             ).to_be_visible()
-            page.wait_for_function("document.getElementById('code-search-input')?.value === ''")
+            expect(page.locator("#ace-code-create-actions button")).to_have_count(0)
+        finally:
+            browser.close()
 
-            search.fill("/Code Headless code")
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_tree_create_actions_respect_kind_specific_duplicates(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_function(
+                "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
+            )
+            page.evaluate(
+                """
+                async () => {
+                  const form = new URLSearchParams({
+                    name: "Folder Only Duplicate",
+                    current_index: String(window.__aceCurrentIndex || 0),
+                  });
+                  const response = await fetch("/api/codes/folder", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                    body: form,
+                  });
+                  if (!response.ok) throw new Error(`folder create failed: ${response.status}`);
+                  await response.text();
+                }
+                """
+            )
+            page.goto(f"{ace_server}/code")
+            page.wait_for_function(
+                "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
+            )
+
+            search = page.locator("#code-search-input")
+            search.fill("Folder Only Duplicate")
+            expect(
+                page.get_by_role("button", name='Create code "Folder Only Duplicate"')
+            ).to_be_visible()
+            expect(
+                page.get_by_role("button", name='Create folder "Folder Only Duplicate"')
+            ).to_have_count(0)
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_tree_no_match_enter_creates_code(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_function(
+                "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
+            )
+
+            search = page.locator("#code-search-input")
+            search.fill("Keyboard Created Code")
             search.press("Enter")
             expect(
                 page.locator(
                     "#ace-headless-tree-mount .ace-ht-row--code",
-                    has_text="Headless code",
+                    has_text="Keyboard Created Code",
                 )
             ).to_be_visible()
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_tree_no_match_shift_enter_creates_folder(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_function(
+                "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
+            )
+
+            search = page.locator("#code-search-input")
+            search.fill("Keyboard Created Folder")
+            search.press("Shift+Enter")
+            expect(
+                page.locator(
+                    "#ace-headless-tree-mount .ace-ht-row--folder",
+                    has_text="Keyboard Created Folder",
+                )
+            ).to_be_visible()
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_tree_slash_text_is_not_a_command_language(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_function(
+                "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
+            )
+
+            search = page.locator("#code-search-input")
+            search.fill("/folder Literal")
+            search.press("Enter")
+            expect(
+                page.locator(
+                    "#ace-headless-tree-mount .ace-ht-row--code",
+                    has_text="/folder Literal",
+                )
+            ).to_be_visible()
+            folder_labels = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--folder .ace-ht-label"
+            ).evaluate_all("(nodes) => nodes.map((node) => node.textContent.trim())")
+            assert "Literal" not in folder_labels
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_tree_no_match_actions_are_keyboard_controls(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_function(
+                "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
+            )
+
+            search = page.locator("#code-search-input")
+            search.fill("Button Created Folder")
+            search.press("Tab")
+            expect(
+                page.get_by_role("button", name='Create code "Button Created Folder"')
+            ).to_be_focused()
+            page.keyboard.press("Tab")
+            expect(
+                page.get_by_role("button", name='Create folder "Button Created Folder"')
+            ).to_be_focused()
+            page.keyboard.press("Space")
+            expect(
+                page.locator(
+                    "#ace-headless-tree-mount .ace-ht-row--folder",
+                    has_text="Button Created Folder",
+                )
+            ).to_be_visible()
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_tree_no_match_actions_tab_continues_to_tree(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_function(
+                "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
+            )
+
+            search = page.locator("#code-search-input")
+            search.fill("Tab Continuation Candidate")
+            search.press("Tab")
+            expect(
+                page.get_by_role("button", name='Create code "Tab Continuation Candidate"')
+            ).to_be_focused()
+            page.keyboard.press("Tab")
+            expect(
+                page.get_by_role(
+                    "button", name='Create folder "Tab Continuation Candidate"'
+                )
+            ).to_be_focused()
+            page.keyboard.press("Shift+Tab")
+            expect(
+                page.get_by_role("button", name='Create code "Tab Continuation Candidate"')
+            ).to_be_focused()
+            page.keyboard.press("Tab")
+            page.keyboard.press("Tab")
+            expect(page.locator("#text-panel")).to_be_focused()
+            page.keyboard.press("Shift+Tab")
+            expect(
+                page.get_by_role(
+                    "button", name='Create folder "Tab Continuation Candidate"'
+                )
+            ).to_be_focused()
+            page.keyboard.press("Shift+Tab")
+            expect(
+                page.get_by_role("button", name='Create code "Tab Continuation Candidate"')
+            ).to_be_focused()
+            page.keyboard.press("Shift+Tab")
+            expect(search).to_be_focused()
         finally:
             browser.close()
 

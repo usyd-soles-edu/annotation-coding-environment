@@ -106,12 +106,12 @@
 </div>
 <div class="ace-sidebar-toolbar">
   <div class="ace-sidebar-search-wrap">
-    <input type="search" class="ace-sidebar-search" placeholder="Filter codes&hellip;"
+    <input type="search" class="ace-sidebar-search" placeholder="Find code&hellip;"
            id="code-search-input" autocomplete="off"
            aria-controls="ace-headless-tree-mount"
-           aria-label="Filter codes"
-           aria-keyshortcuts="/"
-           aria-describedby="code-search-help">
+           aria-label="Find code"
+           aria-describedby="code-search-help"
+           aria-keyshortcuts="/ Enter Shift+Enter Escape">
     <p id="code-search-help" class="ace-sr-only">
       {% if coding_mode %}
       Type to find codes. Press Enter to apply the selected code. When no code matches,
@@ -133,21 +133,6 @@
        aria-live="assertive"
        aria-atomic="true"></p>
   </div>
-  <div class="ace-sidebar-search-hint-line" aria-hidden="true">
-    {% if audit_mode %}
-    <span class="ace-search-hint-group"><kbd>&#8593;</kbd><kbd>&#8595;</kbd> browse</span>
-    <span class="ace-search-hint-group"><kbd>&#8629;</kbd> view</span>
-    <span class="ace-search-hint-group"><kbd>F2</kbd> rename</span>
-    <span class="ace-search-hint-group"><kbd>del</kbd> delete</span>
-    {% elif read_only %}
-    <span class="ace-search-hint-group"><kbd>&#8593;</kbd><kbd>&#8595;</kbd> browse</span>
-    <span class="ace-search-hint-group"><kbd>&#8629;</kbd> view</span>
-    {% else %}
-    <span class="ace-search-hint-group"><kbd>&#8629;</kbd> apply or create</span>
-    <span class="ace-search-hint-group"><kbd>F2</kbd> rename</span>
-    <span class="ace-search-hint-group"><kbd>del</kbd> delete</span>
-    {% endif %}
-  </div>
 </div>
 <section id="ace-headless-tree-preview"
          class="ace-headless-tree-preview{% if not tree_codes and not read_only %} ace-headless-tree-preview--empty{% endif %}"
@@ -159,6 +144,11 @@
           data-headless-tree-status
           aria-live="polite">Loading</span>
   </header>
+  {% if codebook_mode != 'readonly' %}
+  <div id="ace-code-create-actions"
+       class="ace-code-create-actions"
+       aria-live="polite"></div>
+  {% endif %}
   <div id="ace-headless-tree-mount"
        class="ace-headless-tree-mount"
        data-headless-tree-mount
@@ -168,11 +158,6 @@
        aria-label="Code list"
        aria-describedby="code-search-help ace-headless-tree-dnd-instructions"
        aria-keyshortcuts="{{ 'Enter F2 Delete' if audit_mode else ('Enter' if read_only else 'Enter F2 Delete') }}"></div>
-  {% if codebook_mode != 'readonly' %}
-  <div id="ace-code-create-actions"
-       class="ace-code-create-actions"
-       aria-live="polite"></div>
-  {% endif %}
   {% if not tree_codes and not read_only %}
   <div class="ace-sidebar-empty">
     <p>No codes yet.</p>
@@ -184,7 +169,7 @@
         Import codebook CSV
       </button>
     </div>
-    <p class="ace-empty-hint">You can also type <kbd>/code</kbd> followed by a name, then press <kbd>Enter</kbd>.</p>
+    <p class="ace-empty-hint">Type a code name, then press <kbd>Enter</kbd>. Press <kbd>Shift</kbd> + <kbd>Enter</kbd> to create a folder.</p>
   </div>
   {% endif %}
 </section>

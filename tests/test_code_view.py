@@ -178,7 +178,7 @@ def test_codebook_search_has_slash_keyshortcut_regression(client_with_annotation
     client, _, code_id, _ = client_with_annotations
     resp = client.get(f"/code/{code_id}/view")
     assert 'id="code-search-input"' in resp.text
-    assert 'aria-keyshortcuts="/"' in resp.text
+    assert 'aria-keyshortcuts="/ Enter Shift+Enter Escape"' in resp.text
 
 
 def test_code_view_has_cheatsheet_dialog(client_with_annotations):
