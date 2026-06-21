@@ -153,6 +153,18 @@ def _extract_folder_id(_html: str, name: str, db_path: str) -> str:
     return _latest_id_by_name(db_path, name, "folder")
 
 
+def _audit_mutation_detail(resp) -> dict:
+    trigger = (
+        resp.headers.get("HX-Trigger-After-Settle")
+        or resp.headers.get("HX-Trigger-After-Swap")
+        or resp.headers.get("HX-Trigger", "")
+    )
+    assert trigger, "expected HX trigger header"
+    payload = json.loads(trigger)
+    assert "ace:codebook-mutated" in payload
+    return payload["ace:codebook-mutated"]
+
+
 def _create_folder(client, name: str, db_path: str) -> str:
     """POST /api/codes/folder and return the new folder id."""
     r = client.post(
@@ -592,13 +604,12 @@ def test_audit_rename_response_marks_current_code_reload(client_with_codes):
         },
     )
     assert_audit_codebook_response(resp)
-    trigger = resp.headers.get("HX-Trigger", "")
-    assert '"ace:codebook-mutated"' in trigger
-    assert '"mode": "audit"' in trigger
-    assert '"operation": "update"' in trigger
-    assert f'"affectedCodeIds": ["{code_id}"]' in trigger
-    assert f'"currentCodeId": "{code_id}"' in trigger
-    assert '"auditReload": true' in trigger
+    detail = _audit_mutation_detail(resp)
+    assert detail["mode"] == "audit"
+    assert detail["operation"] == "update"
+    assert detail["affectedCodeIds"] == [code_id]
+    assert detail["currentCodeId"] == code_id
+    assert detail["auditReload"] is True
 
 
 def test_undo_code_rename_no_navigate_trigger(client_with_codes):
@@ -679,6 +690,68 @@ def test_audit_mode_delete_returns_audit_sidebar_only(client_with_codes):
         },
     )
     assert_audit_codebook_response(resp)
+
+
+def test_audit_delete_current_code_returns_next_canonical_fallback(client_with_codes):
+    client, _coder_id, code_a, code_b, db_path = client_with_codes
+
+    conn = sqlite3.connect(db_path)
+    try:
+        code_c = add_code(conn, "Theme C", "#305FBF")
+    finally:
+        conn.close()
+
+    resp = client.delete(
+        f"/api/codes/{code_b}",
+        params={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_b,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "delete"
+    assert detail["currentCodeId"] == code_b
+    assert detail["fallbackCodeId"] == code_c
+
+
+def test_audit_delete_last_code_returns_previous_canonical_fallback(client_with_codes):
+    client, _coder_id, code_a, code_b, _db_path = client_with_codes
+
+    resp = client.delete(
+        f"/api/codes/{code_b}",
+        params={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_b,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["fallbackCodeId"] == code_a
+
+
+def test_audit_delete_only_code_returns_no_fallback(client_with_codes):
+    client, _coder_id, code_a, code_b, _db_path = client_with_codes
+
+    first = client.delete(f"/api/codes/{code_b}", params={"current_index": 0})
+    assert first.status_code == 200
+
+    resp = client.delete(
+        f"/api/codes/{code_a}",
+        params={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_a,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["fallbackCodeId"] is None
 
 
 def test_reorder_codes_noop_does_not_record_undo_entry(client_with_codes):

@@ -27,11 +27,13 @@ router = APIRouter(prefix="/api")
 
 from ace.routes.api_support import (
     _codebook_tree_payload,
+    _fallback_code_after_delete,
     _get_undo_manager,
     _oob_announce,
     _oob_status,
     _oob_status_undo,
     _project_db,
+    _request_codebook_mode,
     _render_codebook_mutation_response,
     _render_code_sidebar,
     _render_full_coding_oob,
@@ -685,6 +687,14 @@ async def delete_code_route(
         if prev is None:
             raise HTTPException(status_code=404, detail="code not found")
         code_name = prev["name"]
+        resolved_mode = _request_codebook_mode(request, explicit=codebook_mode)
+        fallback_code_id = None
+        if (
+            resolved_mode == "audit"
+            and prev["kind"] == "code"
+            and current_code_id == code_id
+        ):
+            fallback_code_id = _fallback_code_after_delete(conn, code_id)
 
         affected_anns, affected_children = delete_code(conn, code_id)
         mgr = _get_undo_manager(request)
@@ -718,5 +728,7 @@ async def delete_code_route(
             coding_content=content,
             mode=codebook_mode,
             current_code_id=current_code_id,
+            affected_code_ids=[code_id],
+            fallback_code_id=fallback_code_id,
             status_html=_oob_status_undo(message),
         )

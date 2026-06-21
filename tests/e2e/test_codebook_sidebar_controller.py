@@ -587,6 +587,104 @@ def test_coded_text_view_codebook_enter_renames_and_space_views_focused_code(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_audit_delete_current_code_falls_back_and_undo_restores(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--code")
+
+            alpha_id = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Alpha",
+            ).first.get_attribute("data-code-id")
+            bravo_id = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Bravo",
+            ).first.get_attribute("data-code-id")
+            charlie_id = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Charlie",
+            ).first.get_attribute("data-code-id")
+            assert alpha_id
+            assert bravo_id
+            assert charlie_id
+
+            page.goto(f"{ace_server}/code/{alpha_id}/view")
+            page.wait_for_selector(
+                f'#code-sidebar .ace-ht-row--code[data-code-id="{alpha_id}"][aria-current="page"]'
+            )
+            page.locator(
+                f'#code-sidebar .ace-ht-row--code[data-code-id="{bravo_id}"]'
+            ).focus()
+            page.keyboard.press(" ")
+            page.wait_for_url(f"{ace_server}/code/{bravo_id}/view")
+            page.wait_for_function(
+                """
+                (codeId) => document.querySelector("#code-view")?.dataset.codeId === codeId
+                """,
+                arg=bravo_id,
+            )
+            page.wait_for_selector(
+                f'#code-sidebar .ace-ht-row--code[data-code-id="{bravo_id}"][aria-current="page"]'
+            )
+
+            bravo_row = page.locator(
+                f'#code-sidebar .ace-ht-row--code[data-code-id="{bravo_id}"]'
+            )
+            dialogs = []
+
+            def accept_delete(dialog):
+                dialogs.append((dialog.type, dialog.message))
+                dialog.accept()
+
+            page.once("dialog", accept_delete)
+            bravo_row.press("Delete")
+            assert dialogs
+            assert dialogs[0][0] == "confirm"
+            assert 'Delete "Bravo"' in dialogs[0][1]
+
+            page.wait_for_url(f"{ace_server}/code/{charlie_id}/view")
+            page.wait_for_selector(
+                f'#code-sidebar .ace-ht-row--code[data-code-id="{charlie_id}"][aria-current="page"]'
+            )
+            expect(page.locator(".cv-code-name")).to_have_text("Charlie")
+            expect(
+                page.locator(f'#code-sidebar .ace-ht-row--code[data-code-id="{bravo_id}"]')
+            ).to_have_count(0)
+
+            page.evaluate(
+                """
+                async (codeId) => {
+                  await window.htmx.ajax("POST", `/api/undo?codebook_mode=audit&current_code_id=${codeId}`, {
+                    target: "#code-sidebar",
+                    swap: "none",
+                    values: { current_index: 0 },
+                  });
+                }
+                """,
+                arg=charlie_id,
+            )
+            page.wait_for_selector(
+                f'#code-sidebar .ace-ht-row--code[data-code-id="{bravo_id}"]'
+            )
+            expect(page.locator(".cv-code-name")).to_have_text("Charlie")
+
+            restored_bravo_row = page.locator(
+                f'#code-sidebar .ace-ht-row--code[data-code-id="{bravo_id}"]'
+            )
+            restored_bravo_row.focus()
+            page.keyboard.press(" ")
+            page.wait_for_url(f"{ace_server}/code/{bravo_id}/view")
+            expect(page.locator(".cv-code-name")).to_have_text("Bravo")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_codebook_nested_levels_have_visible_depth_guides(ace_server, browser_name):
     """Nested codebook rows should expose depth without adding extra controls."""
     with sync_playwright() as p:

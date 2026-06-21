@@ -785,6 +785,16 @@ def _request_codebook_mode(request: Request, explicit: str | None = None) -> str
     return mode if mode in {"coding", "audit", "readonly"} else "coding"
 
 
+def _request_current_code_id(request: Request, explicit: str | None = None) -> str | None:
+    current_code_id = explicit or request.query_params.get("current_code_id")
+    if current_code_id is None:
+        try:
+            current_code_id = request._form.get("current_code_id")
+        except Exception:
+            current_code_id = None
+    return current_code_id or None
+
+
 def _codebook_mutation_operation(request: Request) -> str:
     path = request.url.path.rstrip("/")
     code_id = request.path_params.get("code_id")
@@ -803,13 +813,16 @@ def _codebook_mutation_operation(request: Request) -> str:
 def _audit_codebook_mutation_detail(
     request: Request,
     *,
+    affected_code_ids: list[str] | None = None,
     current_code_id: str | None = None,
+    fallback_code_id: str | None = None,
 ) -> dict[str, object]:
     operation = _codebook_mutation_operation(request)
-    affected_code_ids: list[str] = []
-    code_id = request.path_params.get("code_id")
-    if code_id:
-        affected_code_ids.append(str(code_id))
+    if affected_code_ids is None:
+        affected_code_ids = []
+        code_id = request.path_params.get("code_id")
+        if code_id:
+            affected_code_ids.append(str(code_id))
     should_reload_current = (
         current_code_id is not None
         and current_code_id in affected_code_ids
@@ -821,18 +834,40 @@ def _audit_codebook_mutation_detail(
         "affectedCodeIds": affected_code_ids,
         "currentCodeId": current_code_id,
         "auditReload": should_reload_current,
-        "fallbackCodeId": None,
+        "fallbackCodeId": fallback_code_id,
     }
+
+
+def _fallback_code_after_delete(conn, deleted_code_id: str) -> str | None:
+    from ace.models.codebook import list_codes_with_tree
+
+    ordered_code_ids = [
+        str(node["id"])
+        for node in list_codes_with_tree(conn)
+        if node.get("kind") == "code"
+    ]
+    if not ordered_code_ids:
+        return None
+    if deleted_code_id not in ordered_code_ids:
+        return ordered_code_ids[0]
+
+    idx = ordered_code_ids.index(deleted_code_id)
+    if idx + 1 < len(ordered_code_ids):
+        return ordered_code_ids[idx + 1]
+    if idx > 0:
+        return ordered_code_ids[idx - 1]
+    return None
 
 
 def _merge_hx_trigger(
     headers: dict[str, str] | None,
     event_name: str,
     detail: dict[str, object],
+    header_name: str = "HX-Trigger",
 ) -> dict[str, str]:
     merged = dict(headers or {})
     payload: dict[str, object]
-    current = merged.get("HX-Trigger")
+    current = merged.get(header_name)
     if current:
         try:
             payload = json.loads(current)
@@ -841,7 +876,7 @@ def _merge_hx_trigger(
     else:
         payload = {}
     payload[event_name] = detail
-    merged["HX-Trigger"] = json.dumps(payload)
+    merged[header_name] = json.dumps(payload)
     return merged
 
 
@@ -877,6 +912,8 @@ def _render_codebook_mutation_response(
     coding_content: str,
     mode: str = "coding",
     current_code_id: str | None = None,
+    affected_code_ids: list[str] | None = None,
+    fallback_code_id: str | None = None,
     status_html: str = "",
     headers: dict[str, str] | None = None,
 ) -> HTMLResponse:
@@ -896,8 +933,11 @@ def _render_codebook_mutation_response(
             "ace:codebook-mutated",
             _audit_codebook_mutation_detail(
                 request,
+                affected_code_ids=affected_code_ids,
                 current_code_id=current_code_id,
+                fallback_code_id=fallback_code_id,
             ),
+            header_name="HX-Trigger-After-Settle",
         )
         content += status_html
         audit_headers["HX-Reswap"] = "none"
@@ -968,6 +1008,8 @@ def _build_undo_response(
     description = result["description"]
     source_id = result["source_id"]
     flash_id = result["flash_annotation_id"]
+    mode = _request_codebook_mode(request)
+    current_code_id = _request_current_code_id(request)
 
     # Determine target_index: stay where the user is unless the op was
     # bound to a different source than the one currently visible.
@@ -987,6 +1029,19 @@ def _build_undo_response(
             headers["HX-Trigger"] = json.dumps(
                 {"ace-navigate": {"index": target_index, "total": len(assignments)}}
             )
+
+    if mode == "audit" and result.get("codebook_changed", True):
+        status_html = _oob_status(description, "ok").body.decode()
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content="",
+            mode=mode,
+            current_code_id=current_code_id,
+            status_html=status_html,
+            headers=headers,
+        )
 
     content = _render_full_coding_oob(
         request,

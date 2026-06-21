@@ -538,9 +538,24 @@ import {
 
   function deleteItem(item) {
     if (item.getId() === ROOT_ID) return;
+    if (!confirmDelete(item)) return;
     document.dispatchEvent(new CustomEvent("ace:delete-codebook-item", {
       detail: { itemId: item.getId() },
     }));
+  }
+
+  function requiresDeleteConfirmation(item) {
+    if (!item || !isAuditMode()) return false;
+    const data = item.getItemData?.() || {};
+    if (data.kind === "folder") return true;
+    if (data.kind !== "code") return false;
+    return item.getId() === codebookMutationContext().currentCodeId;
+  }
+
+  function confirmDelete(item) {
+    if (!requiresDeleteConfirmation(item)) return true;
+    const label = item.getItemName?.() || "this item";
+    return window.confirm(`Delete "${label}"? You can undo this.`);
   }
 
   function clearSearchInput() {
@@ -1132,11 +1147,16 @@ import {
       return id && tree ? tree.getItemInstance(id) : null;
     }
 
-    function focusTreeItem(element) {
+    function focusTreeItem(element, options) {
       const item = itemForElement(element);
       if (!item) return;
+      options = options || {};
+      const shouldActivate =
+        Object.prototype.hasOwnProperty.call(options, "activate")
+          ? options.activate
+          : isAuditMode() && item.getItemData?.().kind === "code";
       focusTreeItemInstance(item, {
-        activate: isAuditMode() && item.getItemData?.().kind === "code",
+        activate: shouldActivate,
         pushHistory: false,
         viewTransition: false,
       });

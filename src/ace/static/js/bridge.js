@@ -1810,10 +1810,10 @@
           item = _findCodebookItemRow(_sidebarFocusState.folderId);
         }
         if (item) {
-          _focusTreeItem(item);
+          _focusTreeItem(item, { activate: false });
         } else {
           const items = _getTreeItems();
-          if (items.length > 0) _focusTreeItem(items[0]);
+          if (items.length > 0) _focusTreeItem(items[0], { activate: false });
         }
       } else if (_sidebarFocusState.zone === "search" && search) {
         search.focus();
@@ -3627,10 +3627,10 @@
   }
 
   /** Move roving tabindex to the given treeitem. */
-  function _focusTreeItem(item) {
+  function _focusTreeItem(item, options) {
     const controller = _getSidebarTreeController();
     if (controller) {
-      controller.focusTreeItem(item);
+      controller.focusTreeItem(item, options);
     }
   }
 

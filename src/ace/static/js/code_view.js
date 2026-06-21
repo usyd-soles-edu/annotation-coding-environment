@@ -174,6 +174,8 @@
     updateUI({ announce: false });
 
     // Header / title / colour
+    const shell = document.getElementById("code-view");
+    if (shell) shell.dataset.codeId = data.code.id;
     document.title = `${data.code.name} — Coded text — ACE`;
     const titleEl = document.querySelector(".cv-code-name");
     if (titleEl) titleEl.textContent = data.code.name;
@@ -957,6 +959,16 @@
     }
 
     const currentCodeId = data && data.code ? data.code.id : null;
+    const currentWasDeleted =
+      !!currentCodeId
+      && detail.operation === "delete"
+      && affectedCodeIds.includes(currentCodeId);
+    if (currentWasDeleted) {
+      setCurrentSidebarCode("");
+      dataCache.delete(currentCodeId);
+      window.location.href = "/code";
+      return;
+    }
     const shouldReloadCurrent =
       !!currentCodeId
       && (
