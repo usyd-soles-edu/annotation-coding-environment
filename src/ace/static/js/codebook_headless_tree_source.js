@@ -19,13 +19,11 @@ import {
   let dropLog = [];
   let mountedElement = null;
   let changedDropScopes = null;
-  let dragImageElement = null;
   let lastAssistiveDragName = "";
   let suppressNextRefocus = false;
   let searchRaw = "";
   let searchText = "";
   let chordFilterActive = false;
-  const TRANSPARENT_GIF = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
   const RESERVED_SINGLE_KEYS = new Set(["q", "x", "z", "n", "v"]);
   const MODE_POLICIES = Object.freeze({
     coding: Object.freeze({
@@ -206,20 +204,6 @@ import {
     const targetId = target?.item?.getId?.();
     if (!targetId || targetId === ROOT_ID) return "";
     return target.item.getItemData?.()?.kind === "folder" ? targetId : "";
-  }
-
-  function tinyDragImage() {
-    if (!dragImageElement) {
-      dragImageElement = document.createElement("img");
-      dragImageElement.className = "ace-ht-drag-image";
-      dragImageElement.alt = "";
-      dragImageElement.src = TRANSPARENT_GIF;
-      dragImageElement.width = 1;
-      dragImageElement.height = 1;
-      dragImageElement.draggable = false;
-    }
-    if (!dragImageElement.isConnected) document.body.append(dragImageElement);
-    return { imgElement: dragImageElement, xOffset: 0, yOffset: 0 };
   }
 
   function nativeDragPayload(draggedItems) {
@@ -1092,7 +1076,6 @@ import {
       },
       indent: 14,
       reorderAreaPercentage: 0.30,
-      setDragImage: tinyDragImage,
       createForeignDragObject: nativeDragPayload,
       canDrag: function (draggedItems) {
         if (codebookEditingDisabled()) return false;

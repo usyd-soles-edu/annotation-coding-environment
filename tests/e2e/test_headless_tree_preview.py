@@ -1165,7 +1165,7 @@ def test_headless_tree_candidate_browser_drag_reorders_root_codes(ace_server, br
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_headless_tree_candidate_uses_native_drag_payload_and_tiny_image(
+def test_headless_tree_candidate_uses_native_drag_payload_and_browser_ghost(
     ace_server, browser_name
 ):
     with sync_playwright() as p:
@@ -1219,12 +1219,7 @@ def test_headless_tree_candidate_uses_native_drag_payload_and_tiny_image(
                 """
             )
 
-            drag_image = drag_state["dragImage"]
-            assert drag_image is not None
-            assert "ace-ht-drag-image" in drag_image["className"]
-            assert drag_image["tagName"] == "IMG"
-            assert drag_image["width"] <= 4
-            assert drag_image["height"] <= 4
+            assert drag_state["dragImage"] is None
             assert drag_state["dataCalls"] == [
                 {"format": "text/plain", "data": "Charlie"}
             ]
@@ -1497,6 +1492,7 @@ def test_headless_tree_candidate_highlights_drop_receiver_folder(
                     receiverId: receivers[0].dataset.itemId,
                     receiverIsFolder: receivers[0].dataset.kind === "folder",
                     receiverHasVisualTreatment: style.boxShadow !== "none",
+                    dragLineHasCircle: getComputedStyle(line, "::before").content !== "none",
                   };
                 }
                 """,
@@ -1506,6 +1502,7 @@ def test_headless_tree_candidate_highlights_drop_receiver_folder(
                 "receiverId": ids["folder"],
                 "receiverIsFolder": True,
                 "receiverHasVisualTreatment": True,
+                "dragLineHasCircle": True,
             }
 
             page.mouse.up()
