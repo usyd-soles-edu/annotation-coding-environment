@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.2.0
+
+### Changes
+
+- **Codebook sidebar** — unified the coding and coded-text audit sidebars around the same Headless Tree codebook, with mode-specific keyboard behaviour for applying, browsing, renaming, and editing codes.
+- **Keyboard coding workflow** — simplified source/codebook navigation and made no-match codebook search states expose direct create-code and create-folder actions that are reachable by keyboard.
+- **Coded-text audit view** — added audit-safe codebook editing, undo/redo handling, current-code fallback after delete, and faster in-place switching between viewed codes.
+- **Project setup** — moved new-project creation to a minimal focused screen and kept recent-project resume, open-project, and tools actions clearer on the front page.
+- **Agreement workflow** — added a review step for selected files and preserved browser back/forward behaviour around review, compute, stale results, and errors.
+- **Codebook drag and drop** — restored native drag previews and clearer insertion/folder drop affordances for code and folder moves.
+
+### Fixes
+
+- **Exports** — corrected ACE export handling so exported annotation spans and source notes better match the saved project data.
+- **Slash search** — removed the old `/folder` command behaviour so slash-prefixed text is treated as normal code search/create input.
+- **Release metadata** — updated citation and archive metadata for the 1.2.0 release.
+
 ## 1.1.3
 
 ### Changes

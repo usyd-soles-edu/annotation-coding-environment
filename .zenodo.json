@@ -23,7 +23,7 @@
   ],
   "title": "Annotation Coding Environment (ACE) for collaborative qualitative coding",
   "description": "Annotation Coding Environment (ACE) is open-source desktop research software for collaborative qualitative coding of text. It supports transparent, local-first workflows for importing textual sources, developing shared codebooks, applying and reviewing coded annotations, and comparing coding across coders. ACE is designed for research and teaching teams that need a lightweight, inspectable alternative to hosted qualitative analysis platforms. Projects are stored as local .ace files, codebooks can be iteratively refined, and coded material can be exported for reporting, checking, preservation, or downstream analysis in tools such as R, Python, Excel, and other tabular-data environments. Built-in coder agreement summaries help teams examine consistency and discuss interpretive differences while keeping methodological judgement with the researchers. ACE is relevant to qualitative research, mixed-methods studies, content analysis, thematic analysis, and other workflows requiring systematic text annotation, collaborative coding, codebook development, and reproducible research software outputs.",
-  "version": "1.1.3",
+  "version": "1.2.0",
   "access_right": "open",
   "license": "mit",
   "upload_type": "software",
