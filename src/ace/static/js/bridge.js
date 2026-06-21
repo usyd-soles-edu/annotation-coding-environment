@@ -3598,12 +3598,28 @@
     }
   }
 
+  function _visibleCreateActions() {
+    return Array.from(document.querySelectorAll("#ace-code-create-actions .ace-code-create-action"))
+      .filter(function (button) {
+        return !button.disabled && button.offsetParent !== null;
+      });
+  }
+
+  function _focusCreateAction(index) {
+    const actions = _visibleCreateActions();
+    if (!actions.length) return false;
+    const clamped = Math.max(0, Math.min(index, actions.length - 1));
+    actions[clamped].focus();
+    return true;
+  }
+
   /** Determine which zone currently has focus: "text", "search", "tree", or null. */
   function _activeZone() {
     let el = document.activeElement;
     if (!el) return null;
     if (el.id === "text-panel" || el.closest("#text-panel")) return "text";
     if (el.id === "code-search-input") return "search";
+    if (el.closest("#ace-code-create-actions")) return "create";
     const headlessTree = document.getElementById("ace-headless-tree-mount");
     if (headlessTree && headlessTree.contains(el)) return "tree";
     return null;
@@ -3618,11 +3634,35 @@
 
     if (!e.shiftKey) {
       if (zone === "text") { e.preventDefault(); _focusSearchBar(); return; }
-      if (zone === "search") { e.preventDefault(); _focusCodeTree(); return; }
+      if (zone === "search") {
+        e.preventDefault();
+        if (!_focusCreateAction(0)) _focusCodeTree();
+        return;
+      }
+      if (zone === "create") {
+        const actions = _visibleCreateActions();
+        const idx = actions.indexOf(document.activeElement);
+        e.preventDefault();
+        if (idx >= 0 && idx < actions.length - 1) actions[idx + 1].focus();
+        else _focusTextPanel();
+        return;
+      }
       if (zone === "tree") { e.preventDefault(); _focusTextPanel(); return; }
     } else {
-      if (zone === "text") { e.preventDefault(); _focusCodeTree(); return; }
+      if (zone === "text") {
+        e.preventDefault();
+        if (!_focusCreateAction(_visibleCreateActions().length - 1)) _focusCodeTree();
+        return;
+      }
       if (zone === "search") { e.preventDefault(); _focusTextPanel(); return; }
+      if (zone === "create") {
+        const actions = _visibleCreateActions();
+        const idx = actions.indexOf(document.activeElement);
+        e.preventDefault();
+        if (idx > 0) actions[idx - 1].focus();
+        else _focusSearchBar();
+        return;
+      }
       if (zone === "tree") { e.preventDefault(); _focusSearchBar(); return; }
     }
   }, true);  // capture phase to intercept before default Tab behaviour
@@ -4336,7 +4376,7 @@
         _clearSearchFilter();
         input.focus();
       }
-      window._setStatus("Type /code followed by a name, then press Enter", "ok");
+      window._setStatus("Type a code name, then press Enter", "ok");
       return;
     }
 

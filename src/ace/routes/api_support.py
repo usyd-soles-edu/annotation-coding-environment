@@ -777,22 +777,7 @@ def _render_full_coding_oob(
 
 def _request_codebook_mode(request: Request, explicit: str | None = None) -> str:
     mode = explicit or request.query_params.get("codebook_mode")
-    if mode is None:
-        try:
-            mode = request._form.get("codebook_mode")
-        except Exception:
-            mode = None
     return mode if mode in {"coding", "audit", "readonly"} else "coding"
-
-
-def _request_current_code_id(request: Request, explicit: str | None = None) -> str | None:
-    current_code_id = explicit or request.query_params.get("current_code_id")
-    if current_code_id is None:
-        try:
-            current_code_id = request._form.get("current_code_id")
-        except Exception:
-            current_code_id = None
-    return current_code_id or None
 
 
 def _codebook_mutation_operation(request: Request) -> str:
@@ -994,7 +979,14 @@ def _resolve_source_id(conn, coder_id: str, current_index: int) -> str | None:
 
 
 def _build_undo_response(
-    request: Request, conn, coder_id: str, current_index: int, result: dict
+    request: Request,
+    conn,
+    coder_id: str,
+    current_index: int,
+    result: dict,
+    *,
+    codebook_mode: str = "coding",
+    current_code_id: str | None = None,
 ) -> HTMLResponse:
     """Assemble the HTMX swap, status bar, optional navigate trigger, and flash hint.
 
@@ -1013,8 +1005,7 @@ def _build_undo_response(
     description = result["description"]
     source_id = result["source_id"]
     flash_id = result["flash_annotation_id"]
-    mode = _request_codebook_mode(request)
-    current_code_id = _request_current_code_id(request)
+    mode = _request_codebook_mode(request, explicit=codebook_mode)
 
     # Determine target_index: stay where the user is unless the op was
     # bound to a different source than the one currently visible.

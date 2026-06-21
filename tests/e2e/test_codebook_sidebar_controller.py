@@ -600,6 +600,15 @@ def test_coded_text_view_codebook_enter_renames_and_space_views_focused_code(
             page.keyboard.press("Escape")
             expect(page.locator(".ace-ht-rename")).to_have_count(0)
 
+            page.locator("#code-search-input").fill("Audit Mode Candidate")
+            expect(
+                page.get_by_role("button", name='Create code "Audit Mode Candidate"')
+            ).to_be_visible()
+            expect(
+                page.get_by_role("button", name='Create folder "Audit Mode Candidate"')
+            ).to_be_visible()
+            page.locator("#code-search-input").fill("")
+
             charlie_row = page.locator(
                 f'#ace-headless-tree-mount .ace-ht-row--code[data-code-id="{charlie_id}"]'
             )

@@ -2341,7 +2341,7 @@
     }
     function availableCreateActions() {
       const name = searchRaw.trim();
-      if (!name || chordFilterActive || codeApplicationDisabled() || firstVisibleCodeItem()) return [];
+      if (!name || chordFilterActive || isReadonlyMode() || firstVisibleCodeItem()) return [];
       const actions = [];
       if (!findDuplicateName("code", name)) {
         actions.push({ label: `Create code "${name}"`, name, hint: "Enter", create: createCode });
