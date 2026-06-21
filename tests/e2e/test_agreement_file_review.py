@@ -60,10 +60,11 @@ def test_agreement_review_removes_file_and_recomputes_match_count(
 
             def handle_compute(route):
                 compute_posts.append(route.request.post_data or "")
+                time.sleep(0.3)
                 route.fulfill(
                     status=200,
                     content_type="text/html",
-                    body='<h1 class="ace-agreement-title">Computed</h1>',
+                    body='<h1 id="ace-agreement-results-title" class="ace-agreement-title" tabindex="-1">Computed</h1>',
                 )
 
             page.route("**/api/agreement/compute", handle_compute)
@@ -74,6 +75,7 @@ def test_agreement_review_removes_file_and_recomputes_match_count(
             expect(page.get_by_role("heading", name="Review selected files")).to_be_visible(
                 timeout=5000
             )
+            expect(page.locator("#ace-agreement-title")).to_be_focused()
             expect(page.locator("#agreement-results")).to_contain_text(
                 "1 matched code",
                 timeout=5000,
@@ -95,9 +97,26 @@ def test_agreement_review_removes_file_and_recomputes_match_count(
             page.get_by_role("button", name="Compute agreement").click()
 
             expect(page.locator("#agreement-results")).to_contain_text("Computed", timeout=5000)
+            expect(page.locator("#ace-agreement-results-title")).to_be_focused()
             assert len(compute_posts) == 1
             values = parse_qs(compute_posts[0])
             assert json.loads(values["paths"][0]) == [str(alice), str(bob)]
+
+            page.go_back()
+
+            expect(page.get_by_role("heading", name="Review selected files")).to_be_visible(
+                timeout=5000
+            )
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2)
+            expect(page.locator("#agreement-results")).to_contain_text("alice.ace")
+            expect(page.locator("#agreement-results")).to_contain_text("bob.ace")
+            expect(page.locator("#agreement-results")).not_to_contain_text("carol.ace")
+            expect(page.get_by_role("button", name="Choose files")).to_be_visible()
+            expect(page.get_by_role("button", name="Compute agreement")).to_be_visible()
+
+            page.go_forward()
+
+            expect(page.locator("#agreement-results")).to_contain_text("Computed", timeout=5000)
         finally:
             browser.close()
 
@@ -159,6 +178,272 @@ def test_agreement_review_blocks_compute_while_removal_preview_is_pending(
             assert len(compute_posts) == 1
             values = parse_qs(compute_posts[0])
             assert json.loads(values["paths"][0]) == [str(alice), str(bob)]
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_agreement_review_edit_after_back_discards_stale_forward_result(
+    ace_server, tmp_path, browser_name
+):
+    alice = _make_agreement_file(tmp_path / "alice.ace", "Alice", ["Positive", "Negative"])
+    bob = _make_agreement_file(tmp_path / "bob.ace", "Bob", ["Positive", "Negative"])
+    carol = _make_agreement_file(tmp_path / "carol.ace", "Carol", ["Positive"])
+    selected_paths = [str(alice), str(bob), str(carol)]
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-files",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"paths": selected_paths}),
+                ),
+            )
+            page.route(
+                "**/api/agreement/compute",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="text/html",
+                    body='<h1 id="ace-agreement-results-title" class="ace-agreement-title" tabindex="-1">Computed</h1>',
+                ),
+            )
+
+            page.goto(f"{ace_server}/agreement")
+            page.get_by_role("button", name="Choose files").click()
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(3, timeout=5000)
+
+            page.get_by_role("button", name="Compute agreement").click()
+            expect(page.locator("#agreement-results")).to_contain_text("Computed", timeout=5000)
+
+            page.go_back()
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(3, timeout=5000)
+
+            page.get_by_role("button", name="Remove carol.ace").click()
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2, timeout=5000)
+
+            page.go_forward()
+            expect(page.locator("#agreement-results")).not_to_contain_text("Computed")
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2)
+            expect(page.get_by_role("button", name="Compute agreement")).to_be_visible()
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_agreement_review_remove_below_minimum_after_back_discards_stale_forward_result(
+    ace_server, tmp_path, browser_name
+):
+    alice = _make_agreement_file(tmp_path / "alice.ace", "Alice", ["Positive", "Negative"])
+    bob = _make_agreement_file(tmp_path / "bob.ace", "Bob", ["Positive", "Negative"])
+    selected_paths = [str(alice), str(bob)]
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-files",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"paths": selected_paths}),
+                ),
+            )
+            page.route(
+                "**/api/agreement/compute",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="text/html",
+                    body='<h1 id="ace-agreement-results-title" class="ace-agreement-title" tabindex="-1">Computed</h1>',
+                ),
+            )
+
+            page.goto(f"{ace_server}/agreement")
+            page.get_by_role("button", name="Choose files").click()
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2, timeout=5000)
+
+            page.get_by_role("button", name="Compute agreement").click()
+            expect(page.locator("#agreement-results")).to_contain_text("Computed", timeout=5000)
+
+            page.go_back()
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2, timeout=5000)
+
+            page.get_by_role("button", name="Remove bob.ace").click()
+            expect(page.locator("#agreement-results")).to_contain_text(
+                "Select 2 or more .ace files",
+                timeout=5000,
+            )
+
+            page.go_forward()
+            expect(page.locator("#agreement-results")).not_to_contain_text("Computed")
+            expect(page.locator("#agreement-results")).to_contain_text(
+                "Select 2 or more .ace files"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_agreement_compute_error_replaces_loading_history(
+    ace_server, tmp_path, browser_name
+):
+    alice = _make_agreement_file(tmp_path / "alice.ace", "Alice", ["Positive", "Negative"])
+    bob = _make_agreement_file(tmp_path / "bob.ace", "Bob", ["Positive", "Negative"])
+    selected_paths = [str(alice), str(bob)]
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-files",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"paths": selected_paths}),
+                ),
+            )
+            page.route(
+                "**/api/agreement/compute",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="text/html",
+                    body=(
+                        '<h1 class="ace-agreement-title">Inter-Coder Agreement</h1>'
+                        '<div class="ace-agreement-error">'
+                        "<p>Agreement could not be computed.</p>"
+                        '<button class="ace-agreement-choose-btn" onclick="acePickAndCompute()">'
+                        "Choose different files"
+                        "</button>"
+                        "</div>"
+                    ),
+                ),
+            )
+
+            page.goto(f"{ace_server}/agreement")
+            page.get_by_role("button", name="Choose files").click()
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2, timeout=5000)
+
+            page.get_by_role("button", name="Compute agreement").click()
+            expect(page.locator("#agreement-results")).to_contain_text(
+                "Agreement could not be computed.",
+                timeout=5000,
+            )
+            expect(page.locator("#agreement-results .ace-agreement-title")).to_be_focused()
+
+            page.go_back()
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2, timeout=5000)
+
+            page.go_forward()
+            expect(page.locator("#agreement-results")).to_contain_text(
+                "Agreement could not be computed.",
+                timeout=5000,
+            )
+            expect(page.locator("#agreement-results")).not_to_contain_text("Computing agreement")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_agreement_back_while_compute_pending_ignores_late_result(
+    ace_server, tmp_path, browser_name
+):
+    alice = _make_agreement_file(tmp_path / "alice.ace", "Alice", ["Positive", "Negative"])
+    bob = _make_agreement_file(tmp_path / "bob.ace", "Bob", ["Positive", "Negative"])
+    selected_paths = [str(alice), str(bob)]
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-files",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"paths": selected_paths}),
+                ),
+            )
+
+            def handle_compute(route):
+                time.sleep(1.5)
+                route.fulfill(
+                    status=200,
+                    content_type="text/html",
+                    body='<h1 id="ace-agreement-results-title" class="ace-agreement-title" tabindex="-1">Computed</h1>',
+                )
+
+            page.route("**/api/agreement/compute", handle_compute)
+
+            page.goto(f"{ace_server}/agreement")
+            page.get_by_role("button", name="Choose files").click()
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2, timeout=5000)
+
+            page.evaluate(
+                """() => {
+                    document.querySelector("[data-agreement-compute]").click();
+                    history.back();
+                }"""
+            )
+
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2, timeout=5000)
+            page.wait_for_timeout(1900)
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2)
+            expect(page.locator("#agreement-results")).not_to_contain_text("Computed")
+
+            page.go_forward()
+            expect(page.locator("#agreement-results")).not_to_contain_text("Computed")
+            expect(page.locator("#agreement-results")).not_to_contain_text("Computing agreement")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_agreement_choose_cancel_preserves_current_review(
+    ace_server, tmp_path, browser_name
+):
+    alice = _make_agreement_file(tmp_path / "alice.ace", "Alice", ["Positive", "Negative"])
+    bob = _make_agreement_file(tmp_path / "bob.ace", "Bob", ["Positive", "Negative"])
+    selected_paths = [str(alice), str(bob)]
+    pick_responses = [selected_paths, []]
+    clear_calls = []
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+
+            def handle_pick(route):
+                paths = pick_responses.pop(0)
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=json.dumps({"paths": paths}),
+                )
+
+            def handle_clear(route):
+                clear_calls.append(1)
+                route.continue_()
+
+            page.route("**/api/native/pick-files", handle_pick)
+            page.route("**/api/agreement/clear", handle_clear)
+
+            page.goto(f"{ace_server}/agreement")
+            page.get_by_role("button", name="Choose files").click()
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2, timeout=5000)
+            assert len(clear_calls) == 1
+
+            page.get_by_role("button", name="Choose files").click()
+
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(2, timeout=5000)
+            expect(page.locator("#agreement-results")).to_contain_text("alice.ace")
+            expect(page.locator("#agreement-results")).to_contain_text("bob.ace")
+            expect(page.locator("[data-agreement-choose-again]")).to_be_focused()
+            assert len(clear_calls) == 1
         finally:
             browser.close()
 

@@ -174,6 +174,8 @@
     updateUI({ announce: false });
 
     // Header / title / colour
+    const shell = document.getElementById("code-view");
+    if (shell) shell.dataset.codeId = data.code.id;
     document.title = `${data.code.name} — Coded text — ACE`;
     const titleEl = document.querySelector(".cv-code-name");
     if (titleEl) titleEl.textContent = data.code.name;
@@ -735,7 +737,12 @@
       const codeId = evt.detail && evt.detail.codeId;
       if (!codeId) return;
       selectCodebookRowById(codeId);
-      if (codeId !== data.code.id) loadCode(codeId, { pushHistory: true });
+      if (codeId !== data.code.id) {
+        loadCode(codeId, {
+          pushHistory: evt.detail?.pushHistory !== false,
+          viewTransition: evt.detail?.viewTransition !== false,
+        });
+      }
     });
   })();
 
@@ -857,7 +864,8 @@
   async function loadCode(codeId, opts) {
     opts = opts || {};
     const pushHistory = opts.pushHistory !== false;
-    if (!codeId || codeId === data.code.id) return;
+    const forceReload = opts.forceReload === true;
+    if (!codeId || (!forceReload && codeId === data.code.id)) return;
     if (navAbort.ctl) navAbort.ctl.abort();
     navAbort.ctl = new AbortController();
     let json;
@@ -931,6 +939,78 @@
     dataCache.set(codeId, p);
     _cacheEvictIfFull();
   }
+
+  function requestAuditUndo(redo) {
+    const currentCodeId = data?.code?.id || "";
+    window.htmx?.ajax?.("POST", redo ? "/api/redo" : "/api/undo", {
+      target: "#code-sidebar",
+      swap: "none",
+      values: {
+        codebook_mode: "audit",
+        current_code_id: currentCodeId,
+      },
+    });
+  }
+
+  document.addEventListener("ace:codebook-mutated", (evt) => {
+    const detail = evt.detail || {};
+    if (detail.mode !== "audit") return;
+
+    const affectedCodeIds = Array.isArray(detail.affectedCodeIds)
+      ? detail.affectedCodeIds.filter(Boolean)
+      : [];
+    if (affectedCodeIds.length > 0) {
+      affectedCodeIds.forEach((codeId) => dataCache.delete(codeId));
+    } else {
+      dataCache.clear();
+    }
+
+    if (detail.fallbackCodeId) {
+      loadCode(detail.fallbackCodeId, { pushHistory: false, viewTransition: false });
+      return;
+    }
+
+    const currentCodeId = data && data.code ? data.code.id : null;
+    const currentWasDeleted =
+      !!currentCodeId
+      && detail.operation === "delete"
+      && affectedCodeIds.includes(currentCodeId);
+    if (currentWasDeleted) {
+      setCurrentSidebarCode("");
+      dataCache.delete(currentCodeId);
+      window.location.href = "/code";
+      return;
+    }
+    const shouldReloadCurrent =
+      !!currentCodeId
+      && (
+        detail.auditReload === true
+        || (
+          detail.operation !== "delete"
+          && affectedCodeIds.includes(currentCodeId)
+        )
+      );
+    if (shouldReloadCurrent) {
+      dataCache.delete(currentCodeId);
+      loadCode(currentCodeId, {
+        pushHistory: false,
+        viewTransition: false,
+        forceReload: true,
+      });
+      return;
+    }
+
+    if (currentCodeId) {
+      setCurrentSidebarCode(currentCodeId);
+    }
+  });
+
+  document.addEventListener("click", (evt) => {
+    const undoButton = evt.target?.closest?.(".ace-statusbar-undo[data-ace-undo-affordance]");
+    if (!undoButton) return;
+    claim(evt);
+    requestAuditUndo(false);
+  }, true);
 
   // Thin wrapper: arrow-key navigation uses replaceState so back-button
   // doesn't stack 50 entries.
@@ -1041,10 +1121,18 @@
       return;
     }
 
-    // q, x, z → reserved on this page (explicit no-op)
+    // Z / Shift+Z — audit-safe undo / redo. Editable fields keep native undo.
+    if ((evt.key === "z" || evt.key === "Z")
+        && !evt.ctrlKey && !evt.metaKey && !evt.altKey) {
+      if (isEditableElement(document.activeElement)) return;
+      claim(evt);
+      requestAuditUndo(evt.shiftKey);
+      return;
+    }
+
+    // q, x → reserved on this page (explicit no-op)
     if ((evt.key === "q" || evt.key === "Q"
-         || evt.key === "x" || evt.key === "X"
-         || evt.key === "z" || evt.key === "Z")
+         || evt.key === "x" || evt.key === "X")
         && !evt.ctrlKey && !evt.metaKey && !evt.altKey && !evt.shiftKey) {
       if (isEditableElement(document.activeElement)) return;
       evt.preventDefault();
@@ -1063,66 +1151,13 @@
     }
   }, true); // capture phase — matches existing code_view.js convention
 
-  // Keydown on the code tree: arrows browse excerpts; editing keys fall through
-  // to the shared codebook controller.
+  // Keydown on the code tree is owned by the shared codebook controller.
   if (treeEl) {
     treeEl.addEventListener("focusin", (evt) => {
       const row = evt.target.closest && evt.target.closest(CODEBOOK_CODE_ROW_SELECTOR);
       const codeId = codeIdFromCodebookRow(row);
       if (codeId) prefetch(codeId);
     }, true);
-
-    treeEl.addEventListener("keydown", (evt) => {
-      const target = evt.target;
-      if (!target || !target.getAttribute) return;
-      const isTreeItem = target.getAttribute("role") === "treeitem";
-      if (!isTreeItem) return;
-      const isCodeRow = isCodebookCodeRow(target);
-
-      const plainKey = !evt.ctrlKey && !evt.metaKey && !evt.altKey && !evt.shiftKey;
-
-      // Navigation + activation are code-row-only. Group headers keep
-      // their bridge.js Enter handler for collapse/expand.
-      if (!isCodeRow) return;
-
-      const rows = visibleCodeRows();
-      const pos = rows.indexOf(target);
-
-      if (plainKey && evt.key === "ArrowDown") {
-        claim(evt);
-        const target = rows[Math.min(pos + 1, rows.length - 1)];
-        moveCodebookCursor(target);
-        maybeAutoNavigate(target);
-        return;
-      }
-      if (plainKey && evt.key === "ArrowUp") {
-        claim(evt);
-        const target = rows[Math.max(pos - 1, 0)];
-        moveCodebookCursor(target);
-        maybeAutoNavigate(target);
-        return;
-      }
-      if (plainKey && evt.key === "Home") {
-        claim(evt);
-        const target = rows[0];
-        moveCodebookCursor(target);
-        maybeAutoNavigate(target);
-        return;
-      }
-      if (plainKey && evt.key === "End") {
-        claim(evt);
-        const target = rows[rows.length - 1];
-        moveCodebookCursor(target);
-        maybeAutoNavigate(target);
-        return;
-      }
-      if (plainKey && evt.key === "Enter") {
-        claim(evt);
-        const codeId = codeIdFromCodebookRow(target);
-        if (codeId) loadCode(codeId, { pushHistory: true });
-        return;
-      }
-    }, true); // capture phase — run before bridge.js's tree keydown
   }
 
   // Keydown on the codebook search input: ↓/↑/Esc.
@@ -1143,18 +1178,6 @@
         } else {
           codeSearchInput.blur();
         }
-        return;
-      }
-      if (evt.key === "ArrowDown") {
-        claim(evt);
-        const rows = visibleCodeRows();
-        if (rows.length > 0) moveCodebookCursor(rows[0]);
-        return;
-      }
-      if (evt.key === "ArrowUp") {
-        claim(evt);
-        const rows = visibleCodeRows();
-        if (rows.length > 0) moveCodebookCursor(rows[rows.length - 1]);
         return;
       }
     }, true); // capture phase — stopImmediatePropagation blocks bridge.js handlers

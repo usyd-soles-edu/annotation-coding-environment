@@ -129,6 +129,8 @@ async def delete_annotation_route(
 async def undo_route(
     request: Request,
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Pop the top entry from the global undo stack and replay its inverse."""
     coder_id = _require_coder(request)
@@ -149,13 +151,23 @@ async def undo_route(
             logger.exception("Undo failed")
             return _with_headers(_oob_status("Undo failed — please report this", "err"), no_swap)
 
-        return _build_undo_response(request, conn, coder_id, current_index, result)
+        return _build_undo_response(
+            request,
+            conn,
+            coder_id,
+            current_index,
+            result,
+            codebook_mode=codebook_mode,
+            current_code_id=current_code_id,
+        )
 
 
 @router.post("/redo")
 async def redo_route(
     request: Request,
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Pop the top entry from the global redo stack and replay it forward."""
     coder_id = _require_coder(request)
@@ -174,7 +186,15 @@ async def redo_route(
             logger.exception("Redo failed")
             return _with_headers(_oob_status("Redo failed — please report this", "err"), no_swap)
 
-        return _build_undo_response(request, conn, coder_id, current_index, result)
+        return _build_undo_response(
+            request,
+            conn,
+            coder_id,
+            current_index,
+            result,
+            codebook_mode=codebook_mode,
+            current_code_id=current_code_id,
+        )
 
 
 @router.post("/code/flag")

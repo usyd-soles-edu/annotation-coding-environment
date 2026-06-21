@@ -2,6 +2,7 @@
   "use strict";
 
   const TAB_ID_KEY = "ace-runtime-tab-id";
+  const RECENT_FILES_KEY = "ace-recent-files";
   const HEARTBEAT_INTERVAL_MS = 15000;
 
   let enabled = false;
@@ -37,6 +38,35 @@
 
   function formBody(id) {
     return "tab_id=" + encodeURIComponent(id);
+  }
+
+  function migrateRecent(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw.map(function (item) {
+      if (typeof item === "string") return { path: item, openedAt: 0 };
+      if (item && typeof item.path === "string") return item;
+      return null;
+    }).filter(Boolean);
+  }
+
+  function getRecentFiles() {
+    try {
+      const raw = JSON.parse(window.localStorage.getItem(RECENT_FILES_KEY)) || [];
+      return migrateRecent(raw);
+    } catch (_err) {
+      return [];
+    }
+  }
+
+  function addRecentFile(path) {
+    let list = getRecentFiles().filter(function (item) { return item.path !== path; });
+    list.unshift({ path: path, openedAt: Date.now() });
+    if (list.length > 5) list = list.slice(0, 5);
+    window.localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(list));
+  }
+
+  function clearRecentFiles() {
+    window.localStorage.removeItem(RECENT_FILES_KEY);
   }
 
   async function postRuntimeEvent(path) {
@@ -101,5 +131,10 @@
   }
 
   window.addEventListener("pagehide", disconnect);
+  window.ACE_RECENTS = {
+    get: getRecentFiles,
+    add: addRecentFile,
+    clear: clearRecentFiles,
+  };
   void init();
 }());

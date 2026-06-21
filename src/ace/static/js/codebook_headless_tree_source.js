@@ -19,14 +19,35 @@ import {
   let dropLog = [];
   let mountedElement = null;
   let changedDropScopes = null;
-  let dragImageElement = null;
   let lastAssistiveDragName = "";
   let suppressNextRefocus = false;
   let searchRaw = "";
   let searchText = "";
   let chordFilterActive = false;
-  const TRANSPARENT_GIF = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
   const RESERVED_SINGLE_KEYS = new Set(["q", "x", "z", "n", "v"]);
+  const MODE_POLICIES = Object.freeze({
+    coding: Object.freeze({
+      enterOnCode: "apply",
+      enterOnFolder: "toggle",
+      spaceOnCode: "none",
+      autoViewOnFocus: false,
+      editingDisabled: false,
+    }),
+    audit: Object.freeze({
+      enterOnCode: "rename",
+      enterOnFolder: "toggle",
+      spaceOnCode: "view",
+      autoViewOnFocus: true,
+      editingDisabled: false,
+    }),
+    readonly: Object.freeze({
+      enterOnCode: "view",
+      enterOnFolder: "toggle",
+      spaceOnCode: "view",
+      autoViewOnFocus: false,
+      editingDisabled: true,
+    }),
+  });
 
   function clearCodebookActiveState() {
     const active = document.activeElement;
@@ -185,20 +206,6 @@ import {
     return target.item.getItemData?.()?.kind === "folder" ? targetId : "";
   }
 
-  function tinyDragImage() {
-    if (!dragImageElement) {
-      dragImageElement = document.createElement("img");
-      dragImageElement.className = "ace-ht-drag-image";
-      dragImageElement.alt = "";
-      dragImageElement.src = TRANSPARENT_GIF;
-      dragImageElement.width = 1;
-      dragImageElement.height = 1;
-      dragImageElement.draggable = false;
-    }
-    if (!dragImageElement.isConnected) document.body.append(dragImageElement);
-    return { imgElement: dragImageElement, xOffset: 0, yOffset: 0 };
-  }
-
   function nativeDragPayload(draggedItems) {
     return {
       format: "text/plain",
@@ -220,26 +227,40 @@ import {
   }
 
   function updateDndAnnouncement() {
-    const announcer = document.getElementById("ace-ht-dnd-announcer");
+    const announcer = document.getElementById("ace-headless-tree-dnd-live");
     if (!announcer || !tree) return;
 
     const state = tree.getState?.() || {};
     const assistiveState = state.assistiveDndState || 0;
-    const dragged = state.dnd?.draggedItems?.[0] || null;
-    if (dragged) lastAssistiveDragName = dragged.getItemName?.() || "item";
+    const draggedItems = state.dnd?.draggedItems || [];
+    if (draggedItems.length) {
+      lastAssistiveDragName = draggedItems
+        .map(function (item) { return item.getItemName?.() || item.getId?.() || "item"; })
+        .join(", ");
+    }
     const name = lastAssistiveDragName || "item";
+    const target = activeDragTarget();
+    const targetText = dragTargetText(target);
+    const canDropTarget = target && canDrop(draggedItems, target);
 
     if (assistiveState === 1) {
       announcer.textContent = `Moving ${name}. Use arrow keys to choose a position, Enter to move, Escape to cancel.`;
     } else if (assistiveState === 2) {
-      announcer.textContent = `Moving ${name} ${dragTargetText(activeDragTarget())}. Enter to move, Escape to cancel.`;
+      const prefix = canDropTarget === false ? "Cannot drop there. " : "";
+      announcer.textContent = `${prefix}Moving ${name} ${targetText}. Enter to move, Escape to cancel.`;
     } else if (assistiveState === 3) {
       announcer.textContent = `Moved ${name}.`;
     } else if (assistiveState === 4) {
       announcer.textContent = "Move cancelled.";
-    } else {
+    } else if (!lastAssistiveDragName) {
       announcer.textContent = "";
     }
+  }
+
+  function announceKeyboardDragCancel(event) {
+    if (event.key !== "Escape" || !tree?.getState?.().dnd) return;
+    const announcer = document.getElementById("ace-headless-tree-dnd-live");
+    if (announcer) announcer.textContent = "Move cancelled.";
   }
 
   async function persistDrop(id, previousParent, nextParent, order, restoreSnapshot) {
@@ -289,12 +310,34 @@ import {
     return window.__aceCurrentIndex || 0;
   }
 
+  function currentCodebookMode() {
+    const mount = document.getElementById("ace-headless-tree-mount");
+    const mode = mount?.dataset?.codebookMode || "coding";
+    return MODE_POLICIES[mode] ? mode : "coding";
+  }
+
+  function modePolicy(mode) {
+    return MODE_POLICIES[mode || currentCodebookMode()] || MODE_POLICIES.coding;
+  }
+
+  function isCodingMode() {
+    return currentCodebookMode() === "coding";
+  }
+
+  function isAuditMode() {
+    return currentCodebookMode() === "audit";
+  }
+
+  function isReadonlyMode() {
+    return currentCodebookMode() === "readonly";
+  }
+
   function codebookEditingDisabled() {
-    return document.querySelector("#ace-headless-tree-mount[data-codebook-readonly='1']") !== null;
+    return modePolicy().editingDisabled;
   }
 
   function codeApplicationDisabled() {
-    return !!document.getElementById("code-view") || !document.getElementById("text-panel");
+    return modePolicy().enterOnCode !== "apply";
   }
 
   function denyCodebookEditing() {
@@ -307,6 +350,25 @@ import {
     return parentId && parentId !== ROOT_ID ? parentId : "";
   }
 
+  function codebookMutationContext() {
+    const mount = document.getElementById("ace-headless-tree-mount");
+    const codeView = document.getElementById("code-view");
+    return {
+      mode: mount?.dataset?.codebookMode || "coding",
+      currentCodeId: codeView?.dataset?.codeId || "",
+    };
+  }
+
+  function codebookMutationValues(values) {
+    const next = { ...(values || {}) };
+    const ctx = codebookMutationContext();
+    if (ctx.mode !== "coding") next.codebook_mode = ctx.mode;
+    if (ctx.currentCodeId && !next.current_code_id) {
+      next.current_code_id = ctx.currentCodeId;
+    }
+    return next;
+  }
+
   async function htmxSwap(method, url, values) {
     if (!window.htmx || typeof window.htmx.ajax !== "function") {
       throw new Error("HTMX is unavailable");
@@ -314,7 +376,7 @@ import {
     return window.htmx.ajax(method, url, {
       target: document.getElementById("text-panel") ? "#text-panel" : "#code-sidebar",
       swap: document.getElementById("text-panel") ? "outerHTML" : "none",
-      values,
+      values: codebookMutationValues(values),
     });
   }
 
@@ -325,7 +387,7 @@ import {
     return window.htmx.ajax(method, url, {
       target: "#code-sidebar",
       swap: "outerHTML",
-      values,
+      values: codebookMutationValues(values),
     });
   }
 
@@ -420,12 +482,7 @@ import {
     const data = item.getItemData();
     if (data.kind !== "code") return;
     if (codeApplicationDisabled()) {
-      document.dispatchEvent(new CustomEvent("ace:view-code", {
-        detail: {
-          codeId: item.getId(),
-          codeName: data.name || "",
-        },
-      }));
+      viewCode(item, {});
       return;
     }
     document.dispatchEvent(new CustomEvent("ace:apply-code", {
@@ -434,6 +491,36 @@ import {
         codeName: data.name || "",
       },
     }));
+  }
+
+  function viewCode(item, options) {
+    const data = item.getItemData();
+    if (data.kind !== "code") return;
+    options = options || {};
+    document.dispatchEvent(new CustomEvent("ace:view-code", {
+      detail: {
+        codeId: item.getId(),
+        codeName: data.name || "",
+        pushHistory: options.pushHistory,
+        viewTransition: options.viewTransition,
+      },
+    }));
+  }
+
+  function focusTreeItemInstance(item, options) {
+    if (!item) return;
+    options = options || {};
+    item.setFocused();
+    scheduleRender();
+    queueMicrotask(function () {
+      item.getElement()?.focus({ preventScroll: true });
+    });
+    if (options.activate && item.getItemData?.().kind === "code") {
+      viewCode(item, {
+        pushHistory: options.pushHistory,
+        viewTransition: options.viewTransition,
+      });
+    }
   }
 
   function persistRename(item, name) {
@@ -449,9 +536,24 @@ import {
 
   function deleteItem(item) {
     if (item.getId() === ROOT_ID) return;
+    if (!confirmDelete(item)) return;
     document.dispatchEvent(new CustomEvent("ace:delete-codebook-item", {
       detail: { itemId: item.getId() },
     }));
+  }
+
+  function requiresDeleteConfirmation(item) {
+    if (!item || !isAuditMode()) return false;
+    const data = item.getItemData?.() || {};
+    if (data.kind === "folder") return true;
+    if (data.kind !== "code") return false;
+    return item.getId() === codebookMutationContext().currentCodeId;
+  }
+
+  function confirmDelete(item) {
+    if (!requiresDeleteConfirmation(item)) return true;
+    const label = item.getItemName?.() || "this item";
+    return window.confirm(`Delete "${label}"? You can undo this.`);
   }
 
   function clearSearchInput() {
@@ -466,8 +568,29 @@ import {
     if (!id || !tree) return;
     const item = tree.getItemInstance(id);
     if (!item) return;
-    item.setFocused();
-    scheduleRender();
+    focusTreeItemInstance(item, {});
+  }
+
+  function plainTreeKey(event) {
+    return !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey;
+  }
+
+  function focusedVisibleCodeTarget(item, key) {
+    const visibleCodes = visibleCodeItems();
+    if (!visibleCodes.length) return null;
+    if (key === "Home") return visibleCodes[0];
+    if (key === "End") return visibleCodes[visibleCodes.length - 1];
+    const currentVisibleIndex = visibleCodes.findIndex(function (candidate) {
+      return candidate.getId() === item.getId();
+    });
+    if (currentVisibleIndex < 0) return null;
+    if (key === "ArrowDown") {
+      return visibleCodes[Math.min(currentVisibleIndex + 1, visibleCodes.length - 1)];
+    }
+    if (key === "ArrowUp") {
+      return visibleCodes[Math.max(currentVisibleIndex - 1, 0)];
+    }
+    return null;
   }
 
   function rowByItemId(id) {
@@ -527,59 +650,55 @@ import {
     });
   }
 
-  function commitSlashCommand(value) {
-    const parts = value.trim().match(/^\/(\S+)\s+(.+)$/);
-    if (!parts) return false;
-    const command = parts[1].toLowerCase();
-    const name = parts[2].trim();
-    if (!name) return false;
-    if ("code".startsWith(command)) {
-      createCode(name);
-      return true;
+  function availableCreateActions() {
+    const name = searchRaw.trim();
+    if (!name || chordFilterActive || isReadonlyMode() || firstVisibleCodeItem()) return [];
+
+    const actions = [];
+    if (!findDuplicateName("code", name)) {
+      actions.push({ label: `Create code "${name}"`, name, hint: "Enter", create: createCode });
     }
-    if ("folder".startsWith(command)) {
-      createFolder(name);
-      return true;
+    if (!findDuplicateName("folder", name)) {
+      actions.push({ label: `Create folder "${name}"`, name, hint: "Shift Enter", create: createFolder });
     }
-    setStatus("Unknown command");
-    return true;
+    return actions;
   }
 
-  function createSearchRow() {
-    const name = searchRaw.trim();
-    if (chordFilterActive) return null;
-    if (!name || name.startsWith("/") || firstVisibleCodeItem()) return null;
-    const row = document.createElement("div");
-    row.className = "ace-ht-create-row";
-    row.setAttribute("role", "button");
-    row.tabIndex = 0;
-    row.setAttribute("aria-label", `Create code ${name}`);
+  function renderCreateActions() {
+    const mount = document.getElementById("ace-code-create-actions");
+    if (!mount) return;
 
-    const plus = document.createElement("span");
-    plus.className = "ace-ht-create-plus";
-    plus.textContent = "+";
-    row.append(plus);
-
-    const label = document.createElement("span");
-    label.className = "ace-ht-create-label";
-    label.textContent = `Create code '${name}'`;
-    row.append(label);
-
-    const hint = document.createElement("span");
-    hint.className = "ace-ht-create-hint";
-    hint.textContent = "Enter";
-    row.append(hint);
-
-    function commit(event) {
-      event.preventDefault();
-      event.stopPropagation();
-      createCode(name);
+    const actions = availableCreateActions();
+    if (!actions.length) {
+      mount.replaceChildren();
+      return;
     }
-    row.addEventListener("click", commit);
-    row.addEventListener("keydown", function (event) {
-      if (event.key === "Enter") commit(event);
-    });
-    return row;
+
+    function button(action) {
+      const control = document.createElement("button");
+      control.type = "button";
+      control.tabIndex = 0;
+      control.className = "ace-code-create-action";
+      control.setAttribute("aria-label", action.label);
+
+      const label = document.createElement("span");
+      label.className = "ace-code-create-label";
+      label.textContent = action.label;
+      control.append(label);
+
+      const hint = document.createElement("span");
+      hint.className = "ace-code-create-hint";
+      hint.setAttribute("aria-hidden", "true");
+      hint.textContent = action.hint;
+      control.append(hint);
+
+      control.addEventListener("click", function () {
+        action.create(action.name);
+      });
+      return control;
+    }
+
+    mount.replaceChildren(...actions.map(button));
   }
 
   function rowForItem(item) {
@@ -609,6 +728,7 @@ import {
     itemProps.onKeyDown = function (event) {
       if (
         event.key === "ArrowRight"
+        && isCodingMode()
         && !event.altKey
         && !event.shiftKey
         && !event.ctrlKey
@@ -620,10 +740,59 @@ import {
         window.aceCodingKeyboard.returnToSource();
         return;
       }
-      if (event.key === "Enter" && data.kind === "code") {
+      if (data.kind === "folder" && event.key === "Enter" && plainTreeKey(event)) {
         event.preventDefault();
         event.stopPropagation();
-        applyCode(item);
+        if (item.isExpanded()) item.collapse();
+        else item.expand();
+        scheduleRender();
+        return;
+      }
+      if (
+        modePolicy().autoViewOnFocus
+        && data.kind === "code"
+        && plainTreeKey(event)
+        && (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        const nextItem = focusedVisibleCodeTarget(item, event.key);
+        if (!nextItem) return;
+        focusTreeItemInstance(nextItem, {
+          activate: true,
+          pushHistory: false,
+          viewTransition: false,
+        });
+        return;
+      }
+      if (data.kind === "code" && event.key === "Enter" && plainTreeKey(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const policy = modePolicy();
+        if (policy.enterOnCode === "apply") {
+          applyCode(item);
+          return;
+        }
+        if (policy.enterOnCode === "rename") {
+          if (denyCodebookEditing()) return;
+          item.startRenaming?.();
+          scheduleRender();
+          return;
+        }
+        if (policy.enterOnCode === "view") {
+          viewCode(item, { pushHistory: true });
+          return;
+        }
+      }
+      if (
+        data.kind === "code"
+        && (event.key === " " || event.code === "Space")
+        && plainTreeKey(event)
+        && modePolicy().spaceOnCode === "view"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        viewCode(item, { pushHistory: true });
         return;
       }
       if ((event.key === "Delete" || event.key === "Backspace") && item.getId() !== ROOT_ID) {
@@ -837,20 +1006,12 @@ import {
     if (!mount || !tree) return;
 
     const rows = visibleTreeItems().map(rowForItem);
-    const createRow = createSearchRow();
-    if (createRow) rows.push(createRow);
     mount.replaceChildren(...rows);
+    renderCreateActions();
     const dragLine = document.createElement("div");
     dragLine.className = "ace-ht-drag-line";
     Object.assign(dragLine.style, tree.getDragLineStyle?.() || { display: "none" });
     mount.append(dragLine);
-    const announcer = document.createElement("div");
-    announcer.id = "ace-ht-dnd-announcer";
-    announcer.className = "ace-sr-only";
-    announcer.setAttribute("role", "status");
-    announcer.setAttribute("aria-live", "polite");
-    announcer.setAttribute("aria-atomic", "true");
-    mount.append(announcer);
     updateDndAnnouncement();
 
     const active = document.activeElement;
@@ -915,7 +1076,6 @@ import {
       },
       indent: 14,
       reorderAreaPercentage: 0.30,
-      setDragImage: tinyDragImage,
       createForeignDragObject: nativeDragPayload,
       canDrag: function (draggedItems) {
         if (codebookEditingDisabled()) return false;
@@ -972,13 +1132,18 @@ import {
       return id && tree ? tree.getItemInstance(id) : null;
     }
 
-    function focusTreeItem(element) {
+    function focusTreeItem(element, options) {
       const item = itemForElement(element);
       if (!item) return;
-      item.setFocused();
-      scheduleRender();
-      queueMicrotask(function () {
-        item.getElement()?.focus({ preventScroll: true });
+      options = options || {};
+      const shouldActivate =
+        Object.prototype.hasOwnProperty.call(options, "activate")
+          ? options.activate
+          : isAuditMode() && item.getItemData?.().kind === "code";
+      focusTreeItemInstance(item, {
+        activate: shouldActivate,
+        pushHistory: false,
+        viewTransition: false,
       });
     }
 
@@ -1080,6 +1245,11 @@ import {
       toggleFolderCollapse,
       expandFolder,
       collapseFolder,
+      getMode: currentCodebookMode,
+      modePolicy: function () { return { ...modePolicy() }; },
+      isCodingMode,
+      isAuditMode,
+      isReadonlyMode,
       getTreeItems,
       focusTreeItem,
       getActiveTreeItem,
@@ -1120,6 +1290,7 @@ import {
       items = payload.items || {};
       buildTree();
       applyProps(mount, tree.getContainerProps("Codebook tree"));
+      mount.addEventListener("keydown", announceKeyboardDragCancel, true);
       tree.setMounted(true);
       tree.rebuildTree();
       renderTree();
@@ -1193,10 +1364,10 @@ import {
       if (!item) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      item.setFocused();
-      scheduleRender();
-      queueMicrotask(function () {
-        item.getElement()?.focus({ preventScroll: true });
+      focusTreeItemInstance(item, {
+        activate: isAuditMode() && item.getItemData?.().kind === "code",
+        pushHistory: false,
+        viewTransition: false,
       });
       return;
     }
@@ -1214,11 +1385,6 @@ import {
       createFolder(value);
       return;
     }
-    if (value.startsWith("/")) {
-      if (!commitSlashCommand(value)) setStatus("Type /code Name or /folder Name");
-      return;
-    }
-
     const match = firstVisibleCodeItem();
     if (match) {
       clearSearchInput();
@@ -1233,7 +1399,7 @@ import {
     event.stopImmediatePropagation();
     const value = event.target.value || "";
     searchRaw = value.trim();
-    searchText = searchRaw.startsWith("/") ? "" : searchRaw.toLowerCase();
+    searchText = searchRaw.toLowerCase();
     scheduleRender();
   }, true);
 

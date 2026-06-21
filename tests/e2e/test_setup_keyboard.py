@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pytest
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from ace.db.connection import create_project
 from .conftest import browser_params
@@ -50,24 +50,17 @@ def test_landing_keyboard_shortcuts_open_primary_actions(
 
             page.goto(f"{ace_server}/")
             page.keyboard.press("n")
-            assert page.locator("#new-project-form").is_visible()
+            page.wait_for_url("**/new-project", timeout=5000)
             assert page.evaluate("document.activeElement.id") == "new-project-input"
-            assert page.locator("#open-existing-btn").is_hidden()
-            assert page.locator(".ace-home-tool-link").is_hidden()
 
-            page.locator("#new-project-input").blur()
-            page.keyboard.press("o")
-            assert page.locator("#new-project-form").is_visible()
-            assert page.url == f"{ace_server}/"
-
-            page.get_by_role("button", name="Back").click()
-            assert not page.locator("#new-project-form").is_visible()
-            assert page.locator("#open-existing-btn").is_visible()
+            page.keyboard.press("Escape")
+            page.wait_for_url(f"{ace_server}/", timeout=5000)
 
             page.keyboard.press("n")
-            assert page.locator("#new-project-form").is_visible()
-            page.keyboard.press("Escape")
-            assert not page.locator("#new-project-form").is_visible()
+            page.wait_for_url("**/new-project", timeout=5000)
+            page.go_back()
+            assert page.url == f"{ace_server}/"
+
             page.keyboard.press("o")
             page.wait_for_url("**/import", timeout=5000)
         finally:
@@ -130,7 +123,7 @@ def test_landing_arrow_keys_cycle_visible_actions_without_recent(
             assert page.evaluate("document.activeElement.id") == "new-project-link"
 
             page.keyboard.press("Enter")
-            assert page.locator("#new-project-form").is_visible()
+            page.wait_for_url("**/new-project", timeout=5000)
             assert page.evaluate("document.activeElement.id") == "new-project-input"
         finally:
             browser.close()
@@ -226,20 +219,51 @@ def test_landing_arrow_keys_and_enter_activate_open_project_and_agreement(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_landing_shortcuts_do_not_hijack_open_project_form_controls(
+def test_new_project_form_controls_keep_keyboard_focus(
     ace_server, browser_name
 ):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
         try:
             page = browser.new_page()
-            page.goto(f"{ace_server}/")
-            page.keyboard.press("n")
+            page.goto(f"{ace_server}/new-project")
             assert page.locator("#new-project-form").is_visible()
 
             page.locator("#choose-project-folder-btn").focus()
             page.keyboard.press("ArrowDown")
             assert page.evaluate("document.activeElement.id") == "choose-project-folder-btn"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_new_project_page_creates_project_from_keyboard(
+    ace_server, tmp_path, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-folder",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body='{"path": "%s"}' % str(tmp_path).replace('\\', '\\\\'),
+                ),
+            )
+
+            page.goto(f"{ace_server}/new-project")
+            page.locator("#new-project-input").fill("Keyboard Created")
+            _press_forward_tab(page, browser_name)
+            assert page.evaluate("document.activeElement.id") == "choose-project-folder-btn"
+            page.keyboard.press("Enter")
+            expect(page.locator("#new-project-folder-label")).to_have_text(str(tmp_path))
+            assert page.evaluate("document.activeElement.id") == "create-project-btn"
+            page.keyboard.press("Enter")
+
+            page.wait_for_url("**/import", timeout=5000)
+            assert (tmp_path / "Keyboard Created.ace").exists()
         finally:
             browser.close()
 

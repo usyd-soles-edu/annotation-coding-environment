@@ -7,17 +7,17 @@
 {% endblock %}
 
 {% block content %}
-<div class="ace-agreement-page">
+<main class="ace-agreement-page">
   <a href="/" class="ace-back">← Home</a>
 
   <div id="agreement-results">
-    <h1 class="ace-agreement-title">Inter-Coder Agreement</h1>
+    <h1 id="ace-agreement-title" class="ace-agreement-title" tabindex="-1">Inter-Coder Agreement</h1>
     <div class="ace-agreement-empty">
       <p>Select 2 or more .ace files to compute agreement</p>
-      <button class="ace-agreement-choose-btn" onclick="acePickAndCompute()">Choose files</button>
+      <button class="ace-agreement-choose-btn" data-agreement-pick-start onclick="acePickAndCompute()">Choose files</button>
     </div>
   </div>
-</div>
+</main>
 {% endblock %}
 
 {% block scripts %}
@@ -25,7 +25,7 @@
 (function() {
   "use strict";
 
-  var _HEADING = '<h1 class="ace-agreement-title">Inter-Coder Agreement</h1>';
+  var _HEADING = '<h1 id="ace-agreement-title" class="ace-agreement-title" tabindex="-1">Inter-Coder Agreement</h1>';
   // Snapshot the server-rendered pick state so the under-2-files branch can
   // restore it verbatim instead of re-typing the markup.
   var _initialResults = (document.getElementById("agreement-results") || {}).innerHTML || "";
@@ -36,6 +36,14 @@
   var _agreementSelectedPaths = [];
   var _agreementPreviewSeq = 0;
   var _agreementPreviewPending = false;
+  var _agreementReviewState = null;
+  var _suppressAgreementHistory = false;
+  var _agreementReviewRestoredFromHistory = false;
+  var _agreementComputeSeq = 0;
+  var _activeAgreementComputeSeq = 0;
+  var _cancelledAgreementComputeSeqs = {};
+  var _cancelledAgreementComputeOrder = [];
+  var _MAX_CANCELLED_COMPUTES = 20;
 
   function _stopPoll() {
     if (_agreementPoll) { clearInterval(_agreementPoll); _agreementPoll = null; }
@@ -45,13 +53,25 @@
   // listener and the poll's error branch (which used to fork the same DOM
   // mutation). subText is optional.
   function _showError(labelText, subText) {
+    var computeSeq = _activeAgreementComputeSeq;
     _stopPoll();
     var fill = document.getElementById("ace-agreement-progress-fill");
     var label = document.getElementById("ace-agreement-progress-label");
     var sub = document.getElementById("ace-agreement-progress-sub");
-    if (fill) { fill.classList.add("is-error"); fill.style.width = "100%"; }
+    if (fill) {
+      fill.classList.add("is-error");
+      fill.style.width = "100%";
+      fill.setAttribute("aria-valuenow", "100");
+    }
     if (label) { label.classList.add("is-error"); label.textContent = labelText; }
     if (sub && subText) { sub.textContent = subText; }
+    _activeAgreementComputeSeq = 0;
+    if (!_suppressAgreementHistory) {
+      var results = document.getElementById("agreement-results");
+      if (results) {
+        _replaceAgreementHistory("error", results.innerHTML, _selectedAgreementPaths(), computeSeq);
+      }
+    }
   }
 
   // I2: a 5xx here would only be a genuine transport failure (the route now
@@ -75,8 +95,116 @@
       _HEADING +
       '<div class="ace-agreement-error">' +
       '<p>Something went wrong. Please try again.</p>' +
-      '<button class="ace-agreement-choose-btn" onclick="acePickAndCompute()">Choose different files</button>' +
+      '<button class="ace-agreement-choose-btn" data-agreement-pick-start onclick="acePickAndCompute()">Choose different files</button>' +
       '</div>';
+    _focusAgreementTitle();
+  }
+
+  function _focusAgreementTitle() {
+    var title = document.querySelector("#agreement-results .ace-agreement-title");
+    if (title) {
+      if (!title.hasAttribute("tabindex")) {
+        title.setAttribute("tabindex", "-1");
+      }
+      title.focus({ preventScroll: true });
+    }
+  }
+
+  function _invalidateAgreementCompute() {
+    _agreementComputeSeq += 1;
+    _activeAgreementComputeSeq = 0;
+  }
+
+  function _rememberCancelledAgreementCompute(seq) {
+    if (!seq || _cancelledAgreementComputeSeqs[seq]) { return; }
+    _cancelledAgreementComputeSeqs[seq] = true;
+    _cancelledAgreementComputeOrder.push(seq);
+    while (_cancelledAgreementComputeOrder.length > _MAX_CANCELLED_COMPUTES) {
+      delete _cancelledAgreementComputeSeqs[_cancelledAgreementComputeOrder.shift()];
+    }
+  }
+
+  function _focusAgreementChoose() {
+    var choose = document.querySelector("[data-agreement-pick-start], [data-agreement-choose-again]");
+    if (choose) {
+      choose.focus({ preventScroll: true });
+      return;
+    }
+    _focusAgreementTitle();
+  }
+
+  function _agreementState(kind, html, paths, computeSeq) {
+    return {
+      aceAgreement: true,
+      kind: kind || "panel",
+      html: html,
+      paths: Array.isArray(paths) ? paths.slice() : [],
+      computeSeq: computeSeq || 0,
+    };
+  }
+
+  function _replaceAgreementHistory(kind, html, paths, computeSeq) {
+    if (!window.history || !window.history.replaceState) { return; }
+    try {
+      window.history.replaceState(_agreementState(kind, html, paths, computeSeq), "", window.location.href);
+    } catch (e) {
+      // Some browsers reject large history states. Keep the current UI usable.
+    }
+  }
+
+  function _pushAgreementHistory(kind, html, paths, computeSeq) {
+    if (!window.history || !window.history.pushState) { return; }
+    try {
+      window.history.pushState(_agreementState(kind, html, paths, computeSeq), "", window.location.href);
+    } catch (e) {
+      // Some browsers reject large history states. Keep the current UI usable.
+    }
+  }
+
+  function _rememberAgreementPanel(kind, html, paths) {
+    var state = _agreementState(kind, html, paths);
+    if (kind === "review") {
+      _agreementReviewState = state;
+    }
+    if (_suppressAgreementHistory) {
+      return;
+    }
+    if (_agreementReviewRestoredFromHistory) {
+      _pushAgreementHistory(kind, html, paths);
+      _agreementReviewRestoredFromHistory = false;
+    } else {
+      _replaceAgreementHistory(kind, html, paths);
+    }
+  }
+
+  function _restoreAgreementState(state) {
+    if (!state || state.aceAgreement !== true || typeof state.html !== "string") {
+      return false;
+    }
+    if (state.computeSeq && _cancelledAgreementComputeSeqs[state.computeSeq] && _agreementReviewState) {
+      state = _agreementReviewState;
+    }
+    var results = document.getElementById("agreement-results");
+    var hadActiveCompute = _activeAgreementComputeSeq !== 0;
+    var cancelledComputeSeq = _activeAgreementComputeSeq;
+    _stopPoll();
+    _invalidateAgreementCompute();
+    _setAgreementReviewBusy(false);
+    _agreementSelectedPaths = Array.isArray(state.paths) ? state.paths.slice() : [];
+    results.innerHTML = state.html;
+    if (state.kind === "review" || results.querySelector(".ace-agreement-review")) {
+      _agreementReviewState = _agreementState("review", state.html, _agreementSelectedPaths);
+      _agreementReviewRestoredFromHistory = true;
+      if (hadActiveCompute) {
+        _rememberCancelledAgreementCompute(cancelledComputeSeq);
+        _pushAgreementHistory("review", state.html, _agreementSelectedPaths);
+        _agreementReviewRestoredFromHistory = false;
+      }
+    } else {
+      _agreementReviewRestoredFromHistory = false;
+    }
+    _focusAgreementTitle();
+    return true;
   }
 
   function _selectedAgreementPaths() {
@@ -95,6 +223,10 @@
 
   function _setAgreementReviewBusy(busy) {
     _agreementPreviewPending = busy;
+    var results = document.getElementById("agreement-results");
+    if (results) {
+      results.dataset.agreementPreviewPending = busy ? "true" : "false";
+    }
     document.querySelectorAll("[data-agreement-remove], [data-agreement-compute]").forEach(function (button) {
       if (busy) {
         button.dataset.agreementWasDisabled = button.disabled ? "1" : "0";
@@ -127,9 +259,12 @@
     opts = opts || {};
     _agreementSelectedPaths = Array.isArray(paths) ? paths.slice() : [];
     _stopPoll();
+    _invalidateAgreementCompute();
     if (!paths || paths.length < 2) {
       _setAgreementReviewBusy(false);
       results.innerHTML = _initialResults;
+      _rememberAgreementPanel("empty", _initialResults, _agreementSelectedPaths);
+      _focusAgreementChoose();
       return Promise.resolve();
     }
 
@@ -149,7 +284,12 @@
         if (seq !== _agreementPreviewSeq) { return; }
         results.innerHTML = html;
         _setAgreementReviewBusy(false);
-        _restoreAgreementFocus(opts.focusRemoveIndex);
+        _rememberAgreementPanel("review", html, _agreementSelectedPaths);
+        if (typeof opts.focusRemoveIndex === "number") {
+          _restoreAgreementFocus(opts.focusRemoveIndex);
+        } else {
+          _focusAgreementTitle();
+        }
       });
   }
 
@@ -160,7 +300,7 @@
       '<div class="ace-agreement-loading" role="status" aria-live="polite" style="text-align:left">' +
         '<div class="ace-agreement-progress">' +
           '<div class="ace-agreement-progress-bar">' +
-            '<div class="ace-agreement-progress-fill" id="ace-agreement-progress-fill" style="width:0%"></div>' +
+            '<div class="ace-agreement-progress-fill" id="ace-agreement-progress-fill" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="-1" style="width:0%"></div>' +
           '</div>' +
           '<div class="ace-agreement-progress-label" id="ace-agreement-progress-label">Computing agreement\u2026</div>' +
           '<div class="ace-agreement-progress-sub" id="ace-agreement-progress-sub"></div>' +
@@ -181,6 +321,7 @@
           return;
         }
         fill.style.width = p.percent + "%";
+        fill.setAttribute("aria-valuenow", String(p.percent));
         label.textContent = "Computing agreement\u2026 " + p.percent + "%";
         sub.textContent = p.stage || "";
       }).catch(function () { /* swallow \u2014 poll retries */ });
@@ -195,9 +336,26 @@
       return;
     }
 
+    if (_agreementReviewState && !_suppressAgreementHistory) {
+      _replaceAgreementHistory(
+        _agreementReviewState.kind,
+        _agreementReviewState.html,
+        _agreementReviewState.paths
+      );
+      _agreementReviewRestoredFromHistory = false;
+    }
+    var computeSeq = ++_agreementComputeSeq;
+    _activeAgreementComputeSeq = computeSeq;
     _showAgreementLoading();
+    if (_agreementReviewState && !_suppressAgreementHistory) {
+      _pushAgreementHistory("loading", document.getElementById("agreement-results").innerHTML, paths, computeSeq);
+    }
+    var progress = document.getElementById("ace-agreement-progress-fill");
+    if (progress) {
+      progress.focus({ preventScroll: true });
+    }
     htmx.ajax("POST", "/api/agreement/compute", {
-      values: { paths: JSON.stringify(paths) },
+      values: { paths: JSON.stringify(paths), ace_compute_seq: String(computeSeq) },
       target: "#agreement-results",
       swap: "innerHTML",
     });
@@ -211,6 +369,7 @@
       var paths = _selectedAgreementPaths();
       var idx = Number(removeBtn.getAttribute("data-index"));
       if (Number.isInteger(idx) && idx >= 0 && idx < paths.length) {
+        _setAgreementReviewBusy(true);
         paths.splice(idx, 1);
         _renderAgreementPreview(paths, { focusRemoveIndex: idx }).catch(_showGenericAgreementError);
       }
@@ -220,7 +379,9 @@
     var computeBtn = e.target.closest && e.target.closest("[data-agreement-compute]");
     if (computeBtn) {
       e.preventDefault();
-      if (!computeBtn.disabled) {
+      var results = document.getElementById("agreement-results");
+      var previewPending = results && results.dataset.agreementPreviewPending === "true";
+      if (!computeBtn.disabled && !previewPending) {
         _startAgreementCompute();
       }
       return;
@@ -234,31 +395,92 @@
   });
 
   window.acePickAndCompute = function() {
-    fetch("/api/agreement/clear", { method: "POST" })
-      .then(function (clearResponse) {
-        if (!clearResponse.ok) {
-          throw new Error("Could not clear cached agreement results");
-        }
-        return fetch("/api/native/pick-files", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: "accept=.ace"
-        });
-      })
+    fetch("/api/native/pick-files", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "accept=.ace"
+    })
       .then(function(r) { return r.json(); })
       .then(function(data) {
         if (!data.paths || data.paths.length < 2) {
-          // Fewer than 2 files: re-show the pick state instead of failing
-          // silently. Also stop any poll left from an abandoned in-flight
-          // compute so it can't fire one extra /progress request.
-          _stopPoll();
-          document.getElementById("agreement-results").innerHTML = _initialResults;
+          _focusAgreementChoose();
           return;
         }
-        return _renderAgreementPreview(data.paths);
+        return fetch("/api/agreement/clear", { method: "POST" })
+          .then(function (clearResponse) {
+            if (!clearResponse.ok) {
+              throw new Error("Could not clear cached agreement results");
+            }
+            return _renderAgreementPreview(data.paths);
+          });
       })
       .catch(_showGenericAgreementError);
   };
+
+  function _replaceAgreementTerminalHistory(target, detail) {
+    if (_suppressAgreementHistory || !target || target.id !== "agreement-results") {
+      return;
+    }
+    var requestConfig = (detail && detail.requestConfig) || {};
+    var params = requestConfig.parameters || {};
+    var computeSeq = Number(params.ace_compute_seq || 0);
+    if (computeSeq && _cancelledAgreementComputeSeqs[computeSeq]) {
+      return;
+    }
+    if (target.querySelector("#ace-agreement-results-title")) {
+      _activeAgreementComputeSeq = 0;
+      _replaceAgreementHistory("result", target.innerHTML, _selectedAgreementPaths(), computeSeq);
+      return;
+    }
+    if (target.querySelector(".ace-agreement-error")) {
+      _activeAgreementComputeSeq = 0;
+      _replaceAgreementHistory("error", target.innerHTML, _selectedAgreementPaths(), computeSeq);
+    }
+  }
+
+  document.addEventListener("htmx:afterSwap", function (e) {
+    if (!e.detail || !e.detail.target) {
+      return;
+    }
+    _replaceAgreementTerminalHistory(e.detail.target, e.detail);
+  });
+
+  document.addEventListener("htmx:beforeSwap", function (e) {
+    if (!e.detail || !e.detail.target || e.detail.target.id !== "agreement-results") {
+      return;
+    }
+    var requestConfig = e.detail.requestConfig || {};
+    var params = requestConfig.parameters || {};
+    var computeSeq = Number(params.ace_compute_seq || 0);
+    if (computeSeq && computeSeq !== _activeAgreementComputeSeq) {
+      e.preventDefault();
+      e.detail.shouldSwap = false;
+    }
+  });
+
+  document.addEventListener("htmx:afterSettle", function (e) {
+    if (!e.detail || !e.detail.target || e.detail.target.id !== "agreement-results") {
+      return;
+    }
+    var resultTitle = document.getElementById("ace-agreement-results-title");
+    if (resultTitle) {
+      resultTitle.focus({ preventScroll: true });
+      return;
+    }
+    if (e.detail.target.querySelector(".ace-agreement-error")) {
+      _focusAgreementTitle();
+    }
+  });
+
+  window.addEventListener("popstate", function (e) {
+    if (!e.state || e.state.aceAgreement !== true) { return; }
+    _suppressAgreementHistory = true;
+    try {
+      _restoreAgreementState(e.state);
+    } finally {
+      _suppressAgreementHistory = false;
+    }
+  });
 })();
 </script>
 {% endblock %}

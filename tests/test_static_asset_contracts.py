@@ -60,3 +60,35 @@ def test_source_horizontal_sentence_aliases_removed():
     assert "Aliases for ↑ / ↓" not in bridge
     assert "sentencesR" not in bridge
     assert "sentencesL" not in bridge
+
+
+def test_audit_codebook_mutations_send_mode_context():
+    bridge = (ROOT / "src" / "ace" / "static" / "js" / "bridge.js").read_text(
+        encoding="utf-8"
+    )
+    tree_source = (
+        ROOT / "src" / "ace" / "static" / "js" / "codebook_headless_tree_source.js"
+    ).read_text(encoding="utf-8")
+
+    assert "function _codebookMutationValues" in bridge
+    assert "next.codebook_mode = ctx.mode" in bridge
+    assert "next.current_code_id = ctx.currentCodeId" in bridge
+    assert "_codebookMutationQueryString" in bridge
+
+    assert "function codebookMutationValues" in tree_source
+    assert "next.codebook_mode = ctx.mode" in tree_source
+    assert "next.current_code_id = ctx.currentCodeId" in tree_source
+    assert "values: codebookMutationValues(values)" in tree_source
+
+
+def test_headless_tree_controller_exposes_mode_policy_contract():
+    tree_source = (
+        ROOT / "src" / "ace" / "static" / "js" / "codebook_headless_tree_source.js"
+    ).read_text(encoding="utf-8")
+
+    assert "const MODE_POLICIES = Object.freeze" in tree_source
+    assert "getMode: currentCodebookMode" in tree_source
+    assert "modePolicy: function () { return { ...modePolicy() }; }" in tree_source
+    assert "isCodingMode" in tree_source
+    assert "isAuditMode" in tree_source
+    assert "isReadonlyMode" in tree_source

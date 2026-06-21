@@ -1,4 +1,5 @@
 import json
+import re
 
 import sqlite3
 from pathlib import Path
@@ -152,6 +153,18 @@ def _extract_folder_id(_html: str, name: str, db_path: str) -> str:
     return _latest_id_by_name(db_path, name, "folder")
 
 
+def _audit_mutation_detail(resp) -> dict:
+    trigger = (
+        resp.headers.get("HX-Trigger-After-Settle")
+        or resp.headers.get("HX-Trigger-After-Swap")
+        or resp.headers.get("HX-Trigger", "")
+    )
+    assert trigger, "expected HX trigger header"
+    payload = json.loads(trigger)
+    assert "ace:codebook-mutated" in payload
+    return payload["ace:codebook-mutated"]
+
+
 def _create_folder(client, name: str, db_path: str) -> str:
     """POST /api/codes/folder and return the new folder id."""
     r = client.post(
@@ -211,6 +224,26 @@ def _code_colours(db_path: str, code_ids: list[str]) -> dict[str, str]:
     return {r["id"]: r["colour"] for r in rows}
 
 
+def assert_audit_codebook_response(resp):
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Reswap") == "none"
+    assert re.search(
+        r'<[^>]+id="code-sidebar"[^>]+hx-swap-oob="outerHTML"[^>]*>',
+        resp.text,
+    )
+    assert 'data-codebook-mode="audit"' in resp.text
+    assert 'id="text-panel"' not in resp.text
+    assert 'id="ace-ann-data"' not in resp.text
+    assert 'id="ace-sources-data"' not in resp.text
+
+
+def assert_coding_full_codebook_response(resp):
+    assert resp.status_code == 200
+    assert 'id="text-panel"' in resp.text
+    assert 'id="code-sidebar"' in resp.text
+    assert 'hx-swap-oob' in resp.text
+
+
 @pytest.fixture()
 def client_with_two_sentences(tmp_path):
     """Project with a single source containing two adjacent sentences + 1 code.
@@ -246,7 +279,26 @@ def test_coding_page_empty_codebook_shows_first_actions(client_with_sources_no_c
     assert 'id="empty-import-codebook-btn"' in resp.text
     assert "Create first code" in resp.text
     assert "Import codebook CSV" in resp.text
-    assert "<kbd>/code</kbd>" in resp.text
+    assert "Type a code name" in resp.text
+    assert "<kbd>Shift</kbd> + <kbd>Enter</kbd>" in resp.text
+
+
+def test_coding_sidebar_declares_coding_mode(client_with_codes):
+    """Code sidebar renders with explicit coding mode in the coding route."""
+    client, *_ = client_with_codes
+    resp = client.get("/code")
+    assert resp.status_code == 200
+    assert 'data-codebook-mode="coding"' in resp.text
+    assert "Press Enter to apply" in resp.text
+
+
+def test_coding_sidebar_declares_coding_mode(client_with_codes):
+    """Code sidebar renders with explicit coding mode in the coding route."""
+    client, *_ = client_with_codes
+    resp = client.get("/code")
+    assert resp.status_code == 200
+    assert 'data-codebook-mode="coding"' in resp.text
+    assert "Press Enter to apply" in resp.text
 
 
 def test_codebook_import_preview_uses_compact_mapping_dialog(
@@ -275,6 +327,32 @@ def test_codebook_import_preview_uses_compact_mapping_dialog(
     assert "Barriers to using a service" in resp.text
 
 
+def test_audit_mode_codebook_import_preview_preserves_audit_context(
+    client_with_codes, tmp_path
+):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    csv_path = tmp_path / "codebook.csv"
+    csv_path.write_text(
+        "Code Label,Theme,Dictionary Definition\n"
+        "Access,Equity,Barriers to using a service\n"
+    )
+
+    resp = client.post(
+        "/api/codes/import/preview-path",
+        data={
+            "path": str(csv_path),
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert resp.status_code == 200
+    assert "ace-codebook-import-dialog" in resp.text
+    assert 'data-codebook-mode="audit"' in resp.text
+    assert f'data-current-code-id="{code_id}"' in resp.text
+
+
 def test_codebook_export_removes_temp_file(client_with_sources, tmp_path, monkeypatch):
     """The codebook export route removes its temporary CSV after serving it."""
     import tempfile
@@ -300,6 +378,7 @@ def test_codebook_export_removes_temp_file(client_with_sources, tmp_path, monkey
     resp = client.get("/api/codes/export")
 
     assert resp.status_code == 200
+    assert "ace:codebook-mutated" not in resp.headers.get("HX-Trigger", "")
     assert temp_paths
     assert not any(Path(path).exists() for path in temp_paths)
 
@@ -384,6 +463,35 @@ def test_codebook_import_route_stores_definition(client_with_sources_no_codes):
     finally:
         conn.close()
     assert row["definition"] == "Barriers to using a service"
+
+
+def test_audit_mode_codebook_import_returns_audit_safe_response(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    codes_json = json.dumps([
+        {
+            "name": "Imported audit code",
+            "colour": "#123456",
+            "group_name": "Imported folder",
+            "definition": "Imported during audit",
+        }
+    ])
+
+    resp = client.post(
+        "/api/codes/import",
+        data={
+            "codes_json": codes_json,
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "post"
+    assert detail["currentCodeId"] == code_id
+    assert detail["auditReload"] is True
+    assert len(detail["affectedCodeIds"]) == 1
 
 
 def test_codebook_tree_route_returns_headless_tree_item_map(client_with_codes):
@@ -516,6 +624,67 @@ def test_code_rename_records_undo_entry(client_with_codes):
     assert row["name"] == "Theme A"
 
 
+def test_audit_mode_create_code_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    resp = client.post(
+        "/api/codes",
+        data={
+            "name": "Audit code",
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(resp)
+
+
+def test_audit_mode_create_folder_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    resp = client.post(
+        "/api/codes/folder",
+        data={
+            "name": "Audit folder",
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(resp)
+
+
+def test_audit_mode_rename_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "name": "Renamed in audit",
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(resp)
+
+
+def test_audit_rename_response_marks_current_code_reload(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "name": "Audit renamed",
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["mode"] == "audit"
+    assert detail["operation"] == "update"
+    assert detail["affectedCodeIds"] == [code_id]
+    assert detail["currentCodeId"] == code_id
+    assert detail["auditReload"] is True
+
+
 def test_undo_code_rename_no_navigate_trigger(client_with_codes):
     """Undoing a codebook-only op (rename) must not emit ace-navigate."""
     client, _coder_id, code_id, _, _db_path = client_with_codes
@@ -528,6 +697,50 @@ def test_undo_code_rename_no_navigate_trigger(client_with_codes):
     resp = client.post("/api/undo", data={"current_index": 0})
     assert resp.status_code == 200
     assert "ace-navigate" not in resp.headers.get("HX-Trigger", "")
+
+
+def test_audit_undo_redo_code_rename_returns_audit_safe_response(client_with_codes):
+    client, _coder_id, code_id, _, _db_path = client_with_codes
+
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "name": "Audit undo target",
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert resp.status_code == 200
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(undo_resp)
+    assert "text-panel" not in undo_resp.text
+    undo_detail = _audit_mutation_detail(undo_resp)
+    assert undo_detail["mode"] == "audit"
+    assert undo_detail["currentCodeId"] == code_id
+    assert undo_detail["affectedCodeIds"] == [code_id]
+    assert undo_detail["auditReload"] is True
+
+    redo_resp = client.post(
+        "/api/redo",
+        data={
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(redo_resp)
+    assert "text-panel" not in redo_resp.text
+    redo_detail = _audit_mutation_detail(redo_resp)
+    assert redo_detail["mode"] == "audit"
+    assert redo_detail["currentCodeId"] == code_id
+    assert redo_detail["affectedCodeIds"] == [code_id]
+    assert redo_detail["auditReload"] is True
 
 
 def test_undo_code_delete_restores_across_sources(client_with_codes):
@@ -583,6 +796,171 @@ def test_undo_code_delete_restores_across_sources(client_with_codes):
     assert len(active) == 2
 
 
+def test_audit_mode_delete_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    resp = client.delete(
+        f"/api/codes/{code_id}",
+        params={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(resp)
+
+
+def test_audit_mode_set_parent_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, current_code_id, code_id, db_path = client_with_codes
+    folder_id = _create_folder(client, "Audit parent", db_path)
+
+    resp = client.put(
+        f"/api/codes/{code_id}/parent",
+        data={
+            "parent_id": folder_id,
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "update"
+    assert detail["affectedCodeIds"] == [code_id]
+    assert detail["currentCodeId"] == current_code_id
+    assert detail["auditReload"] is False
+
+
+def test_audit_mode_cut_paste_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, current_code_id, code_id, db_path = client_with_codes
+    folder_id = _create_folder(client, "Audit paste", db_path)
+
+    resp = client.post(
+        "/api/codes/cut-paste",
+        data={
+            "code_id": code_id,
+            "target_id": folder_id,
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "post"
+    assert detail["affectedCodeIds"] == [code_id]
+    assert detail["currentCodeId"] == current_code_id
+    assert detail["auditReload"] is False
+
+
+def test_audit_mode_indent_promote_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, current_code_id, _code_b, db_path = client_with_codes
+    above_code_id = _add_test_code(client, "Audit above", db_path)
+    code_id = _add_test_code(client, "Audit below", db_path)
+
+    resp = client.post(
+        f"/api/codes/{code_id}/indent-promote",
+        data={
+            "above_code_id": above_code_id,
+            "folder_name": "Audit wrapped",
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "post"
+    assert detail["affectedCodeIds"] == [above_code_id, code_id]
+    assert detail["currentCodeId"] == current_code_id
+    assert detail["auditReload"] is False
+
+
+def test_audit_mode_reorder_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, code_a, code_b, _db_path = client_with_codes
+
+    resp = client.post(
+        "/api/codes/reorder",
+        data={
+            "code_ids": json.dumps([code_b, code_a]),
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_a,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "post"
+    assert detail["affectedCodeIds"] == [code_b, code_a]
+    assert detail["currentCodeId"] == code_a
+    assert detail["auditReload"] is True
+
+
+def test_audit_delete_current_code_returns_next_canonical_fallback(client_with_codes):
+    client, _coder_id, code_a, code_b, db_path = client_with_codes
+
+    conn = sqlite3.connect(db_path)
+    try:
+        code_c = add_code(conn, "Theme C", "#305FBF")
+    finally:
+        conn.close()
+
+    resp = client.delete(
+        f"/api/codes/{code_b}",
+        params={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_b,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "delete"
+    assert detail["currentCodeId"] == code_b
+    assert detail["fallbackCodeId"] == code_c
+
+
+def test_audit_delete_last_code_returns_previous_canonical_fallback(client_with_codes):
+    client, _coder_id, code_a, code_b, _db_path = client_with_codes
+
+    resp = client.delete(
+        f"/api/codes/{code_b}",
+        params={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_b,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["fallbackCodeId"] == code_a
+
+
+def test_audit_delete_only_code_returns_no_fallback(client_with_codes):
+    client, _coder_id, code_a, code_b, _db_path = client_with_codes
+
+    first = client.delete(f"/api/codes/{code_b}", params={"current_index": 0})
+    assert first.status_code == 200
+
+    resp = client.delete(
+        f"/api/codes/{code_a}",
+        params={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_a,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["fallbackCodeId"] is None
+
+
 def test_reorder_codes_noop_does_not_record_undo_entry(client_with_codes):
     """A POST /api/codes/reorder that doesn't change ordering must NOT
     record an undo entry. The client uses this endpoint to re-render the
@@ -597,6 +975,8 @@ def test_reorder_codes_noop_does_not_record_undo_entry(client_with_codes):
         data={"code_ids": json.dumps([code_b, code_a]), "current_index": 0},
     )
     assert resp.status_code == 200
+    assert 'id="code-sidebar"' in resp.text
+    assert 'id="text-panel"' not in resp.text
 
     # Now a no-op reorder (same order) — should NOT record another entry.
     resp = client.post(
@@ -675,7 +1055,7 @@ def test_set_parent_to_folder(client_with_codes):
         f"/api/codes/{code_id}/parent",
         data={"parent_id": folder_id, "current_index": 0},
     )
-    assert r.status_code == 200
+    assert_coding_full_codebook_response(r)
     assert r.headers["HX-Reswap"] == "none"
 
     conn = sqlite3.connect(db_path)
@@ -766,7 +1146,7 @@ def test_cut_paste_moves_code(client_with_codes):
         "/api/codes/cut-paste",
         data={"code_id": code_id, "target_id": folder_id, "current_index": 0},
     )
-    assert r.status_code == 200
+    assert_coding_full_codebook_response(r)
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -798,7 +1178,7 @@ def test_indent_promote_creates_folder_and_moves_both_codes(client_with_codes):
             "current_index": 0,
         },
     )
-    assert r.status_code == 200, r.text
+    assert_coding_full_codebook_response(r)
 
     # Folder exists; both codes parented to it.
     fid = _latest_id_by_name(db_path, "Wrapped", "folder")
@@ -923,6 +1303,21 @@ def test_reorder_in_scope_returns_text_panel_and_sidebar(client_with_codes):
     assert 'id="text-panel"' in r.text
     assert 'id="code-sidebar"' in r.text
     assert 'hx-swap-oob' in r.text
+
+
+def test_audit_mode_reorder_in_scope_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, a, b, _db_path = client_with_codes
+    r = client.post(
+        "/api/codes/reorder-in-scope",
+        data={
+            "code_ids": json.dumps([b, a]),
+            "parent_id": "",
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": a,
+        },
+    )
+    assert_audit_codebook_response(r)
 
 
 def test_reorder_in_scope_within_folder(client_with_codes):

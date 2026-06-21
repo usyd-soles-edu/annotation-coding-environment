@@ -62,6 +62,34 @@
     return { target: "#code-sidebar", swap: "none" };
   }
 
+  function _codebookMutationContext() {
+    const mount = document.getElementById("ace-headless-tree-mount");
+    const codeView = document.getElementById("code-view");
+    return {
+      mode: mount?.dataset?.codebookMode || "coding",
+      currentCodeId: codeView?.dataset?.codeId || "",
+    };
+  }
+
+  function _codebookMutationValues(values) {
+    const next = { ...(values || {}) };
+    const ctx = _codebookMutationContext();
+    if (ctx.mode !== "coding") next.codebook_mode = ctx.mode;
+    if (ctx.currentCodeId && !next.current_code_id) {
+      next.current_code_id = ctx.currentCodeId;
+    }
+    return next;
+  }
+
+  function _codebookMutationQueryString(values) {
+    const params = new URLSearchParams();
+    Object.entries(_codebookMutationValues(values)).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      params.set(key, value);
+    });
+    return params.toString();
+  }
+
   function _denyCodebookEditing() {
     if (!_codebookEditingDisabled()) return false;
     if (typeof window._setStatus === "function") {
@@ -1782,10 +1810,10 @@
           item = _findCodebookItemRow(_sidebarFocusState.folderId);
         }
         if (item) {
-          _focusTreeItem(item);
+          _focusTreeItem(item, { activate: false });
         } else {
           const items = _getTreeItems();
-          if (items.length > 0) _focusTreeItem(items[0]);
+          if (items.length > 0) _focusTreeItem(items[0], { activate: false });
         }
       } else if (_sidebarFocusState.zone === "search" && search) {
         search.focus();
@@ -1991,7 +2019,10 @@
     htmx.ajax("POST", "/api/codes/reorder", {
       target: "#code-sidebar",
       swap: "outerHTML",
-      values: { code_ids: "[]", current_index: window.__aceCurrentIndex },
+      values: _codebookMutationValues({
+        code_ids: "[]",
+        current_index: window.__aceCurrentIndex,
+      }),
     }).then(function () {
       _syncSidebarAfterSwap({ sortable: true });
     });
@@ -2128,8 +2159,10 @@
     // applied to the page. current_index goes in the URL — htmx.ajax's
     // `values` ride in the request body for DELETE, but the route reads
     // current_index via Query, so a body-borne value would be ignored.
-    const idx = encodeURIComponent(window.__aceCurrentIndex);
-    htmx.ajax("DELETE", `/api/codes/${codeId}?current_index=${idx}`, {
+    const query = _codebookMutationQueryString({
+      current_index: window.__aceCurrentIndex || 0,
+    });
+    htmx.ajax("DELETE", `/api/codes/${codeId}?${query}`, {
       ..._codebookMutationSwapOptions(),
     });
   }
@@ -2188,11 +2221,11 @@
         onMoveParent: function (itemId, newParentId, targetOrderIds) {
           htmx.ajax("PUT", "/api/codes/" + itemId + "/parent", {
             ..._codebookMutationSwapOptions(),
-            values: {
+            values: _codebookMutationValues({
               parent_id: newParentId,
               target_order_ids: JSON.stringify(targetOrderIds || []),
               current_index: window.__aceCurrentIndex,
-            },
+            }),
           });
         },
         onPersistScopeOrder: _persistScopeOrder,
@@ -2257,7 +2290,10 @@
     if (!codeId || !folderId) return;
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       ..._codebookMutationSwapOptions(),
-      values: { parent_id: folderId, current_index: window.__aceCurrentIndex || 0 },
+      values: _codebookMutationValues({
+        parent_id: folderId,
+        current_index: window.__aceCurrentIndex || 0,
+      }),
     });
   }
 
@@ -2267,7 +2303,10 @@
     if (!codeId) return;
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       ..._codebookMutationSwapOptions(),
-      values: { parent_id: "", current_index: window.__aceCurrentIndex || 0 },
+      values: _codebookMutationValues({
+        parent_id: "",
+        current_index: window.__aceCurrentIndex || 0,
+      }),
     });
   }
 
@@ -2278,11 +2317,11 @@
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
       ..._codebookMutationSwapOptions(),
-      values: {
+      values: _codebookMutationValues({
         code_id: cutId,
         target_id: targetId,
         current_index: window.__aceCurrentIndex || 0,
-      },
+      }),
     }).then(function () {
       _setCut(null);
       window._setStatus("", "ok");
@@ -2296,11 +2335,11 @@
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
       ..._codebookMutationSwapOptions(),
-      values: {
+      values: _codebookMutationValues({
         code_id: cutId,
         target_id: folderId || "",
         current_index: window.__aceCurrentIndex || 0,
-      },
+      }),
     }).then(function () {
       _setCut(null);
       window._setStatus("", "ok");
@@ -2615,10 +2654,10 @@
     if (!itemId || !name) return;
     htmx.ajax("PUT", `/api/codes/${itemId}`, {
       ..._codebookMutationSwapOptions(),
-      values: {
+      values: _codebookMutationValues({
         name: name,
         current_index: window.__aceCurrentIndex || 0,
-      },
+      }),
     });
   });
 
@@ -2787,11 +2826,11 @@
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
       ..._codebookMutationSwapOptions(),
-      values: {
+      values: _codebookMutationValues({
         code_id: cutId,
         target_id: targetId,
         current_index: window.__aceCurrentIndex,
-      },
+      }),
     }).then(function () {
       _setCut(null);
       window._setStatus("", "ok");
@@ -2805,11 +2844,11 @@
     const parentId = container.getAttribute("data-folder-children") || "";
     htmx.ajax("POST", "/api/codes/reorder-in-scope", {
       ..._codebookMutationSwapOptions(),
-      values: {
+      values: _codebookMutationValues({
         code_ids: JSON.stringify(ids),
         parent_id: parentId,
         current_index: window.__aceCurrentIndex || 0,
-      },
+      }),
     });
   }
 
@@ -3559,12 +3598,28 @@
     }
   }
 
+  function _visibleCreateActions() {
+    return Array.from(document.querySelectorAll("#ace-code-create-actions .ace-code-create-action"))
+      .filter(function (button) {
+        return !button.disabled && button.offsetParent !== null;
+      });
+  }
+
+  function _focusCreateAction(index) {
+    const actions = _visibleCreateActions();
+    if (!actions.length) return false;
+    const clamped = Math.max(0, Math.min(index, actions.length - 1));
+    actions[clamped].focus();
+    return true;
+  }
+
   /** Determine which zone currently has focus: "text", "search", "tree", or null. */
   function _activeZone() {
     let el = document.activeElement;
     if (!el) return null;
     if (el.id === "text-panel" || el.closest("#text-panel")) return "text";
     if (el.id === "code-search-input") return "search";
+    if (el.closest("#ace-code-create-actions")) return "create";
     const headlessTree = document.getElementById("ace-headless-tree-mount");
     if (headlessTree && headlessTree.contains(el)) return "tree";
     return null;
@@ -3579,11 +3634,35 @@
 
     if (!e.shiftKey) {
       if (zone === "text") { e.preventDefault(); _focusSearchBar(); return; }
-      if (zone === "search") { e.preventDefault(); _focusCodeTree(); return; }
+      if (zone === "search") {
+        e.preventDefault();
+        if (!_focusCreateAction(0)) _focusCodeTree();
+        return;
+      }
+      if (zone === "create") {
+        const actions = _visibleCreateActions();
+        const idx = actions.indexOf(document.activeElement);
+        e.preventDefault();
+        if (idx >= 0 && idx < actions.length - 1) actions[idx + 1].focus();
+        else _focusTextPanel();
+        return;
+      }
       if (zone === "tree") { e.preventDefault(); _focusTextPanel(); return; }
     } else {
-      if (zone === "text") { e.preventDefault(); _focusCodeTree(); return; }
+      if (zone === "text") {
+        e.preventDefault();
+        if (!_focusCreateAction(_visibleCreateActions().length - 1)) _focusCodeTree();
+        return;
+      }
       if (zone === "search") { e.preventDefault(); _focusTextPanel(); return; }
+      if (zone === "create") {
+        const actions = _visibleCreateActions();
+        const idx = actions.indexOf(document.activeElement);
+        e.preventDefault();
+        if (idx > 0) actions[idx - 1].focus();
+        else _focusSearchBar();
+        return;
+      }
       if (zone === "tree") { e.preventDefault(); _focusSearchBar(); return; }
     }
   }, true);  // capture phase to intercept before default Tab behaviour
@@ -3597,10 +3676,10 @@
   }
 
   /** Move roving tabindex to the given treeitem. */
-  function _focusTreeItem(item) {
+  function _focusTreeItem(item, options) {
     const controller = _getSidebarTreeController();
     if (controller) {
-      controller.focusTreeItem(item);
+      controller.focusTreeItem(item, options);
     }
   }
 
@@ -3683,7 +3762,10 @@
     }
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       ..._codebookMutationSwapOptions(),
-      values: { parent_id: parentId, current_index: window.__aceCurrentIndex || 0 },
+      values: _codebookMutationValues({
+        parent_id: parentId,
+        current_index: window.__aceCurrentIndex || 0,
+      }),
     });
   }
 
@@ -3697,7 +3779,10 @@
     const newParentId = grandparentRow ? _itemIdFromTreeElement(grandparentRow) : "";
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       ..._codebookMutationSwapOptions(),
-      values: { parent_id: newParentId || "", current_index: window.__aceCurrentIndex || 0 },
+      values: _codebookMutationValues({
+        parent_id: newParentId || "",
+        current_index: window.__aceCurrentIndex || 0,
+      }),
     });
   }
 
@@ -3795,11 +3880,11 @@
       const aboveCodeId = _itemIdFromTreeElement(above);
       htmx.ajax("POST", `/api/codes/${codeId}/indent-promote`, {
         ..._codebookMutationSwapOptions(),
-        values: {
+        values: _codebookMutationValues({
           above_code_id: aboveCodeId,
           folder_name: "New folder",
           current_index: window.__aceCurrentIndex || 0,
-        },
+        }),
       }).then(function () {
         // After OOB swap, the moved code lives inside a new folder. Locate
         // the folder header (sibling above the [role="group"] container that
@@ -4291,7 +4376,7 @@
         _clearSearchFilter();
         input.focus();
       }
-      window._setStatus("Type /code followed by a name, then press Enter", "ok");
+      window._setStatus("Type a code name, then press Enter", "ok");
       return;
     }
 
@@ -4313,7 +4398,10 @@
         .then(function (data) {
           if (!data.path) return;
           htmx.ajax("POST", "/api/codes/import/preview-path", {
-            values: { path: data.path, current_index: window.__aceCurrentIndex },
+            values: _codebookMutationValues({
+              path: data.path,
+              current_index: window.__aceCurrentIndex,
+            }),
             target: "#modal-container",
             swap: "innerHTML",
           });
@@ -4497,6 +4585,14 @@
   window.aceImportFromPreview = function (btn) {
     const codesJson = btn.getAttribute("data-codes");
     const currentIndex = btn.getAttribute("data-current-index") || window.__aceCurrentIndex;
+    const mode = btn.dataset.codebookMode || _codebookMutationContext().mode;
+    const currentCodeId = btn.dataset.currentCodeId || _codebookMutationContext().currentCodeId;
+    if (
+      mode === "audit"
+      && !window.confirm("Import codebook? This can change the audit view. You can undo imported codes.")
+    ) {
+      return;
+    }
     const dialog = btn.closest("dialog");
     if (dialog) dialog.close();
 
@@ -4526,9 +4622,14 @@
     document.addEventListener("htmx:afterRequest", onAfter);
 
     htmx.ajax("POST", "/api/codes/import", {
-      values: { codes_json: codesJson, current_index: currentIndex },
+      values: _codebookMutationValues({
+        codes_json: codesJson,
+        current_index: currentIndex,
+        codebook_mode: mode,
+        current_code_id: currentCodeId,
+      }),
       target: "#code-sidebar",
-      swap: "outerHTML",
+      swap: mode === "audit" ? "none" : "outerHTML",
     });
   };
 

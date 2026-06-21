@@ -391,6 +391,8 @@ async def import_codebook_preview_path(
     request: Request,
     path: str = Form(...),
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Preview a codebook CSV from a local file path (native file picker flow)."""
     from ace.models.codebook import inspect_codebook_csv
@@ -419,6 +421,8 @@ async def import_codebook_preview_path(
     filename = html.escape(file_path.name)
     safe_path = html.escape(str(file_path))
     codes_json_escaped = html.escape(payload["codes_json"])
+    safe_mode = html.escape(codebook_mode)
+    safe_current_code_id = html.escape(current_code_id or "")
 
     dialog_html = (
         '<dialog class="ace-dialog ace-import-dialog ace-codebook-import-dialog" '
@@ -442,6 +446,7 @@ async def import_codebook_preview_path(
         f'<button type="button" class="ace-btn ace-btn--primary" '
         f'id="codebook-import-commit" onclick="aceImportFromPreview(this)" '
         f'data-codes="{codes_json_escaped}" data-current-index="{current_index}"'
+        f' data-codebook-mode="{safe_mode}" data-current-code-id="{safe_current_code_id}"'
         f'{" disabled" if payload["disabled"] else ""}>'
         f'{html.escape(payload["import_label"])}</button>'
         '</div></dialog>'

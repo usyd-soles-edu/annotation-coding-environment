@@ -46,6 +46,18 @@ def test_view_happy_path(client_with_annotations):
     assert 'id="ace-codeview-data"' in resp.text
 
 
+def test_audit_sidebar_declares_audit_mode(client_with_annotations):
+    """Code sidebar renders with explicit audit mode in coded text view."""
+    client, _, code_id, _ = client_with_annotations
+    resp = client.get(f"/code/{code_id}/view")
+    assert resp.status_code == 200
+    assert 'data-codebook-mode="audit"' in resp.text
+    assert "Arrows view codes" in resp.text
+    assert "Enter renames" in resp.text
+    assert "Press Enter to apply" not in resp.text
+    assert 'id="ace-code-create-actions"' in resp.text
+
+
 def test_view_data_blob_is_valid_json(client_with_annotations):
     client, _, code_id, _ = client_with_annotations
     resp = client.get(f"/code/{code_id}/view")
@@ -166,7 +178,7 @@ def test_codebook_search_has_slash_keyshortcut_regression(client_with_annotation
     client, _, code_id, _ = client_with_annotations
     resp = client.get(f"/code/{code_id}/view")
     assert 'id="code-search-input"' in resp.text
-    assert 'aria-keyshortcuts="/"' in resp.text
+    assert 'aria-keyshortcuts="/ Enter Shift+Enter Escape"' in resp.text
 
 
 def test_code_view_has_cheatsheet_dialog(client_with_annotations):
