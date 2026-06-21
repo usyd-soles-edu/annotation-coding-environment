@@ -211,6 +211,16 @@ def _code_colours(db_path: str, code_ids: list[str]) -> dict[str, str]:
     return {r["id"]: r["colour"] for r in rows}
 
 
+def assert_audit_codebook_response(resp):
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Reswap") == "none"
+    assert 'id="code-sidebar"' in resp.text
+    assert 'data-codebook-mode="audit"' in resp.text
+    assert 'id="text-panel"' not in resp.text
+    assert 'id="ace-ann-data"' not in resp.text
+    assert 'id="ace-sources-data"' not in resp.text
+
+
 @pytest.fixture()
 def client_with_two_sentences(tmp_path):
     """Project with a single source containing two adjacent sentences + 1 code.
@@ -525,6 +535,48 @@ def test_code_rename_records_undo_entry(client_with_codes):
     assert row["name"] == "Theme A"
 
 
+def test_audit_mode_create_code_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    resp = client.post(
+        "/api/codes",
+        data={
+            "name": "Audit code",
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(resp)
+
+
+def test_audit_mode_create_folder_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    resp = client.post(
+        "/api/codes/folder",
+        data={
+            "name": "Audit folder",
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(resp)
+
+
+def test_audit_mode_rename_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "name": "Renamed in audit",
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(resp)
+
+
 def test_undo_code_rename_no_navigate_trigger(client_with_codes):
     """Undoing a codebook-only op (rename) must not emit ace-navigate."""
     client, _coder_id, code_id, _, _db_path = client_with_codes
@@ -590,6 +642,19 @@ def test_undo_code_delete_restores_across_sources(client_with_codes):
     ).fetchall()
     conn.close()
     assert len(active) == 2
+
+
+def test_audit_mode_delete_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    resp = client.delete(
+        f"/api/codes/{code_id}",
+        params={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(resp)
 
 
 def test_reorder_codes_noop_does_not_record_undo_entry(client_with_codes):
@@ -932,6 +997,21 @@ def test_reorder_in_scope_returns_text_panel_and_sidebar(client_with_codes):
     assert 'id="text-panel"' in r.text
     assert 'id="code-sidebar"' in r.text
     assert 'hx-swap-oob' in r.text
+
+
+def test_audit_mode_reorder_in_scope_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, a, b, _db_path = client_with_codes
+    r = client.post(
+        "/api/codes/reorder-in-scope",
+        data={
+            "code_ids": json.dumps([b, a]),
+            "parent_id": "",
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": a,
+        },
+    )
+    assert_audit_codebook_response(r)
 
 
 def test_reorder_in_scope_within_folder(client_with_codes):

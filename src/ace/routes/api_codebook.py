@@ -32,6 +32,7 @@ from ace.routes.api_support import (
     _oob_status,
     _oob_status_undo,
     _project_db,
+    _render_codebook_mutation_response,
     _render_code_sidebar,
     _render_full_coding_oob,
     _require_coder,
@@ -84,6 +85,8 @@ async def create_code(
     name: str = Form(...),
     current_index: int = Form(default=0),
     parent_id: str | None = Form(default=None),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Create a new code and return updated sidebar."""
     from ace.models.codebook import (
@@ -116,7 +119,14 @@ async def create_code(
             return _oob_status(f"A code named '{name}' already exists.")
         _get_undo_manager(request).record_code_add(new_code_id)
         content = _render_code_sidebar(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id or new_code_id,
+        )
 
 
 @router.post("/codes/folder")
@@ -125,6 +135,8 @@ async def create_folder_route(
     name: str = Form(...),
     parent_id: str = Form(default=""),
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Create a new folder and return updated sidebar + text panel."""
     from ace.models.codebook import InvariantError, add_folder
@@ -145,8 +157,16 @@ async def create_folder_route(
             return _oob_status(f"A folder named '{name}' already exists.")
         _get_undo_manager(request).record_create_folder(folder_id)
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        content += _oob_announce(f"Created folder {name}")
-        return HTMLResponse(content, headers={"HX-Reswap": "none"})
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id,
+            status_html=_oob_announce(f"Created folder {name}"),
+            headers={"HX-Reswap": "none"},
+        )
 
 
 @router.put("/codes/{code_id}/parent")
@@ -371,6 +391,8 @@ async def reorder_in_scope_route(
     code_ids: str = Form(...),
     parent_id: str = Form(default=""),
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Reorder codebook items within a single scope. Returns text-panel + sidebar OOB.
 
@@ -431,7 +453,15 @@ async def reorder_in_scope_route(
         if prev != new:
             _get_undo_manager(request).record_code_reorder(prev, new)
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content, headers={"HX-Reswap": "none"})
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id,
+            headers={"HX-Reswap": "none"},
+        )
 
 
 @router.post("/codes/reorder")
@@ -575,6 +605,8 @@ async def update_code_route(
     name: str | None = Form(default=None),
     colour: str | None = Form(default=None),
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Update a code (rename, recolour) and return sidebar + text panel.
 
@@ -617,7 +649,14 @@ async def update_code_route(
             mgr.record_code_recolour(code_id, prev["colour"], kwargs["colour"])
 
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content)
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id or code_id,
+        )
 
 
 @router.delete("/codes/{code_id}")
@@ -625,6 +664,8 @@ async def delete_code_route(
     request: Request,
     code_id: str,
     current_index: int = Query(default=0),
+    codebook_mode: str = Query(default="coding"),
+    current_code_id: str | None = Query(default=None),
 ):
     """Delete a code or folder (cascades annotations / lifts children) and
     return sidebar + text panel."""
@@ -670,6 +711,12 @@ async def delete_code_route(
             message = f'Deleted "{code_name}" · {n} {unit} removed'
         else:
             message = f'Deleted "{code_name}"'
-        content += _oob_status_undo(message)
-
-        return HTMLResponse(content)
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id,
+            status_html=_oob_status_undo(message),
+        )

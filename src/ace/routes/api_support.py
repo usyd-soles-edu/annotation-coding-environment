@@ -27,6 +27,8 @@ from fastapi.responses import (
     Response,
 )
 
+from ace import __version__
+
 
 logger = logging.getLogger(__name__)
 
@@ -771,6 +773,68 @@ def _render_full_coding_oob(
     parts.append(_render_ann_data_oob(ctx))
     parts.append(_render_sources_data_oob(ctx))
     return "".join(parts)
+
+
+def _request_codebook_mode(request: Request, explicit: str | None = None) -> str:
+    mode = explicit or request.query_params.get("codebook_mode")
+    if mode is None:
+        try:
+            mode = request._form.get("codebook_mode")
+        except Exception:
+            mode = None
+    return mode if mode in {"coding", "audit", "readonly"} else "coding"
+
+
+def _render_audit_code_sidebar(
+    request: Request,
+    conn,
+    coder_id: str,
+    current_code_id: str | None = None,
+) -> str:
+    from ace.models.annotation import get_annotation_counts_by_code
+    from ace.models.codebook import list_codes_with_tree
+    from jinja2_fragments import render_block
+
+    templates = request.app.state.templates
+    project_path = request.app.state.project_path
+    ctx = {
+        "request": request,
+        "version": __version__,
+        "project_file_stem": Path(project_path).stem if project_path else "",
+        "tree_codes": list_codes_with_tree(conn),
+        "code_counts_by_id": get_annotation_counts_by_code(conn, coder_id),
+        "codebook_mode": "audit",
+        "current_code_id": current_code_id,
+    }
+    return render_block(templates.env, "code_view.html", "code_sidebar", ctx)
+
+
+def _render_codebook_mutation_response(
+    request: Request,
+    conn,
+    coder_id: str,
+    *,
+    coding_content: str,
+    mode: str = "coding",
+    current_code_id: str | None = None,
+    status_html: str = "",
+    headers: dict[str, str] | None = None,
+) -> HTMLResponse:
+    resolved_mode = _request_codebook_mode(request, explicit=mode)
+    if resolved_mode == "audit":
+        content = _inject_oob(
+            _render_audit_code_sidebar(
+                request,
+                conn,
+                coder_id,
+                current_code_id=current_code_id,
+            ),
+            "code-sidebar",
+        )
+        content += status_html
+        return HTMLResponse(content, headers={"HX-Reswap": "none"})
+
+    return HTMLResponse(coding_content + status_html, headers=headers)
 
 
 def _annotation_only_response(
