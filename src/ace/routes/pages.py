@@ -312,6 +312,7 @@ async def coding_page(
 
         context = _coding_context(conn, coder_id, index, project_path=project_path)
         context["open_note_drawer"] = bool(note)
+        context["codebook_mode"] = "coding"
     finally:
         db_gen.close()
 
@@ -353,5 +354,6 @@ async def code_view_page(request: Request, code_id: str):
             "project_file_stem": project_file_stem,
             "version": __version__,
             "codebook_browse_mode": True,
+            "codebook_mode": "audit",
         },
     )

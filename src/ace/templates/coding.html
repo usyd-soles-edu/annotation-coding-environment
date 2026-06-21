@@ -93,6 +93,7 @@ rect.ace-flash-{{ code["id"] }} {
     {# Left: code sidebar #}
     {% block code_sidebar %}
     <aside id="code-sidebar" class="ace-sidebar" aria-label="Codebook">
+      {% set codebook_mode = codebook_mode|default("coding") %}
       {% include "_sidebar_codebook.html" %}
       <div class="ace-sidebar-vsplit"
            role="separator"

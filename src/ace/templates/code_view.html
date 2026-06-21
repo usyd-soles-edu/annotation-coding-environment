@@ -30,6 +30,7 @@
 {% block content %}
 <div id="code-view" data-code-id="{{ code_view_data.code.id }}">
   <aside id="code-sidebar" class="ace-sidebar" aria-label="Codebook">
+    {% set codebook_mode = codebook_mode|default("audit") %}
     {% include "_sidebar_codebook.html" %}
   </aside>
 
