@@ -4,7 +4,7 @@
                      (DFS-ordered list with kind/name/colour/chord/
                      child_count/parent_id; see list_codes_with_tree),
                     code_counts_by_id (for the per-row count cell). #}
-{% set codebook_mode = codebook_mode|default('readonly' if codebook_readonly|default(false) else ('audit' if codebook_browse_mode|default(false) else 'coding')) %}
+{% set codebook_mode = codebook_mode|default('readonly' if codebook_readonly|default(false) else 'coding') %}
 {% set read_only = codebook_mode == 'readonly' %}
 {% set audit_mode = codebook_mode == 'audit' %}
 {% set coding_mode = codebook_mode == 'coding' %}
