@@ -178,6 +178,8 @@ async def set_code_parent_route(
     parent_id: str = Form(default=""),
     target_order_ids: str = Form(default=""),
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Move `code_id` into the scope of `parent_id` (folder id or empty for root)."""
     from ace.models.codebook import InvariantError, _move_code_to_parent_no_commit
@@ -240,7 +242,16 @@ async def set_code_parent_route(
             new_dest_ordering=new_dest_ordering,
         )
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content, headers={"HX-Reswap": "none"})
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id,
+            affected_code_ids=[code_id],
+            headers={"HX-Reswap": "none"},
+        )
 
 
 @router.post("/codes/{code_id}/indent-promote")
@@ -250,6 +261,8 @@ async def indent_promote_route(
     above_code_id: str = Form(...),
     folder_name: str = Form(default="New folder"),
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Composite: create a folder, move (above_code_id, code_id) into it.
 
@@ -318,10 +331,19 @@ async def indent_promote_route(
         ).fetchall()
         names = {r["id"]: r["name"] for r in name_rows}
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        content += _oob_announce(
+        status_html = _oob_announce(
             f"Created folder containing {names.get(above_code_id, '?')} and {names.get(code_id, '?')}"
         )
-        return HTMLResponse(content)
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id,
+            affected_code_ids=[above_code_id, code_id],
+            status_html=status_html,
+        )
 
 
 @router.post("/codes/cut-paste")
@@ -330,6 +352,8 @@ async def cut_paste_route(
     code_id: str = Form(...),
     target_id: str = Form(default=""),
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Move `code_id` into the scope determined by `target_id`.
 
@@ -384,7 +408,16 @@ async def cut_paste_route(
             prev_dest_ordering=prev_dest_ordering,
         )
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        return HTMLResponse(content, headers={"HX-Reswap": "none"})
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id,
+            affected_code_ids=[code_id],
+            headers={"HX-Reswap": "none"},
+        )
 
 
 @router.post("/codes/reorder-in-scope")
@@ -471,6 +504,8 @@ async def reorder_codes_route(
     request: Request,
     code_ids: str = Form(...),
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Reorder codes and return updated sidebar."""
     from ace.models.codebook import reorder_codes
@@ -506,7 +541,16 @@ async def reorder_codes_route(
         if prev != new:
             _get_undo_manager(request).record_code_reorder(prev, new)
         content = _render_code_sidebar(request, conn, coder_id, current_index)
-        return HTMLResponse(content, headers={"HX-Reswap": "none"})
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id,
+            affected_code_ids=ids_list,
+            headers={"HX-Reswap": "none"},
+        )
 
 
 @router.get("/codes/export")

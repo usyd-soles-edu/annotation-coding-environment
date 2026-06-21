@@ -2019,7 +2019,10 @@
     htmx.ajax("POST", "/api/codes/reorder", {
       target: "#code-sidebar",
       swap: "outerHTML",
-      values: { code_ids: "[]", current_index: window.__aceCurrentIndex },
+      values: _codebookMutationValues({
+        code_ids: "[]",
+        current_index: window.__aceCurrentIndex,
+      }),
     }).then(function () {
       _syncSidebarAfterSwap({ sortable: true });
     });
@@ -2218,11 +2221,11 @@
         onMoveParent: function (itemId, newParentId, targetOrderIds) {
           htmx.ajax("PUT", "/api/codes/" + itemId + "/parent", {
             ..._codebookMutationSwapOptions(),
-            values: {
+            values: _codebookMutationValues({
               parent_id: newParentId,
               target_order_ids: JSON.stringify(targetOrderIds || []),
               current_index: window.__aceCurrentIndex,
-            },
+            }),
           });
         },
         onPersistScopeOrder: _persistScopeOrder,
@@ -2287,7 +2290,10 @@
     if (!codeId || !folderId) return;
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       ..._codebookMutationSwapOptions(),
-      values: { parent_id: folderId, current_index: window.__aceCurrentIndex || 0 },
+      values: _codebookMutationValues({
+        parent_id: folderId,
+        current_index: window.__aceCurrentIndex || 0,
+      }),
     });
   }
 
@@ -2297,7 +2303,10 @@
     if (!codeId) return;
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       ..._codebookMutationSwapOptions(),
-      values: { parent_id: "", current_index: window.__aceCurrentIndex || 0 },
+      values: _codebookMutationValues({
+        parent_id: "",
+        current_index: window.__aceCurrentIndex || 0,
+      }),
     });
   }
 
@@ -2308,11 +2317,11 @@
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
       ..._codebookMutationSwapOptions(),
-      values: {
+      values: _codebookMutationValues({
         code_id: cutId,
         target_id: targetId,
         current_index: window.__aceCurrentIndex || 0,
-      },
+      }),
     }).then(function () {
       _setCut(null);
       window._setStatus("", "ok");
@@ -2326,11 +2335,11 @@
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
       ..._codebookMutationSwapOptions(),
-      values: {
+      values: _codebookMutationValues({
         code_id: cutId,
         target_id: folderId || "",
         current_index: window.__aceCurrentIndex || 0,
-      },
+      }),
     }).then(function () {
       _setCut(null);
       window._setStatus("", "ok");
@@ -2817,11 +2826,11 @@
     const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
       ..._codebookMutationSwapOptions(),
-      values: {
+      values: _codebookMutationValues({
         code_id: cutId,
         target_id: targetId,
         current_index: window.__aceCurrentIndex,
-      },
+      }),
     }).then(function () {
       _setCut(null);
       window._setStatus("", "ok");
@@ -2835,11 +2844,11 @@
     const parentId = container.getAttribute("data-folder-children") || "";
     htmx.ajax("POST", "/api/codes/reorder-in-scope", {
       ..._codebookMutationSwapOptions(),
-      values: {
+      values: _codebookMutationValues({
         code_ids: JSON.stringify(ids),
         parent_id: parentId,
         current_index: window.__aceCurrentIndex || 0,
-      },
+      }),
     });
   }
 
@@ -3713,7 +3722,10 @@
     }
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       ..._codebookMutationSwapOptions(),
-      values: { parent_id: parentId, current_index: window.__aceCurrentIndex || 0 },
+      values: _codebookMutationValues({
+        parent_id: parentId,
+        current_index: window.__aceCurrentIndex || 0,
+      }),
     });
   }
 
@@ -3727,7 +3739,10 @@
     const newParentId = grandparentRow ? _itemIdFromTreeElement(grandparentRow) : "";
     htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
       ..._codebookMutationSwapOptions(),
-      values: { parent_id: newParentId || "", current_index: window.__aceCurrentIndex || 0 },
+      values: _codebookMutationValues({
+        parent_id: newParentId || "",
+        current_index: window.__aceCurrentIndex || 0,
+      }),
     });
   }
 
@@ -3825,11 +3840,11 @@
       const aboveCodeId = _itemIdFromTreeElement(above);
       htmx.ajax("POST", `/api/codes/${codeId}/indent-promote`, {
         ..._codebookMutationSwapOptions(),
-        values: {
+        values: _codebookMutationValues({
           above_code_id: aboveCodeId,
           folder_name: "New folder",
           current_index: window.__aceCurrentIndex || 0,
-        },
+        }),
       }).then(function () {
         // After OOB swap, the moved code lives inside a new folder. Locate
         // the folder header (sibling above the [role="group"] container that

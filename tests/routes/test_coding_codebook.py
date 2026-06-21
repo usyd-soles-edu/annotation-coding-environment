@@ -237,6 +237,13 @@ def assert_audit_codebook_response(resp):
     assert 'id="ace-sources-data"' not in resp.text
 
 
+def assert_coding_full_codebook_response(resp):
+    assert resp.status_code == 200
+    assert 'id="text-panel"' in resp.text
+    assert 'id="code-sidebar"' in resp.text
+    assert 'hx-swap-oob' in resp.text
+
+
 @pytest.fixture()
 def client_with_two_sentences(tmp_path):
     """Project with a single source containing two adjacent sentences + 1 code.
@@ -736,6 +743,96 @@ def test_audit_mode_delete_returns_audit_sidebar_only(client_with_codes):
     assert_audit_codebook_response(resp)
 
 
+def test_audit_mode_set_parent_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, current_code_id, code_id, db_path = client_with_codes
+    folder_id = _create_folder(client, "Audit parent", db_path)
+
+    resp = client.put(
+        f"/api/codes/{code_id}/parent",
+        data={
+            "parent_id": folder_id,
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "update"
+    assert detail["affectedCodeIds"] == [code_id]
+    assert detail["currentCodeId"] == current_code_id
+    assert detail["auditReload"] is False
+
+
+def test_audit_mode_cut_paste_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, current_code_id, code_id, db_path = client_with_codes
+    folder_id = _create_folder(client, "Audit paste", db_path)
+
+    resp = client.post(
+        "/api/codes/cut-paste",
+        data={
+            "code_id": code_id,
+            "target_id": folder_id,
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "post"
+    assert detail["affectedCodeIds"] == [code_id]
+    assert detail["currentCodeId"] == current_code_id
+    assert detail["auditReload"] is False
+
+
+def test_audit_mode_indent_promote_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, current_code_id, _code_b, db_path = client_with_codes
+    above_code_id = _add_test_code(client, "Audit above", db_path)
+    code_id = _add_test_code(client, "Audit below", db_path)
+
+    resp = client.post(
+        f"/api/codes/{code_id}/indent-promote",
+        data={
+            "above_code_id": above_code_id,
+            "folder_name": "Audit wrapped",
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "post"
+    assert detail["affectedCodeIds"] == [above_code_id, code_id]
+    assert detail["currentCodeId"] == current_code_id
+    assert detail["auditReload"] is False
+
+
+def test_audit_mode_reorder_returns_audit_sidebar_only(client_with_codes):
+    client, _coder_id, code_a, code_b, _db_path = client_with_codes
+
+    resp = client.post(
+        "/api/codes/reorder",
+        data={
+            "code_ids": json.dumps([code_b, code_a]),
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_a,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "post"
+    assert detail["affectedCodeIds"] == [code_b, code_a]
+    assert detail["currentCodeId"] == code_a
+    assert detail["auditReload"] is True
+
+
 def test_audit_delete_current_code_returns_next_canonical_fallback(client_with_codes):
     client, _coder_id, code_a, code_b, db_path = client_with_codes
 
@@ -812,6 +909,8 @@ def test_reorder_codes_noop_does_not_record_undo_entry(client_with_codes):
         data={"code_ids": json.dumps([code_b, code_a]), "current_index": 0},
     )
     assert resp.status_code == 200
+    assert 'id="code-sidebar"' in resp.text
+    assert 'id="text-panel"' not in resp.text
 
     # Now a no-op reorder (same order) — should NOT record another entry.
     resp = client.post(
@@ -890,7 +989,7 @@ def test_set_parent_to_folder(client_with_codes):
         f"/api/codes/{code_id}/parent",
         data={"parent_id": folder_id, "current_index": 0},
     )
-    assert r.status_code == 200
+    assert_coding_full_codebook_response(r)
     assert r.headers["HX-Reswap"] == "none"
 
     conn = sqlite3.connect(db_path)
@@ -981,7 +1080,7 @@ def test_cut_paste_moves_code(client_with_codes):
         "/api/codes/cut-paste",
         data={"code_id": code_id, "target_id": folder_id, "current_index": 0},
     )
-    assert r.status_code == 200
+    assert_coding_full_codebook_response(r)
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -1013,7 +1112,7 @@ def test_indent_promote_creates_folder_and_moves_both_codes(client_with_codes):
             "current_index": 0,
         },
     )
-    assert r.status_code == 200, r.text
+    assert_coding_full_codebook_response(r)
 
     # Folder exists; both codes parented to it.
     fid = _latest_id_by_name(db_path, "Wrapped", "folder")
