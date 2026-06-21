@@ -483,16 +483,6 @@ def _cohens_kappa(y1: list, y2: list) -> float | None:
     return (po - pe) / (1 - pe)
 
 
-def _safe_kappa(vec1: list[int], vec2: list[int]) -> float | None:
-    """Cohen's kappa with edge case handling."""
-    k = _cohens_kappa(vec1, vec2)
-    if k is None:
-        return 1.0 if vec1 == vec2 else None
-    if math.isnan(k):
-        return 1.0 if vec1 == vec2 else None
-    return k
-
-
 # ---------------------------------------------------------------------------
 # Pairwise
 # ---------------------------------------------------------------------------
