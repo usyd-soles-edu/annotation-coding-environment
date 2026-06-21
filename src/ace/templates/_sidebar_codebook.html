@@ -123,6 +123,15 @@
       Type to find codes. Arrows browse codes. Press Enter to view the focused code. Press Escape to clear the filter.
       {% endif %}
     </p>
+    <p id="ace-headless-tree-dnd-instructions" class="ace-sr-only">
+      To move codebook items with the keyboard, start keyboard drag mode, use arrow keys
+      to choose a drop target, press Enter to drop, or Escape to cancel. Codes can move
+      to root or into folders. Folders stay at root.
+    </p>
+    <p id="ace-headless-tree-dnd-live"
+       class="ace-sr-only"
+       aria-live="assertive"
+       aria-atomic="true"></p>
   </div>
   <div class="ace-sidebar-search-hint-line" aria-hidden="true">
     {% if audit_mode %}
@@ -157,6 +166,7 @@
        data-codebook-readonly="{{ '1' if read_only else '0' }}"
        role="tree"
        aria-label="Code list"
+       aria-describedby="code-search-help ace-headless-tree-dnd-instructions"
        aria-keyshortcuts="{{ 'Enter F2 Delete' if audit_mode else ('Enter' if read_only else 'Enter F2 Delete') }}"></div>
   {% if codebook_mode != 'readonly' %}
   <div id="ace-code-create-actions"

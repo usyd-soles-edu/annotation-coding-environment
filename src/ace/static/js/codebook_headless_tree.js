@@ -1973,24 +1973,37 @@
       return `at position ${target.insertionIndex + 1} in ${targetName}`;
     }
     function updateDndAnnouncement() {
-      const announcer = document.getElementById("ace-ht-dnd-announcer");
+      const announcer = document.getElementById("ace-headless-tree-dnd-live");
       if (!announcer || !tree) return;
       const state = tree.getState?.() || {};
       const assistiveState = state.assistiveDndState || 0;
-      const dragged = state.dnd?.draggedItems?.[0] || null;
-      if (dragged) lastAssistiveDragName = dragged.getItemName?.() || "item";
+      const draggedItems = state.dnd?.draggedItems || [];
+      if (draggedItems.length) {
+        lastAssistiveDragName = draggedItems.map(function(item) {
+          return item.getItemName?.() || item.getId?.() || "item";
+        }).join(", ");
+      }
       const name = lastAssistiveDragName || "item";
+      const target = activeDragTarget();
+      const targetText = dragTargetText(target);
+      const canDropTarget = target && canDrop2(draggedItems, target);
       if (assistiveState === 1) {
         announcer.textContent = `Moving ${name}. Use arrow keys to choose a position, Enter to move, Escape to cancel.`;
       } else if (assistiveState === 2) {
-        announcer.textContent = `Moving ${name} ${dragTargetText(activeDragTarget())}. Enter to move, Escape to cancel.`;
+        const prefix2 = canDropTarget === false ? "Cannot drop there. " : "";
+        announcer.textContent = `${prefix2}Moving ${name} ${targetText}. Enter to move, Escape to cancel.`;
       } else if (assistiveState === 3) {
         announcer.textContent = `Moved ${name}.`;
       } else if (assistiveState === 4) {
         announcer.textContent = "Move cancelled.";
-      } else {
+      } else if (!lastAssistiveDragName) {
         announcer.textContent = "";
       }
+    }
+    function announceKeyboardDragCancel(event) {
+      if (event.key !== "Escape" || !tree?.getState?.().dnd) return;
+      const announcer = document.getElementById("ace-headless-tree-dnd-live");
+      if (announcer) announcer.textContent = "Move cancelled.";
     }
     async function persistDrop(id, previousParent, nextParent, order, restoreSnapshot) {
       if (denyCodebookEditing()) {
@@ -2662,13 +2675,6 @@
       dragLine.className = "ace-ht-drag-line";
       Object.assign(dragLine.style, tree.getDragLineStyle?.() || { display: "none" });
       mount.append(dragLine);
-      const announcer = document.createElement("div");
-      announcer.id = "ace-ht-dnd-announcer";
-      announcer.className = "ace-sr-only";
-      announcer.setAttribute("role", "status");
-      announcer.setAttribute("aria-live", "polite");
-      announcer.setAttribute("aria-atomic", "true");
-      mount.append(announcer);
       updateDndAnnouncement();
       const active = document.activeElement;
       if (suppressNextRefocus) {
@@ -2935,6 +2941,7 @@
         items = payload.items || {};
         buildTree();
         applyProps(mount, tree.getContainerProps("Codebook tree"));
+        mount.addEventListener("keydown", announceKeyboardDragCancel, true);
         tree.setMounted(true);
         tree.rebuildTree();
         renderTree();

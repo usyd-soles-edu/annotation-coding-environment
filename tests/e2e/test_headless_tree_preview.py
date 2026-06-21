@@ -1310,6 +1310,37 @@ def test_headless_tree_candidate_highlights_drop_receiver_folder(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_headless_tree_dnd_has_instruction_and_live_region(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount")
+
+            tree = page.locator("#ace-headless-tree-mount")
+            describedby = tree.get_attribute("aria-describedby")
+            assert describedby
+            assert "ace-headless-tree-dnd-instructions" in describedby
+            expect(page.locator("#ace-headless-tree-dnd-instructions")).to_contain_text(
+                "keyboard drag"
+            )
+            expect(page.locator("#ace-headless-tree-dnd-instructions")).to_contain_text(
+                "Folders stay at root"
+            )
+            expect(page.locator("#ace-headless-tree-dnd-live")).to_have_attribute(
+                "aria-live", "assertive"
+            )
+            expect(page.locator("#ace-headless-tree-dnd-live")).to_have_attribute(
+                "aria-atomic", "true"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_headless_tree_candidate_announces_keyboard_drag_state(
     ace_server, browser_name
 ):
@@ -1328,11 +1359,16 @@ def test_headless_tree_candidate_announces_keyboard_drag_state(
 
             page.keyboard.press("Control+Shift+D")
 
-            expect(page.locator("#ace-ht-dnd-announcer")).to_contain_text(
+            live = page.locator("#ace-headless-tree-dnd-live")
+            expect(live).to_contain_text(
                 "Moving Charlie"
             )
-            expect(page.locator("#ace-ht-dnd-announcer")).to_contain_text(
+            expect(live).to_contain_text(
                 "Enter to move"
             )
+            page.keyboard.press("ArrowDown")
+            expect(live).to_contain_text("Moving Charlie")
+            page.keyboard.press("Escape")
+            expect(live).to_contain_text("Move cancelled")
         finally:
             browser.close()
