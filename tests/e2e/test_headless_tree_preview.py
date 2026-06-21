@@ -388,6 +388,23 @@ def test_headless_tree_preview_applies_focused_code(ace_server, browser_name):
             page.wait_for_function(
                 "() => window.__aceHeadlessTreePreview?.snapshot().itemCount > 1"
             )
+            assert page.evaluate(
+                """
+                () => ({
+                  mode: window.__aceHeadlessTreeController?.getMode?.(),
+                  policy: window.__aceHeadlessTreeController?.modePolicy?.(),
+                })
+                """
+            ) == {
+                "mode": "coding",
+                "policy": {
+                    "enterOnCode": "apply",
+                    "enterOnFolder": "toggle",
+                    "spaceOnCode": "none",
+                    "autoViewOnFocus": False,
+                    "editingDisabled": False,
+                },
+            }
 
             page.click(".ace-sentence")
             row = page.locator("#ace-headless-tree-mount .ace-ht-row--code").first

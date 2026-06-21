@@ -461,6 +461,89 @@ def test_coded_text_view_codebook_supports_editing_without_text_apply(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_coded_text_view_codebook_enter_renames_and_space_views_focused_code(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--code")
+            code_rows = page.locator("#ace-headless-tree-mount .ace-ht-row--code")
+            alpha_id = code_rows.nth(0).get_attribute("data-code-id")
+            bravo_id = code_rows.nth(1).get_attribute("data-code-id")
+            charlie_id = code_rows.nth(2).get_attribute("data-code-id")
+            assert alpha_id
+            assert bravo_id
+            assert charlie_id
+
+            page.goto(f"{ace_server}/code/{alpha_id}/view")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--code")
+            assert page.evaluate(
+                """
+                () => ({
+                  mode: window.__aceHeadlessTreeController?.getMode?.(),
+                  policy: window.__aceHeadlessTreeController?.modePolicy?.(),
+                })
+                """
+            ) == {
+                "mode": "audit",
+                "policy": {
+                    "enterOnCode": "rename",
+                    "enterOnFolder": "toggle",
+                    "spaceOnCode": "view",
+                    "autoViewOnFocus": True,
+                    "editingDisabled": False,
+                },
+            }
+
+            bravo_row = page.locator(
+                f'#ace-headless-tree-mount .ace-ht-row--code[data-code-id="{bravo_id}"]'
+            )
+            bravo_row.focus()
+            page.keyboard.press("Enter")
+            expect(
+                page.locator(
+                    f'#ace-headless-tree-mount .ace-ht-rename[data-item-id="{bravo_id}"]'
+                )
+            ).to_be_visible()
+            expect(page).to_have_url(f"{ace_server}/code/{alpha_id}/view")
+            page.keyboard.press("Escape")
+            expect(page.locator(".ace-ht-rename")).to_have_count(0)
+
+            charlie_row = page.locator(
+                f'#ace-headless-tree-mount .ace-ht-row--code[data-code-id="{charlie_id}"]'
+            )
+            charlie_row.focus()
+            page.keyboard.press(" ")
+            page.wait_for_url(f"{ace_server}/code/{charlie_id}/view")
+            page.wait_for_function(
+                """
+                (codeId) => document.querySelector(
+                  '#code-sidebar .ace-ht-row--code[aria-current="page"]'
+                )?.dataset.codeId === codeId
+                """,
+                arg=charlie_id,
+            )
+
+            page.evaluate(
+                """
+                (codeId) => {
+                  const row = document.querySelector(
+                    `#ace-headless-tree-mount .ace-ht-row--code[data-code-id="${codeId}"]`
+                  );
+                  window.__aceHeadlessTreeController.focusTreeItem(row);
+                }
+                """,
+                arg=bravo_id,
+            )
+            page.wait_for_url(f"{ace_server}/code/{bravo_id}/view")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_codebook_nested_levels_have_visible_depth_guides(ace_server, browser_name):
     """Nested codebook rows should expose depth without adding extra controls."""
     with sync_playwright() as p:

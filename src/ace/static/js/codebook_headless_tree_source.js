@@ -27,6 +27,29 @@ import {
   let chordFilterActive = false;
   const TRANSPARENT_GIF = "data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==";
   const RESERVED_SINGLE_KEYS = new Set(["q", "x", "z", "n", "v"]);
+  const MODE_POLICIES = Object.freeze({
+    coding: Object.freeze({
+      enterOnCode: "apply",
+      enterOnFolder: "toggle",
+      spaceOnCode: "none",
+      autoViewOnFocus: false,
+      editingDisabled: false,
+    }),
+    audit: Object.freeze({
+      enterOnCode: "rename",
+      enterOnFolder: "toggle",
+      spaceOnCode: "view",
+      autoViewOnFocus: true,
+      editingDisabled: false,
+    }),
+    readonly: Object.freeze({
+      enterOnCode: "view",
+      enterOnFolder: "toggle",
+      spaceOnCode: "view",
+      autoViewOnFocus: false,
+      editingDisabled: true,
+    }),
+  });
 
   function clearCodebookActiveState() {
     const active = document.activeElement;
@@ -289,12 +312,34 @@ import {
     return window.__aceCurrentIndex || 0;
   }
 
+  function currentCodebookMode() {
+    const mount = document.getElementById("ace-headless-tree-mount");
+    const mode = mount?.dataset?.codebookMode || "coding";
+    return MODE_POLICIES[mode] ? mode : "coding";
+  }
+
+  function modePolicy(mode) {
+    return MODE_POLICIES[mode || currentCodebookMode()] || MODE_POLICIES.coding;
+  }
+
+  function isCodingMode() {
+    return currentCodebookMode() === "coding";
+  }
+
+  function isAuditMode() {
+    return currentCodebookMode() === "audit";
+  }
+
+  function isReadonlyMode() {
+    return currentCodebookMode() === "readonly";
+  }
+
   function codebookEditingDisabled() {
-    return document.querySelector("#ace-headless-tree-mount[data-codebook-readonly='1']") !== null;
+    return modePolicy().editingDisabled;
   }
 
   function codeApplicationDisabled() {
-    return !!document.getElementById("code-view") || !document.getElementById("text-panel");
+    return modePolicy().enterOnCode !== "apply";
   }
 
   function denyCodebookEditing() {
@@ -439,12 +484,7 @@ import {
     const data = item.getItemData();
     if (data.kind !== "code") return;
     if (codeApplicationDisabled()) {
-      document.dispatchEvent(new CustomEvent("ace:view-code", {
-        detail: {
-          codeId: item.getId(),
-          codeName: data.name || "",
-        },
-      }));
+      viewCode(item, {});
       return;
     }
     document.dispatchEvent(new CustomEvent("ace:apply-code", {
@@ -453,6 +493,36 @@ import {
         codeName: data.name || "",
       },
     }));
+  }
+
+  function viewCode(item, options) {
+    const data = item.getItemData();
+    if (data.kind !== "code") return;
+    options = options || {};
+    document.dispatchEvent(new CustomEvent("ace:view-code", {
+      detail: {
+        codeId: item.getId(),
+        codeName: data.name || "",
+        pushHistory: options.pushHistory,
+        viewTransition: options.viewTransition,
+      },
+    }));
+  }
+
+  function focusTreeItemInstance(item, options) {
+    if (!item) return;
+    options = options || {};
+    item.setFocused();
+    scheduleRender();
+    queueMicrotask(function () {
+      item.getElement()?.focus({ preventScroll: true });
+    });
+    if (options.activate && item.getItemData?.().kind === "code") {
+      viewCode(item, {
+        pushHistory: options.pushHistory,
+        viewTransition: options.viewTransition,
+      });
+    }
   }
 
   function persistRename(item, name) {
@@ -485,8 +555,29 @@ import {
     if (!id || !tree) return;
     const item = tree.getItemInstance(id);
     if (!item) return;
-    item.setFocused();
-    scheduleRender();
+    focusTreeItemInstance(item, {});
+  }
+
+  function plainTreeKey(event) {
+    return !event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey;
+  }
+
+  function focusedVisibleCodeTarget(item, key) {
+    const visibleCodes = visibleCodeItems();
+    if (!visibleCodes.length) return null;
+    if (key === "Home") return visibleCodes[0];
+    if (key === "End") return visibleCodes[visibleCodes.length - 1];
+    const currentVisibleIndex = visibleCodes.findIndex(function (candidate) {
+      return candidate.getId() === item.getId();
+    });
+    if (currentVisibleIndex < 0) return null;
+    if (key === "ArrowDown") {
+      return visibleCodes[Math.min(currentVisibleIndex + 1, visibleCodes.length - 1)];
+    }
+    if (key === "ArrowUp") {
+      return visibleCodes[Math.max(currentVisibleIndex - 1, 0)];
+    }
+    return null;
   }
 
   function rowByItemId(id) {
@@ -628,6 +719,7 @@ import {
     itemProps.onKeyDown = function (event) {
       if (
         event.key === "ArrowRight"
+        && isCodingMode()
         && !event.altKey
         && !event.shiftKey
         && !event.ctrlKey
@@ -639,10 +731,59 @@ import {
         window.aceCodingKeyboard.returnToSource();
         return;
       }
-      if (event.key === "Enter" && data.kind === "code") {
+      if (data.kind === "folder" && event.key === "Enter" && plainTreeKey(event)) {
         event.preventDefault();
         event.stopPropagation();
-        applyCode(item);
+        if (item.isExpanded()) item.collapse();
+        else item.expand();
+        scheduleRender();
+        return;
+      }
+      if (
+        modePolicy().autoViewOnFocus
+        && data.kind === "code"
+        && plainTreeKey(event)
+        && (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End")
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        const nextItem = focusedVisibleCodeTarget(item, event.key);
+        if (!nextItem) return;
+        focusTreeItemInstance(nextItem, {
+          activate: true,
+          pushHistory: false,
+          viewTransition: false,
+        });
+        return;
+      }
+      if (data.kind === "code" && event.key === "Enter" && plainTreeKey(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const policy = modePolicy();
+        if (policy.enterOnCode === "apply") {
+          applyCode(item);
+          return;
+        }
+        if (policy.enterOnCode === "rename") {
+          if (denyCodebookEditing()) return;
+          item.startRenaming?.();
+          scheduleRender();
+          return;
+        }
+        if (policy.enterOnCode === "view") {
+          viewCode(item, { pushHistory: true });
+          return;
+        }
+      }
+      if (
+        data.kind === "code"
+        && (event.key === " " || event.code === "Space")
+        && plainTreeKey(event)
+        && modePolicy().spaceOnCode === "view"
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        viewCode(item, { pushHistory: true });
         return;
       }
       if ((event.key === "Delete" || event.key === "Backspace") && item.getId() !== ROOT_ID) {
@@ -994,10 +1135,10 @@ import {
     function focusTreeItem(element) {
       const item = itemForElement(element);
       if (!item) return;
-      item.setFocused();
-      scheduleRender();
-      queueMicrotask(function () {
-        item.getElement()?.focus({ preventScroll: true });
+      focusTreeItemInstance(item, {
+        activate: isAuditMode() && item.getItemData?.().kind === "code",
+        pushHistory: false,
+        viewTransition: false,
       });
     }
 
@@ -1099,6 +1240,11 @@ import {
       toggleFolderCollapse,
       expandFolder,
       collapseFolder,
+      getMode: currentCodebookMode,
+      modePolicy: function () { return { ...modePolicy() }; },
+      isCodingMode,
+      isAuditMode,
+      isReadonlyMode,
       getTreeItems,
       focusTreeItem,
       getActiveTreeItem,
@@ -1212,10 +1358,10 @@ import {
       if (!item) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      item.setFocused();
-      scheduleRender();
-      queueMicrotask(function () {
-        item.getElement()?.focus({ preventScroll: true });
+      focusTreeItemInstance(item, {
+        activate: isAuditMode() && item.getItemData?.().kind === "code",
+        pushHistory: false,
+        viewTransition: false,
       });
       return;
     }

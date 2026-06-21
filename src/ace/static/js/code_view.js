@@ -735,7 +735,12 @@
       const codeId = evt.detail && evt.detail.codeId;
       if (!codeId) return;
       selectCodebookRowById(codeId);
-      if (codeId !== data.code.id) loadCode(codeId, { pushHistory: true });
+      if (codeId !== data.code.id) {
+        loadCode(codeId, {
+          pushHistory: evt.detail?.pushHistory !== false,
+          viewTransition: evt.detail?.viewTransition !== false,
+        });
+      }
     });
   })();
 
@@ -1063,66 +1068,13 @@
     }
   }, true); // capture phase — matches existing code_view.js convention
 
-  // Keydown on the code tree: arrows browse excerpts; editing keys fall through
-  // to the shared codebook controller.
+  // Keydown on the code tree is owned by the shared codebook controller.
   if (treeEl) {
     treeEl.addEventListener("focusin", (evt) => {
       const row = evt.target.closest && evt.target.closest(CODEBOOK_CODE_ROW_SELECTOR);
       const codeId = codeIdFromCodebookRow(row);
       if (codeId) prefetch(codeId);
     }, true);
-
-    treeEl.addEventListener("keydown", (evt) => {
-      const target = evt.target;
-      if (!target || !target.getAttribute) return;
-      const isTreeItem = target.getAttribute("role") === "treeitem";
-      if (!isTreeItem) return;
-      const isCodeRow = isCodebookCodeRow(target);
-
-      const plainKey = !evt.ctrlKey && !evt.metaKey && !evt.altKey && !evt.shiftKey;
-
-      // Navigation + activation are code-row-only. Group headers keep
-      // their bridge.js Enter handler for collapse/expand.
-      if (!isCodeRow) return;
-
-      const rows = visibleCodeRows();
-      const pos = rows.indexOf(target);
-
-      if (plainKey && evt.key === "ArrowDown") {
-        claim(evt);
-        const target = rows[Math.min(pos + 1, rows.length - 1)];
-        moveCodebookCursor(target);
-        maybeAutoNavigate(target);
-        return;
-      }
-      if (plainKey && evt.key === "ArrowUp") {
-        claim(evt);
-        const target = rows[Math.max(pos - 1, 0)];
-        moveCodebookCursor(target);
-        maybeAutoNavigate(target);
-        return;
-      }
-      if (plainKey && evt.key === "Home") {
-        claim(evt);
-        const target = rows[0];
-        moveCodebookCursor(target);
-        maybeAutoNavigate(target);
-        return;
-      }
-      if (plainKey && evt.key === "End") {
-        claim(evt);
-        const target = rows[rows.length - 1];
-        moveCodebookCursor(target);
-        maybeAutoNavigate(target);
-        return;
-      }
-      if (plainKey && evt.key === "Enter") {
-        claim(evt);
-        const codeId = codeIdFromCodebookRow(target);
-        if (codeId) loadCode(codeId, { pushHistory: true });
-        return;
-      }
-    }, true); // capture phase — run before bridge.js's tree keydown
   }
 
   // Keydown on the codebook search input: ↓/↑/Esc.
@@ -1143,18 +1095,6 @@
         } else {
           codeSearchInput.blur();
         }
-        return;
-      }
-      if (evt.key === "ArrowDown") {
-        claim(evt);
-        const rows = visibleCodeRows();
-        if (rows.length > 0) moveCodebookCursor(rows[0]);
-        return;
-      }
-      if (evt.key === "ArrowUp") {
-        claim(evt);
-        const rows = visibleCodeRows();
-        if (rows.length > 0) moveCodebookCursor(rows[rows.length - 1]);
         return;
       }
     }, true); // capture phase — stopImmediatePropagation blocks bridge.js handlers
