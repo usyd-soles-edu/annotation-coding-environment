@@ -1,4 +1,5 @@
 import json
+import re
 
 import sqlite3
 from pathlib import Path
@@ -214,7 +215,10 @@ def _code_colours(db_path: str, code_ids: list[str]) -> dict[str, str]:
 def assert_audit_codebook_response(resp):
     assert resp.status_code == 200
     assert resp.headers.get("HX-Reswap") == "none"
-    assert 'id="code-sidebar"' in resp.text
+    assert re.search(
+        r'<[^>]+id="code-sidebar"[^>]+hx-swap-oob="outerHTML"[^>]*>',
+        resp.text,
+    )
     assert 'data-codebook-mode="audit"' in resp.text
     assert 'id="text-panel"' not in resp.text
     assert 'id="ace-ann-data"' not in resp.text
