@@ -4358,7 +4358,10 @@
         .then(function (data) {
           if (!data.path) return;
           htmx.ajax("POST", "/api/codes/import/preview-path", {
-            values: { path: data.path, current_index: window.__aceCurrentIndex },
+            values: _codebookMutationValues({
+              path: data.path,
+              current_index: window.__aceCurrentIndex,
+            }),
             target: "#modal-container",
             swap: "innerHTML",
           });
@@ -4542,6 +4545,14 @@
   window.aceImportFromPreview = function (btn) {
     const codesJson = btn.getAttribute("data-codes");
     const currentIndex = btn.getAttribute("data-current-index") || window.__aceCurrentIndex;
+    const mode = btn.dataset.codebookMode || _codebookMutationContext().mode;
+    const currentCodeId = btn.dataset.currentCodeId || _codebookMutationContext().currentCodeId;
+    if (
+      mode === "audit"
+      && !window.confirm("Import codebook? This can change the audit view. You can undo imported codes.")
+    ) {
+      return;
+    }
     const dialog = btn.closest("dialog");
     if (dialog) dialog.close();
 
@@ -4571,9 +4582,14 @@
     document.addEventListener("htmx:afterRequest", onAfter);
 
     htmx.ajax("POST", "/api/codes/import", {
-      values: { codes_json: codesJson, current_index: currentIndex },
+      values: _codebookMutationValues({
+        codes_json: codesJson,
+        current_index: currentIndex,
+        codebook_mode: mode,
+        current_code_id: currentCodeId,
+      }),
       target: "#code-sidebar",
-      swap: "outerHTML",
+      swap: mode === "audit" ? "none" : "outerHTML",
     });
   };
 

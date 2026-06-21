@@ -317,6 +317,32 @@ def test_codebook_import_preview_uses_compact_mapping_dialog(
     assert "Barriers to using a service" in resp.text
 
 
+def test_audit_mode_codebook_import_preview_preserves_audit_context(
+    client_with_codes, tmp_path
+):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    csv_path = tmp_path / "codebook.csv"
+    csv_path.write_text(
+        "Code Label,Theme,Dictionary Definition\n"
+        "Access,Equity,Barriers to using a service\n"
+    )
+
+    resp = client.post(
+        "/api/codes/import/preview-path",
+        data={
+            "path": str(csv_path),
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert resp.status_code == 200
+    assert "ace-codebook-import-dialog" in resp.text
+    assert 'data-codebook-mode="audit"' in resp.text
+    assert f'data-current-code-id="{code_id}"' in resp.text
+
+
 def test_codebook_export_removes_temp_file(client_with_sources, tmp_path, monkeypatch):
     """The codebook export route removes its temporary CSV after serving it."""
     import tempfile
@@ -342,6 +368,7 @@ def test_codebook_export_removes_temp_file(client_with_sources, tmp_path, monkey
     resp = client.get("/api/codes/export")
 
     assert resp.status_code == 200
+    assert "ace:codebook-mutated" not in resp.headers.get("HX-Trigger", "")
     assert temp_paths
     assert not any(Path(path).exists() for path in temp_paths)
 
@@ -426,6 +453,35 @@ def test_codebook_import_route_stores_definition(client_with_sources_no_codes):
     finally:
         conn.close()
     assert row["definition"] == "Barriers to using a service"
+
+
+def test_audit_mode_codebook_import_returns_audit_safe_response(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    codes_json = json.dumps([
+        {
+            "name": "Imported audit code",
+            "colour": "#123456",
+            "group_name": "Imported folder",
+            "definition": "Imported during audit",
+        }
+    ])
+
+    resp = client.post(
+        "/api/codes/import",
+        data={
+            "codes_json": codes_json,
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "post"
+    assert detail["currentCodeId"] == code_id
+    assert detail["auditReload"] is True
+    assert len(detail["affectedCodeIds"]) == 1
 
 
 def test_codebook_tree_route_returns_headless_tree_item_map(client_with_codes):

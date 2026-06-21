@@ -576,6 +576,8 @@ async def import_codebook(
     request: Request,
     codes_json: str = Form(...),
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Import selected codes from a previously previewed CSV."""
     from ace.models.codebook import import_selected_codes
@@ -592,6 +594,16 @@ async def import_codebook(
         if imported_ids:
             _get_undo_manager(request).record_codebook_import(imported_ids)
         content = _render_code_sidebar(request, conn, coder_id, current_index)
+        response = _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id,
+            affected_code_ids=imported_ids,
+            audit_reload=bool(imported_ids and current_code_id),
+        )
 
     # Clean up temp file
     tmp_path = getattr(request.app.state, "codebook_import_tmp", None)
@@ -599,7 +611,7 @@ async def import_codebook(
         Path(tmp_path).unlink(missing_ok=True)
         request.app.state.codebook_import_tmp = None
 
-    return HTMLResponse(content)
+    return response
 
 
 @router.post("/codes/{code_id}/convert-to-folder")

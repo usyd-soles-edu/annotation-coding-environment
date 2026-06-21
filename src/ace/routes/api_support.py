@@ -816,6 +816,7 @@ def _audit_codebook_mutation_detail(
     affected_code_ids: list[str] | None = None,
     current_code_id: str | None = None,
     fallback_code_id: str | None = None,
+    audit_reload: bool | None = None,
 ) -> dict[str, object]:
     operation = _codebook_mutation_operation(request)
     if affected_code_ids is None:
@@ -823,11 +824,13 @@ def _audit_codebook_mutation_detail(
         code_id = request.path_params.get("code_id")
         if code_id:
             affected_code_ids.append(str(code_id))
-    should_reload_current = (
-        current_code_id is not None
-        and current_code_id in affected_code_ids
-        and operation != "delete"
-    )
+    should_reload_current = audit_reload
+    if should_reload_current is None:
+        should_reload_current = (
+            current_code_id is not None
+            and current_code_id in affected_code_ids
+            and operation != "delete"
+        )
     return {
         "mode": "audit",
         "operation": operation,
@@ -914,6 +917,7 @@ def _render_codebook_mutation_response(
     current_code_id: str | None = None,
     affected_code_ids: list[str] | None = None,
     fallback_code_id: str | None = None,
+    audit_reload: bool | None = None,
     status_html: str = "",
     headers: dict[str, str] | None = None,
 ) -> HTMLResponse:
@@ -936,6 +940,7 @@ def _render_codebook_mutation_response(
                 affected_code_ids=affected_code_ids,
                 current_code_id=current_code_id,
                 fallback_code_id=fallback_code_id,
+                audit_reload=audit_reload,
             ),
             header_name="HX-Trigger-After-Settle",
         )
