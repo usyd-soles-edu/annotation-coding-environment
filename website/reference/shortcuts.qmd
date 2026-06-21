@@ -1,0 +1,42 @@
+---
+title: "Keyboard shortcuts"
+---
+
+ACE is designed for keyboard-driven coding. Shortcuts depend on where focus is: the source text or the codebook.
+
+## Source text
+
+| Shortcut | Action |
+|---|---|
+| `1` to `9`, `0`, `a` to `y` | Apply visible codes |
+| `Up` / `Down` | Move between sentences |
+| `Shift+Left` / `Shift+Right` | Move between sources |
+| `Q` | Repeat the last code |
+| `Z` or `Command+Z` | Undo |
+| `Command+Shift+Z` | Redo |
+| `X` | Delete annotation |
+| `Shift+F` | Toggle flag |
+| `N` | Open, edit, or close source notes |
+| `/` | Search codes |
+| `Tab` | Cycle between coding zones |
+
+## Codebook
+
+| Shortcut | Action |
+|---|---|
+| `Option+Right` | Move focused code into the folder above |
+| `Option+Shift+Right` | Create a folder from the focused code and code above |
+| `Option+Left` | Move focused code out to the root |
+| `Option+Shift+Up` / `Option+Shift+Down` | Reorder folder rows |
+| `Command+X` | Cut code |
+| `Command+V` | Paste code |
+| `F2` | Rename |
+| `Delete` / `Backspace` | Soft-delete |
+| `Esc` | Clear cut, clear search, or return focus to source |
+
+## Search commands
+
+| Command | Action |
+|---|---|
+| `/code Name` | Create or search for a code |
+| `/folder Name` | Create or search for a folder |

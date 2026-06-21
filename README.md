@@ -36,6 +36,10 @@ Intel Macs are not currently supported. The macOS and Windows builds are not cod
 
 If you are comfortable with the command line, see [Install from source](INSTALL.md). The guide includes Git and `uv` setup for people who do not already have them installed.
 
+## Documentation
+
+The user guide is published with GitHub Pages at <https://usyd-soles-edu.github.io/annotation-coding-environment/>.
+
 ## Notes on development
 
 ACE was initially developed without AI assistance. Later development used Claude and GPT-5 to support code auditing, debugging, release preparation, and some user interface design decisions. All code changes were reviewed and tested before release.

@@ -12,6 +12,8 @@ docs/
 .DS_Store
 dist/
 build/
+website/_site/
+website/.quarto/
 
 .worktrees/
 /desktop/launcher/target/

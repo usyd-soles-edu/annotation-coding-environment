@@ -1,0 +1,16 @@
+---
+title: "Export data"
+---
+
+ACE exports project data so you can analyse or archive coding outside the app.
+
+## Common exports
+
+- Annotations: coded spans, source identifiers, coder identifiers, and code names.
+- Codebook: the list of active codes.
+- Notes: source-level notes.
+- Agreement data: long-form spans for comparison across coders.
+
+## Good practice
+
+Keep exported files with enough context to understand them later. Record the ACE version, project file, export date, and any codebook changes made during analysis.

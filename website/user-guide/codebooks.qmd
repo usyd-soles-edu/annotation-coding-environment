@@ -1,0 +1,21 @@
+---
+title: "Codebooks"
+---
+
+A codebook is the set of codes used to annotate source text.
+
+## Codes
+
+Codes represent concepts, themes, labels, or categories. Each code has a name and colour. Code colours are used for highlights and chips in the coding interface.
+
+## Folders
+
+Folders group related codes. Folders are for organisation only; annotations are applied to codes, not folders.
+
+## Reordering
+
+The order of codes matters because ACE assigns quick keyboard positions from the visible code order. Put frequently used codes near the top.
+
+## Sharing a codebook
+
+For team projects, agree on the codebook before independent coding begins. If coders use different codebook versions, agreement results can be harder to interpret.

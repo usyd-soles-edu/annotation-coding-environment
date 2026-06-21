@@ -1,0 +1,24 @@
+---
+title: "Agreement"
+---
+
+ACE can compare coding across project files to help teams inspect consistency.
+
+## When to use agreement
+
+Use agreement after coders have independently coded the same sources with the same or comparable codebook.
+
+Agreement summaries are most useful as a diagnostic tool. They show where coding is consistent and where the team may need to clarify definitions.
+
+## Metric
+
+ACE reports Gwet's AC1 for agreement summaries. The interpretation bands are:
+
+- Reliable: 0.80 or higher
+- Tentative: 0.60 to 0.79
+- Unreliable: below 0.60
+- Insufficient: fewer than 50 coded positions
+
+## Export agreement data
+
+Use agreement exports when you need a long-form record of spans, coders, sources, and codes for separate analysis.

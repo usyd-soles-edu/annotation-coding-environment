@@ -1,0 +1,36 @@
+---
+title: "Getting started"
+---
+
+This page gives the shortest path from a fresh ACE install to a coded project.
+
+## 1. Install ACE
+
+Download the latest installer from the [GitHub Releases page](https://github.com/usyd-soles-edu/annotation-coding-environment/releases/latest).
+
+- On macOS Apple Silicon, download the `aarch64.dmg`, open it, and drag ACE to Applications.
+- On Windows, download the `x64-setup.exe` and run the installer.
+
+The app is not code-signed yet, so macOS Gatekeeper or Windows SmartScreen may show a warning on first launch.
+
+## 2. Create or open a project
+
+ACE stores each project as a local `.ace` file. You can create a new project from the start screen or open an existing `.ace` file.
+
+Keep the project file somewhere you can back up. If your team has multiple coders, each coder usually works on their own copy before agreement is calculated across files.
+
+## 3. Import sources
+
+Use the import screen to add sources from a CSV file or a folder of text files. ACE keeps the source text in the project file after import.
+
+## 4. Create a codebook
+
+Add codes for the concepts you want to track. You can group related codes into folders and use keyboard shortcuts to code quickly.
+
+## 5. Code text
+
+Move through each source sentence by sentence, select the passage you want, and apply one or more codes.
+
+## 6. Review and export
+
+Use the review and agreement tools to inspect coding patterns, compare coders, and export data for further analysis.

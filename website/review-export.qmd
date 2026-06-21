@@ -1,0 +1,14 @@
+---
+title: "Review and export"
+---
+
+This section covers the work that usually happens after coding: checking consistency, comparing coders, and exporting project data for analysis or archiving.
+
+## Pages in this section
+
+- [Agreement](user-guide/agreement.qmd)
+- [Export data](user-guide/export.qmd)
+
+## Suggested order
+
+Use agreement summaries to identify codes that need discussion or clarification. Export annotations, notes, codebooks, or agreement data once the project is ready for analysis outside ACE.

@@ -1,0 +1,42 @@
+---
+title: "Install from source"
+---
+
+Most users should install ACE from the [GitHub Releases page](https://github.com/usyd-soles-edu/annotation-coding-environment/releases/latest). Source installation is mainly for developers and advanced users.
+
+## Requirements
+
+- Python 3.11 or newer
+- Git
+- `uv`
+
+## Run the web app locally
+
+Clone the repository, install dependencies, and start ACE:
+
+```bash
+git clone https://github.com/usyd-soles-edu/annotation-coding-environment.git
+cd annotation-coding-environment
+uv run ace
+```
+
+ACE will start a local server on port 8080.
+
+## Development server
+
+For development with reloads:
+
+```bash
+uv run uvicorn ace.app:create_app --factory --host 127.0.0.1 --port 8080 --reload --reload-dir src/ace
+```
+
+## Desktop wrapper
+
+The desktop app is a Tauri wrapper around the local ACE server. To run it during development:
+
+```bash
+cd desktop
+cargo tauri dev
+```
+
+For more detail, see the repository `README.md`, `INSTALL.md`, and `CONTRIBUTING.md`.

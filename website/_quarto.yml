@@ -1,0 +1,51 @@
+project:
+  type: website
+  output-dir: _site
+  render:
+    - "*.qmd"
+    - "user-guide/*.qmd"
+    - "reference/*.qmd"
+
+website:
+  title: "ACE"
+  site-url: "https://usyd-soles-edu.github.io/annotation-coding-environment/"
+  search: true
+  sidebar:
+    style: docked
+    logo: "assets/logo.svg"
+    search: true
+    contents:
+      - section: "Start"
+        contents:
+          - index.qmd
+          - getting-started.qmd
+          - install.qmd
+      - section: "Coding workflow"
+        contents:
+          - workflow.qmd
+          - user-guide/import.qmd
+          - user-guide/coding.qmd
+          - user-guide/codebooks.qmd
+          - user-guide/notes.qmd
+      - section: "Review and export"
+        contents:
+          - review-export.qmd
+          - user-guide/agreement.qmd
+          - user-guide/export.qmd
+      - section: "Reference"
+        contents:
+          - reference/index.qmd
+          - reference/shortcuts.qmd
+          - reference/file-format.qmd
+          - reference/faq.qmd
+
+format:
+  html:
+    theme: cosmo
+    css: styles.css
+    toc: true
+    code-copy: true
+    link-external-newwindow: true
+
+execute:
+  freeze: auto

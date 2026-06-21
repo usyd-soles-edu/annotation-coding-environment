@@ -1,0 +1,23 @@
+---
+title: "Code text"
+---
+
+The coding screen is built around three areas: the codebook, the source text, and the applied-code bar.
+
+## Navigate sources
+
+Use the source grid to choose a source. Within a source, move through sentences and passages with the keyboard or mouse.
+
+## Apply codes
+
+Select the passage you want to code, then apply a code from the codebook. ACE supports keyboard-driven coding so repeated actions do not require moving back and forth between panels.
+
+If the same code is applied to overlapping text, ACE merges the overlapping spans into a single annotation for that code.
+
+## Review applied codes
+
+The applied-code bar shows which codes are attached to the current passage. Use it to check whether a passage has been coded as intended.
+
+## Undo and redo
+
+Use undo and redo while coding to recover from recent changes. Undo history is kept for the open project during the current app session.
