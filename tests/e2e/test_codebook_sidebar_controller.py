@@ -461,6 +461,49 @@ def test_coded_text_view_codebook_supports_editing_without_text_apply(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_audit_current_code_rename_updates_header_without_full_page_corruption(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--code")
+            alpha_row = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Alpha",
+            ).first
+            alpha_id = alpha_row.get_attribute("data-code-id")
+            assert alpha_id
+
+            page.goto(f"{ace_server}/code/{alpha_id}/view")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--current")
+            expect(page.locator(".cv-code-name")).to_have_text("Alpha")
+
+            current_row = page.locator(
+                f'#ace-headless-tree-mount .ace-ht-row--code[data-code-id="{alpha_id}"]'
+            )
+            current_row.locator(".ace-ht-label").dblclick()
+            rename = page.locator(
+                f'#ace-headless-tree-mount .ace-ht-rename[data-item-id="{alpha_id}"]'
+            )
+            expect(rename).to_be_visible()
+            rename.fill("Alpha Audit Rename")
+            rename.press("Enter")
+
+            expect(page.locator(".cv-code-name")).to_have_text("Alpha Audit Rename")
+            expect(page.locator("#cv-tracks")).to_be_visible()
+            expect(page.locator("#ace-headless-tree-mount")).to_have_attribute(
+                "data-codebook-mode", "audit"
+            )
+            expect(page.locator("#text-panel")).to_have_count(0)
+            expect(page).to_have_url(f"{ace_server}/code/{alpha_id}/view")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_coded_text_view_codebook_enter_renames_and_space_views_focused_code(
     ace_server, browser_name
 ):

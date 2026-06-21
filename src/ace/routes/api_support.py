@@ -785,6 +785,66 @@ def _request_codebook_mode(request: Request, explicit: str | None = None) -> str
     return mode if mode in {"coding", "audit", "readonly"} else "coding"
 
 
+def _codebook_mutation_operation(request: Request) -> str:
+    path = request.url.path.rstrip("/")
+    code_id = request.path_params.get("code_id")
+    method = request.method.upper()
+    if method == "PUT" and code_id:
+        return "update"
+    if method == "DELETE" and code_id:
+        return "delete"
+    if method == "POST" and path.endswith("/codes/folder"):
+        return "create-folder"
+    if method == "POST" and path.endswith("/codes"):
+        return "create"
+    return method.lower()
+
+
+def _audit_codebook_mutation_detail(
+    request: Request,
+    *,
+    current_code_id: str | None = None,
+) -> dict[str, object]:
+    operation = _codebook_mutation_operation(request)
+    affected_code_ids: list[str] = []
+    code_id = request.path_params.get("code_id")
+    if code_id:
+        affected_code_ids.append(str(code_id))
+    should_reload_current = (
+        current_code_id is not None
+        and current_code_id in affected_code_ids
+        and operation != "delete"
+    )
+    return {
+        "mode": "audit",
+        "operation": operation,
+        "affectedCodeIds": affected_code_ids,
+        "currentCodeId": current_code_id,
+        "auditReload": should_reload_current,
+        "fallbackCodeId": None,
+    }
+
+
+def _merge_hx_trigger(
+    headers: dict[str, str] | None,
+    event_name: str,
+    detail: dict[str, object],
+) -> dict[str, str]:
+    merged = dict(headers or {})
+    payload: dict[str, object]
+    current = merged.get("HX-Trigger")
+    if current:
+        try:
+            payload = json.loads(current)
+        except json.JSONDecodeError:
+            payload = {}
+    else:
+        payload = {}
+    payload[event_name] = detail
+    merged["HX-Trigger"] = json.dumps(payload)
+    return merged
+
+
 def _render_audit_code_sidebar(
     request: Request,
     conn,
@@ -831,8 +891,17 @@ def _render_codebook_mutation_response(
             ),
             "code-sidebar",
         )
+        audit_headers = _merge_hx_trigger(
+            headers,
+            "ace:codebook-mutated",
+            _audit_codebook_mutation_detail(
+                request,
+                current_code_id=current_code_id,
+            ),
+        )
         content += status_html
-        return HTMLResponse(content, headers={"HX-Reswap": "none"})
+        audit_headers["HX-Reswap"] = "none"
+        return HTMLResponse(content, headers=audit_headers)
 
     return HTMLResponse(coding_content + status_html, headers=headers)
 

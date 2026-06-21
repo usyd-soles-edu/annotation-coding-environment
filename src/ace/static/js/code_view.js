@@ -862,7 +862,8 @@
   async function loadCode(codeId, opts) {
     opts = opts || {};
     const pushHistory = opts.pushHistory !== false;
-    if (!codeId || codeId === data.code.id) return;
+    const forceReload = opts.forceReload === true;
+    if (!codeId || (!forceReload && codeId === data.code.id)) return;
     if (navAbort.ctl) navAbort.ctl.abort();
     navAbort.ctl = new AbortController();
     let json;
@@ -936,6 +937,49 @@
     dataCache.set(codeId, p);
     _cacheEvictIfFull();
   }
+
+  document.addEventListener("ace:codebook-mutated", (evt) => {
+    const detail = evt.detail || {};
+    if (detail.mode !== "audit") return;
+
+    const affectedCodeIds = Array.isArray(detail.affectedCodeIds)
+      ? detail.affectedCodeIds.filter(Boolean)
+      : [];
+    if (affectedCodeIds.length > 0) {
+      affectedCodeIds.forEach((codeId) => dataCache.delete(codeId));
+    } else {
+      dataCache.clear();
+    }
+
+    if (detail.fallbackCodeId) {
+      loadCode(detail.fallbackCodeId, { pushHistory: false, viewTransition: false });
+      return;
+    }
+
+    const currentCodeId = data && data.code ? data.code.id : null;
+    const shouldReloadCurrent =
+      !!currentCodeId
+      && (
+        detail.auditReload === true
+        || (
+          detail.operation !== "delete"
+          && affectedCodeIds.includes(currentCodeId)
+        )
+      );
+    if (shouldReloadCurrent) {
+      dataCache.delete(currentCodeId);
+      loadCode(currentCodeId, {
+        pushHistory: false,
+        viewTransition: false,
+        forceReload: true,
+      });
+      return;
+    }
+
+    if (currentCodeId) {
+      setCurrentSidebarCode(currentCodeId);
+    }
+  });
 
   // Thin wrapper: arrow-key navigation uses replaceState so back-button
   // doesn't stack 50 entries.

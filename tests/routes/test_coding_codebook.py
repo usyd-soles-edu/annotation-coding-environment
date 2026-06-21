@@ -581,6 +581,26 @@ def test_audit_mode_rename_returns_audit_sidebar_only(client_with_codes):
     assert_audit_codebook_response(resp)
 
 
+def test_audit_rename_response_marks_current_code_reload(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "name": "Audit renamed",
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(resp)
+    trigger = resp.headers.get("HX-Trigger", "")
+    assert '"ace:codebook-mutated"' in trigger
+    assert '"mode": "audit"' in trigger
+    assert '"operation": "update"' in trigger
+    assert f'"affectedCodeIds": ["{code_id}"]' in trigger
+    assert f'"currentCodeId": "{code_id}"' in trigger
+    assert '"auditReload": true' in trigger
+
+
 def test_undo_code_rename_no_navigate_trigger(client_with_codes):
     """Undoing a codebook-only op (rename) must not emit ace-navigate."""
     client, _coder_id, code_id, _, _db_path = client_with_codes
