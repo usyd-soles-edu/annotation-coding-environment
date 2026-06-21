@@ -39,6 +39,9 @@
   var _agreementReviewState = null;
   var _suppressAgreementHistory = false;
   var _agreementReviewRestoredFromHistory = false;
+  var _agreementComputeSeq = 0;
+  var _activeAgreementComputeSeq = 0;
+  var _cancelledAgreementComputeSeqs = {};
 
   function _stopPoll() {
     if (_agreementPoll) { clearInterval(_agreementPoll); _agreementPoll = null; }
@@ -48,6 +51,7 @@
   // listener and the poll's error branch (which used to fork the same DOM
   // mutation). subText is optional.
   function _showError(labelText, subText) {
+    var computeSeq = _activeAgreementComputeSeq;
     _stopPoll();
     var fill = document.getElementById("ace-agreement-progress-fill");
     var label = document.getElementById("ace-agreement-progress-label");
@@ -59,6 +63,13 @@
     }
     if (label) { label.classList.add("is-error"); label.textContent = labelText; }
     if (sub && subText) { sub.textContent = subText; }
+    _activeAgreementComputeSeq = 0;
+    if (!_suppressAgreementHistory) {
+      var results = document.getElementById("agreement-results");
+      if (results) {
+        _replaceAgreementHistory("error", results.innerHTML, _selectedAgreementPaths(), computeSeq);
+      }
+    }
   }
 
   // I2: a 5xx here would only be a genuine transport failure (the route now
@@ -90,8 +101,16 @@
   function _focusAgreementTitle() {
     var title = document.querySelector("#agreement-results .ace-agreement-title");
     if (title) {
+      if (!title.hasAttribute("tabindex")) {
+        title.setAttribute("tabindex", "-1");
+      }
       title.focus({ preventScroll: true });
     }
+  }
+
+  function _invalidateAgreementCompute() {
+    _agreementComputeSeq += 1;
+    _activeAgreementComputeSeq = 0;
   }
 
   function _focusAgreementChoose() {
@@ -103,34 +122,39 @@
     _focusAgreementTitle();
   }
 
-  function _agreementState(html, paths) {
+  function _agreementState(kind, html, paths, computeSeq) {
     return {
       aceAgreement: true,
+      kind: kind || "panel",
       html: html,
       paths: Array.isArray(paths) ? paths.slice() : [],
+      computeSeq: computeSeq || 0,
     };
   }
 
-  function _replaceAgreementHistory(html, paths) {
+  function _replaceAgreementHistory(kind, html, paths, computeSeq) {
     if (!window.history || !window.history.replaceState) { return; }
-    window.history.replaceState(_agreementState(html, paths), "", window.location.href);
+    window.history.replaceState(_agreementState(kind, html, paths, computeSeq), "", window.location.href);
   }
 
-  function _pushAgreementHistory(html, paths) {
+  function _pushAgreementHistory(kind, html, paths, computeSeq) {
     if (!window.history || !window.history.pushState) { return; }
-    window.history.pushState(_agreementState(html, paths), "", window.location.href);
+    window.history.pushState(_agreementState(kind, html, paths, computeSeq), "", window.location.href);
   }
 
-  function _rememberAgreementReview(html, paths) {
-    _agreementReviewState = _agreementState(html, paths);
+  function _rememberAgreementPanel(kind, html, paths) {
+    var state = _agreementState(kind, html, paths);
+    if (kind === "review") {
+      _agreementReviewState = state;
+    }
     if (_suppressAgreementHistory) {
       return;
     }
     if (_agreementReviewRestoredFromHistory) {
-      _pushAgreementHistory(html, paths);
+      _pushAgreementHistory(kind, html, paths);
       _agreementReviewRestoredFromHistory = false;
     } else {
-      _replaceAgreementHistory(html, paths);
+      _replaceAgreementHistory(kind, html, paths);
     }
   }
 
@@ -138,14 +162,27 @@
     if (!state || state.aceAgreement !== true || typeof state.html !== "string") {
       return false;
     }
+    if (state.computeSeq && _cancelledAgreementComputeSeqs[state.computeSeq] && _agreementReviewState) {
+      state = _agreementReviewState;
+    }
     var results = document.getElementById("agreement-results");
+    var hadActiveCompute = _activeAgreementComputeSeq !== 0;
+    var cancelledComputeSeq = _activeAgreementComputeSeq;
     _stopPoll();
+    _invalidateAgreementCompute();
     _setAgreementReviewBusy(false);
     _agreementSelectedPaths = Array.isArray(state.paths) ? state.paths.slice() : [];
     results.innerHTML = state.html;
-    if (results.querySelector(".ace-agreement-review")) {
-      _agreementReviewState = _agreementState(state.html, _agreementSelectedPaths);
+    if (state.kind === "review" || results.querySelector(".ace-agreement-review")) {
+      _agreementReviewState = _agreementState("review", state.html, _agreementSelectedPaths);
       _agreementReviewRestoredFromHistory = true;
+      if (hadActiveCompute) {
+        _cancelledAgreementComputeSeqs[cancelledComputeSeq] = true;
+        _pushAgreementHistory("review", state.html, _agreementSelectedPaths);
+        _agreementReviewRestoredFromHistory = false;
+      }
+    } else {
+      _agreementReviewRestoredFromHistory = false;
     }
     _focusAgreementTitle();
     return true;
@@ -203,9 +240,11 @@
     opts = opts || {};
     _agreementSelectedPaths = Array.isArray(paths) ? paths.slice() : [];
     _stopPoll();
+    _invalidateAgreementCompute();
     if (!paths || paths.length < 2) {
       _setAgreementReviewBusy(false);
       results.innerHTML = _initialResults;
+      _rememberAgreementPanel("empty", _initialResults, _agreementSelectedPaths);
       _focusAgreementChoose();
       return Promise.resolve();
     }
@@ -226,7 +265,7 @@
         if (seq !== _agreementPreviewSeq) { return; }
         results.innerHTML = html;
         _setAgreementReviewBusy(false);
-        _rememberAgreementReview(html, _agreementSelectedPaths);
+        _rememberAgreementPanel("review", html, _agreementSelectedPaths);
         if (typeof opts.focusRemoveIndex === "number") {
           _restoreAgreementFocus(opts.focusRemoveIndex);
         } else {
@@ -279,19 +318,25 @@
     }
 
     if (_agreementReviewState && !_suppressAgreementHistory) {
-      _replaceAgreementHistory(_agreementReviewState.html, _agreementReviewState.paths);
+      _replaceAgreementHistory(
+        _agreementReviewState.kind,
+        _agreementReviewState.html,
+        _agreementReviewState.paths
+      );
       _agreementReviewRestoredFromHistory = false;
     }
+    var computeSeq = ++_agreementComputeSeq;
+    _activeAgreementComputeSeq = computeSeq;
     _showAgreementLoading();
     if (_agreementReviewState && !_suppressAgreementHistory) {
-      _pushAgreementHistory(document.getElementById("agreement-results").innerHTML, paths);
+      _pushAgreementHistory("loading", document.getElementById("agreement-results").innerHTML, paths, computeSeq);
     }
     var progress = document.getElementById("ace-agreement-progress-fill");
     if (progress) {
       progress.focus({ preventScroll: true });
     }
     htmx.ajax("POST", "/api/agreement/compute", {
-      values: { paths: JSON.stringify(paths) },
+      values: { paths: JSON.stringify(paths), ace_compute_seq: String(computeSeq) },
       target: "#agreement-results",
       swap: "innerHTML",
     });
@@ -353,16 +398,58 @@
       .catch(_showGenericAgreementError);
   };
 
+  function _replaceAgreementTerminalHistory(target, detail) {
+    if (_suppressAgreementHistory || !target || target.id !== "agreement-results") {
+      return;
+    }
+    var requestConfig = (detail && detail.requestConfig) || {};
+    var params = requestConfig.parameters || {};
+    var computeSeq = Number(params.ace_compute_seq || 0);
+    if (computeSeq && _cancelledAgreementComputeSeqs[computeSeq]) {
+      return;
+    }
+    if (target.querySelector("#ace-agreement-results-title")) {
+      _activeAgreementComputeSeq = 0;
+      _replaceAgreementHistory("result", target.innerHTML, _selectedAgreementPaths(), computeSeq);
+      return;
+    }
+    if (target.querySelector(".ace-agreement-error")) {
+      _activeAgreementComputeSeq = 0;
+      _replaceAgreementHistory("error", target.innerHTML, _selectedAgreementPaths(), computeSeq);
+    }
+  }
+
+  document.addEventListener("htmx:afterSwap", function (e) {
+    if (!e.detail || !e.detail.target) {
+      return;
+    }
+    _replaceAgreementTerminalHistory(e.detail.target, e.detail);
+  });
+
+  document.addEventListener("htmx:beforeSwap", function (e) {
+    if (!e.detail || !e.detail.target || e.detail.target.id !== "agreement-results") {
+      return;
+    }
+    var requestConfig = e.detail.requestConfig || {};
+    var params = requestConfig.parameters || {};
+    var computeSeq = Number(params.ace_compute_seq || 0);
+    if (computeSeq && computeSeq !== _activeAgreementComputeSeq) {
+      e.preventDefault();
+      e.detail.shouldSwap = false;
+    }
+  });
+
   document.addEventListener("htmx:afterSettle", function (e) {
     if (!e.detail || !e.detail.target || e.detail.target.id !== "agreement-results") {
       return;
     }
     var resultTitle = document.getElementById("ace-agreement-results-title");
     if (resultTitle) {
-      if (!_suppressAgreementHistory) {
-        _replaceAgreementHistory(e.detail.target.innerHTML, _selectedAgreementPaths());
-      }
       resultTitle.focus({ preventScroll: true });
+      return;
+    }
+    if (e.detail.target.querySelector(".ace-agreement-error")) {
+      _focusAgreementTitle();
     }
   });
 
