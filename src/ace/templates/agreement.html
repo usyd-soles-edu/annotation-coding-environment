@@ -42,6 +42,8 @@
   var _agreementComputeSeq = 0;
   var _activeAgreementComputeSeq = 0;
   var _cancelledAgreementComputeSeqs = {};
+  var _cancelledAgreementComputeOrder = [];
+  var _MAX_CANCELLED_COMPUTES = 20;
 
   function _stopPoll() {
     if (_agreementPoll) { clearInterval(_agreementPoll); _agreementPoll = null; }
@@ -113,6 +115,15 @@
     _activeAgreementComputeSeq = 0;
   }
 
+  function _rememberCancelledAgreementCompute(seq) {
+    if (!seq || _cancelledAgreementComputeSeqs[seq]) { return; }
+    _cancelledAgreementComputeSeqs[seq] = true;
+    _cancelledAgreementComputeOrder.push(seq);
+    while (_cancelledAgreementComputeOrder.length > _MAX_CANCELLED_COMPUTES) {
+      delete _cancelledAgreementComputeSeqs[_cancelledAgreementComputeOrder.shift()];
+    }
+  }
+
   function _focusAgreementChoose() {
     var choose = document.querySelector("[data-agreement-pick-start], [data-agreement-choose-again]");
     if (choose) {
@@ -134,12 +145,20 @@
 
   function _replaceAgreementHistory(kind, html, paths, computeSeq) {
     if (!window.history || !window.history.replaceState) { return; }
-    window.history.replaceState(_agreementState(kind, html, paths, computeSeq), "", window.location.href);
+    try {
+      window.history.replaceState(_agreementState(kind, html, paths, computeSeq), "", window.location.href);
+    } catch (e) {
+      // Some browsers reject large history states. Keep the current UI usable.
+    }
   }
 
   function _pushAgreementHistory(kind, html, paths, computeSeq) {
     if (!window.history || !window.history.pushState) { return; }
-    window.history.pushState(_agreementState(kind, html, paths, computeSeq), "", window.location.href);
+    try {
+      window.history.pushState(_agreementState(kind, html, paths, computeSeq), "", window.location.href);
+    } catch (e) {
+      // Some browsers reject large history states. Keep the current UI usable.
+    }
   }
 
   function _rememberAgreementPanel(kind, html, paths) {
@@ -177,7 +196,7 @@
       _agreementReviewState = _agreementState("review", state.html, _agreementSelectedPaths);
       _agreementReviewRestoredFromHistory = true;
       if (hadActiveCompute) {
-        _cancelledAgreementComputeSeqs[cancelledComputeSeq] = true;
+        _rememberCancelledAgreementCompute(cancelledComputeSeq);
         _pushAgreementHistory("review", state.html, _agreementSelectedPaths);
         _agreementReviewRestoredFromHistory = false;
       }
