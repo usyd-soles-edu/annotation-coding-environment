@@ -307,6 +307,25 @@ import {
     return parentId && parentId !== ROOT_ID ? parentId : "";
   }
 
+  function codebookMutationContext() {
+    const mount = document.getElementById("ace-headless-tree-mount");
+    const codeView = document.getElementById("code-view");
+    return {
+      mode: mount?.dataset?.codebookMode || "coding",
+      currentCodeId: codeView?.dataset?.codeId || "",
+    };
+  }
+
+  function codebookMutationValues(values) {
+    const next = { ...(values || {}) };
+    const ctx = codebookMutationContext();
+    if (ctx.mode !== "coding") next.codebook_mode = ctx.mode;
+    if (ctx.currentCodeId && !next.current_code_id) {
+      next.current_code_id = ctx.currentCodeId;
+    }
+    return next;
+  }
+
   async function htmxSwap(method, url, values) {
     if (!window.htmx || typeof window.htmx.ajax !== "function") {
       throw new Error("HTMX is unavailable");
@@ -314,7 +333,7 @@ import {
     return window.htmx.ajax(method, url, {
       target: document.getElementById("text-panel") ? "#text-panel" : "#code-sidebar",
       swap: document.getElementById("text-panel") ? "outerHTML" : "none",
-      values,
+      values: codebookMutationValues(values),
     });
   }
 
@@ -325,7 +344,7 @@ import {
     return window.htmx.ajax(method, url, {
       target: "#code-sidebar",
       swap: "outerHTML",
-      values,
+      values: codebookMutationValues(values),
     });
   }
 

@@ -62,6 +62,34 @@
     return { target: "#code-sidebar", swap: "none" };
   }
 
+  function _codebookMutationContext() {
+    const mount = document.getElementById("ace-headless-tree-mount");
+    const codeView = document.getElementById("code-view");
+    return {
+      mode: mount?.dataset?.codebookMode || "coding",
+      currentCodeId: codeView?.dataset?.codeId || "",
+    };
+  }
+
+  function _codebookMutationValues(values) {
+    const next = { ...(values || {}) };
+    const ctx = _codebookMutationContext();
+    if (ctx.mode !== "coding") next.codebook_mode = ctx.mode;
+    if (ctx.currentCodeId && !next.current_code_id) {
+      next.current_code_id = ctx.currentCodeId;
+    }
+    return next;
+  }
+
+  function _codebookMutationQueryString(values) {
+    const params = new URLSearchParams();
+    Object.entries(_codebookMutationValues(values)).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      params.set(key, value);
+    });
+    return params.toString();
+  }
+
   function _denyCodebookEditing() {
     if (!_codebookEditingDisabled()) return false;
     if (typeof window._setStatus === "function") {
@@ -2128,8 +2156,10 @@
     // applied to the page. current_index goes in the URL — htmx.ajax's
     // `values` ride in the request body for DELETE, but the route reads
     // current_index via Query, so a body-borne value would be ignored.
-    const idx = encodeURIComponent(window.__aceCurrentIndex);
-    htmx.ajax("DELETE", `/api/codes/${codeId}?current_index=${idx}`, {
+    const query = _codebookMutationQueryString({
+      current_index: window.__aceCurrentIndex || 0,
+    });
+    htmx.ajax("DELETE", `/api/codes/${codeId}?${query}`, {
       ..._codebookMutationSwapOptions(),
     });
   }
@@ -2615,10 +2645,10 @@
     if (!itemId || !name) return;
     htmx.ajax("PUT", `/api/codes/${itemId}`, {
       ..._codebookMutationSwapOptions(),
-      values: {
+      values: _codebookMutationValues({
         name: name,
         current_index: window.__aceCurrentIndex || 0,
-      },
+      }),
     });
   });
 
