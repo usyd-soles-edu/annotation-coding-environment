@@ -1039,6 +1039,7 @@ def _build_undo_response(
             coding_content="",
             mode=mode,
             current_code_id=current_code_id,
+            affected_code_ids=[current_code_id] if current_code_id else None,
             status_html=status_html,
             headers=headers,
         )

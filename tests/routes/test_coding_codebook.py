@@ -626,6 +626,50 @@ def test_undo_code_rename_no_navigate_trigger(client_with_codes):
     assert "ace-navigate" not in resp.headers.get("HX-Trigger", "")
 
 
+def test_audit_undo_redo_code_rename_returns_audit_safe_response(client_with_codes):
+    client, _coder_id, code_id, _, _db_path = client_with_codes
+
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "name": "Audit undo target",
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert resp.status_code == 200
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(undo_resp)
+    assert "text-panel" not in undo_resp.text
+    undo_detail = _audit_mutation_detail(undo_resp)
+    assert undo_detail["mode"] == "audit"
+    assert undo_detail["currentCodeId"] == code_id
+    assert undo_detail["affectedCodeIds"] == [code_id]
+    assert undo_detail["auditReload"] is True
+
+    redo_resp = client.post(
+        "/api/redo",
+        data={
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+    assert_audit_codebook_response(redo_resp)
+    assert "text-panel" not in redo_resp.text
+    redo_detail = _audit_mutation_detail(redo_resp)
+    assert redo_detail["mode"] == "audit"
+    assert redo_detail["currentCodeId"] == code_id
+    assert redo_detail["affectedCodeIds"] == [code_id]
+    assert redo_detail["auditReload"] is True
+
+
 def test_undo_code_delete_restores_across_sources(client_with_codes):
     """Deleting a code with annotations on multiple sources soft-deletes them
     all; undo restores every annotation to active state."""

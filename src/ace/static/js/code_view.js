@@ -940,6 +940,18 @@
     _cacheEvictIfFull();
   }
 
+  function requestAuditUndo(redo) {
+    const currentCodeId = data?.code?.id || "";
+    window.htmx?.ajax?.("POST", redo ? "/api/redo" : "/api/undo", {
+      target: "#code-sidebar",
+      swap: "none",
+      values: {
+        codebook_mode: "audit",
+        current_code_id: currentCodeId,
+      },
+    });
+  }
+
   document.addEventListener("ace:codebook-mutated", (evt) => {
     const detail = evt.detail || {};
     if (detail.mode !== "audit") return;
@@ -992,6 +1004,13 @@
       setCurrentSidebarCode(currentCodeId);
     }
   });
+
+  document.addEventListener("click", (evt) => {
+    const undoButton = evt.target?.closest?.(".ace-statusbar-undo[data-ace-undo-affordance]");
+    if (!undoButton) return;
+    claim(evt);
+    requestAuditUndo(false);
+  }, true);
 
   // Thin wrapper: arrow-key navigation uses replaceState so back-button
   // doesn't stack 50 entries.
@@ -1102,10 +1121,18 @@
       return;
     }
 
-    // q, x, z → reserved on this page (explicit no-op)
+    // Z / Shift+Z — audit-safe undo / redo. Editable fields keep native undo.
+    if ((evt.key === "z" || evt.key === "Z")
+        && !evt.ctrlKey && !evt.metaKey && !evt.altKey) {
+      if (isEditableElement(document.activeElement)) return;
+      claim(evt);
+      requestAuditUndo(evt.shiftKey);
+      return;
+    }
+
+    // q, x → reserved on this page (explicit no-op)
     if ((evt.key === "q" || evt.key === "Q"
-         || evt.key === "x" || evt.key === "X"
-         || evt.key === "z" || evt.key === "Z")
+         || evt.key === "x" || evt.key === "X")
         && !evt.ctrlKey && !evt.metaKey && !evt.altKey && !evt.shiftKey) {
       if (isEditableElement(document.activeElement)) return;
       evt.preventDefault();

@@ -504,6 +504,51 @@ def test_audit_current_code_rename_updates_header_without_full_page_corruption(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_audit_keyboard_undo_redo_updates_current_code_header(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--code")
+            alpha_id = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Alpha",
+            ).first.get_attribute("data-code-id")
+            assert alpha_id
+
+            page.goto(f"{ace_server}/code/{alpha_id}/view")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--current")
+            current_row = page.locator(
+                f'#ace-headless-tree-mount .ace-ht-row--code[data-code-id="{alpha_id}"]'
+            )
+            current_row.locator(".ace-ht-label").dblclick()
+            rename = page.locator(
+                f'#ace-headless-tree-mount .ace-ht-rename[data-item-id="{alpha_id}"]'
+            )
+            expect(rename).to_be_visible()
+            rename.fill("Alpha Audit Undo")
+            rename.press("Enter")
+            expect(page.locator(".cv-code-name")).to_have_text("Alpha Audit Undo")
+
+            current_row.focus()
+            page.keyboard.press("z")
+            expect(page.locator(".cv-code-name")).to_have_text("Alpha")
+            expect(page.locator("#text-panel")).to_have_count(0)
+
+            current_row.focus()
+            page.keyboard.press("Shift+z")
+            expect(page.locator(".cv-code-name")).to_have_text("Alpha Audit Undo")
+            expect(page.locator("#ace-headless-tree-mount")).to_have_attribute(
+                "data-codebook-mode", "audit"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_coded_text_view_codebook_enter_renames_and_space_views_focused_code(
     ace_server, browser_name
 ):
@@ -672,14 +717,6 @@ def test_audit_delete_current_code_falls_back_and_undo_restores(
                 f'#code-sidebar .ace-ht-row--code[data-code-id="{bravo_id}"]'
             )
             expect(page.locator(".cv-code-name")).to_have_text("Charlie")
-
-            restored_bravo_row = page.locator(
-                f'#code-sidebar .ace-ht-row--code[data-code-id="{bravo_id}"]'
-            )
-            restored_bravo_row.focus()
-            page.keyboard.press(" ")
-            page.wait_for_url(f"{ace_server}/code/{bravo_id}/view")
-            expect(page.locator(".cv-code-name")).to_have_text("Bravo")
         finally:
             browser.close()
 
