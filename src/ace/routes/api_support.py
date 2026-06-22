@@ -326,33 +326,42 @@ def _with_headers(response: HTMLResponse, headers: dict[str, str]) -> HTMLRespon
     return response
 
 
+def _receipt_fragment(inner: str, kind: str, *, live: bool = True) -> str:
+    live_attrs = 'role="status" aria-live="polite" ' if live else ""
+    return (
+        f'<div class="ace-notification-receipt ace-notification-receipt--{kind}" '
+        f'id="ace-notification-receipt" {live_attrs}'
+        'hx-swap-oob="outerHTML">' + inner + "</div>"
+    )
+
+
 def _oob_status_undo(message: str) -> str:
     """OOB-swap status with an inline [Z] undo keycap — for soft-delete actions.
 
     Returns the raw HTML string (not HTMLResponse) so callers can concatenate
-    it with other OOB fragments before wrapping. Only emits the statusbar
-    fragment + ARIA announce — the text-panel pill on /code is populated
-    client-side by bridge.js (its DOM lives inside #text-panel, so an OOB
-    swap to it would be clobbered by the primary swap that re-renders the
-    text panel). Keycap is a real button so mouse users have a click target;
-    pressing Z on the keyboard fires the same /api/undo path via bridge.js.
+    it with other OOB fragments before wrapping. Emits the global statusbar
+    fallback, the coding-view receipt, and an ARIA announcement. Keycap is a
+    real button so mouse users have a click target; pressing Z on the keyboard
+    fires the same /api/undo path via bridge.js.
     """
     escaped = html.escape(message)
     inner = (
         f'<span class="ace-statusbar-undo-msg">{escaped}</span>'
-        '<span class="ace-statusbar-undo-sep">·</span>'
+        '<span class="ace-statusbar-undo-spacer" aria-hidden="true"></span>'
         '<button type="button" class="ace-statusbar-undo" '
-        'data-ace-undo-affordance="1" aria-label="Undo (Z)">'
-        '<span class="ace-statusbar-undo-keycap">Z</span>'
-        '<span>undo</span>'
+        'data-ace-undo-affordance="1" aria-label="Undo last action" '
+        'aria-keyshortcuts="Z">'
+        '<span class="ace-statusbar-undo-keycap" aria-hidden="true">Z</span>'
+        '<span>Undo</span>'
         '</button>'
     )
     status_fragment = (
         '<span class="ace-statusbar-event ace-statusbar-event--undo" '
         'id="ace-statusbar-event" hx-swap-oob="outerHTML">' + inner + '</span>'
     )
+    receipt_fragment = _receipt_fragment(inner, "undo", live=False)
     announce = _oob_announce(message, assertive=False)
-    return status_fragment + announce
+    return status_fragment + receipt_fragment + announce
 
 
 def _oob_status(message: str, kind: str = "err") -> HTMLResponse:
@@ -361,9 +370,9 @@ def _oob_status(message: str, kind: str = "err") -> HTMLResponse:
     Emits three fragments:
       1. Statusbar event span (visible on /, /import, /agreement — hidden by
          CSS on /code but still DOM-present).
-      2. Text-panel event pill (only exists on /code — HTMX silently drops
+      2. Coding notification receipt (only exists on /code — HTMX silently drops
          the fragment on other pages).
-      3. Assertive ARIA live region (because the statusbar and pill are
+      3. Assertive ARIA live region (because the statusbar and receipt are
          aria-hidden / role=status, so screen-reader users would otherwise
          miss errors).
 
@@ -375,15 +384,10 @@ def _oob_status(message: str, kind: str = "err") -> HTMLResponse:
         f'<span class="ace-statusbar-event ace-statusbar-event--{kind}" '
         f'id="ace-statusbar-event" hx-swap-oob="outerHTML">{escaped}</span>'
     )
-    # Same message, second target — only present on /code.
-    pill_fragment = (
-        f'<span class="ace-text-event-pill ace-text-event-pill--{kind}" '
-        f'id="ace-text-event-pill" role="status" aria-live="polite" '
-        f'hx-swap-oob="outerHTML">{escaped}</span>'
-    )
+    receipt_fragment = _receipt_fragment(escaped, kind)
     # Assertive region for errors (sticky), polite for ok (ephemeral).
     announce = _oob_announce(message, assertive=(kind == "err"))
-    return HTMLResponse(status_fragment + pill_fragment + announce)
+    return HTMLResponse(status_fragment + receipt_fragment + announce)
 
 
 def _native_selection_path(value: str) -> Path:
@@ -995,6 +999,7 @@ def _build_undo_response(
     `UndoManager.undo(conn)` / `redo(conn)`:
         {
             "description": str,
+            "notification": str,
             "source_id": str | None,
             "flash_annotation_id": str | None,
             "codebook_changed": bool,
@@ -1003,6 +1008,7 @@ def _build_undo_response(
     from ace.models.assignment import get_assignments_for_coder
 
     description = result["description"]
+    notification = result.get("notification", description)
     source_id = result["source_id"]
     flash_id = result["flash_annotation_id"]
     mode = _request_codebook_mode(request, explicit=codebook_mode)
@@ -1027,7 +1033,7 @@ def _build_undo_response(
             )
 
     if mode == "audit" and result.get("codebook_changed", True):
-        status_html = _oob_status(description, "ok").body.decode()
+        status_html = _oob_status(notification, "ok").body.decode()
         return _render_codebook_mutation_response(
             request,
             conn,
@@ -1049,7 +1055,7 @@ def _build_undo_response(
     )
     # _oob_status returns an HTMLResponse — extract its body to concat as a string.
     # It already emits an _oob_announce internally, so no separate announce call here.
-    status_html = _oob_status(description, "ok").body.decode()
+    status_html = _oob_status(notification, "ok").body.decode()
     content += status_html
 
     if flash_id is not None:

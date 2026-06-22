@@ -58,11 +58,17 @@ def test_applied_code_remove_button_removes_single_annotation(ace_server, browse
             page.click(".ace-applied-annotation-remove")
             page.wait_for_selector(".ace-applied-code-row", state="detached")
             assert _annotation_data(page) == []
-            assert "Applied code removed" in page.locator("#ace-statusbar-event").text_content()
+            receipt = page.locator("#ace-notification-receipt")
+            assert "Removed code" in receipt.text_content()
+            assert receipt.get_by_role("button", name="Undo last action").is_visible()
 
             page.keyboard.press("Z")
             page.wait_for_selector(".ace-applied-code-row")
             assert len(_annotation_data(page)) == 1
+            page.wait_for_function(
+                "() => document.querySelector('#ace-notification-receipt')"
+                "?.textContent.includes('Undid remove code')"
+            )
         finally:
             browser.close()
 

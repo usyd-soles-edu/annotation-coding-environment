@@ -163,12 +163,6 @@ rect.ace-flash-{{ code["id"] }} {
                       onclick="aceNavigateNext()">&#8250;</button>
             </div>
           </div>
-          <div class="ace-text-event-row">
-            <span id="ace-text-event-pill"
-                  class="ace-text-event-pill"
-                  role="status"
-                  aria-live="polite"></span>
-          </div>
           <div class="ace-flag-row">
             <button type="button" class="ace-flag-btn{% if is_flagged %} ace-flag-btn--active{% endif %}"
                     aria-label="Toggle flag (Shift+F)" aria-pressed="{{ 'true' if is_flagged else 'false' }}"
@@ -203,6 +197,10 @@ rect.ace-flash-{{ code["id"] }} {
         {% else %}
         <p class="ace-text-empty">No source content.</p>
         {% endif %}
+        <div id="ace-notification-receipt"
+             class="ace-notification-receipt"
+             role="status"
+             aria-live="polite"></div>
         <div class="ace-legend" aria-hidden="true"><span class="k">&larr;</span> codebook &middot; <span class="k">&uarr;&darr;</span> sentence &middot; <span class="k">&rarr;</span> applied &middot; <span class="k">/</span> find &middot; <span class="k">Del</span> &middot; <span class="k">Z</span> undo</div>
         </main>
         {% endblock %}

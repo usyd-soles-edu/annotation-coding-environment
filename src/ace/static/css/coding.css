@@ -21,8 +21,8 @@
   overflow: hidden;
 }
 
-/* Suppress the global statusbar on the coding page — the event channel is
-   rehoused into the text-panel header pill (see .ace-text-event-row below).
+/* Suppress the global statusbar on the coding page — the visible event channel
+   is rehoused into the source-panel receipt (#ace-notification-receipt).
    coding.css is only loaded on /code, so this rule is scoped implicitly. */
 #ace-statusbar {
   display: none;
@@ -365,67 +365,6 @@
 }
 
 .ace-flag-btn:hover .ace-flag-chip--active { background: rgba(191, 54, 12, 0.16); }
-
-/* ---- Text-panel event slot (row 2 of 3 in the header stack) ---- */
-
-.ace-text-event-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 28px;              /* fixed — pill cannot shift neighbours */
-  padding: 0 var(--ace-space-4);
-}
-
-.ace-text-event-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--ace-font-mono);
-  font-size: var(--ace-font-size-2xs);
-  padding: 2px 10px;
-  background: var(--ace-bg-muted);
-  border: 1px solid var(--ace-border-light);
-  border-radius: 999px;
-  color: var(--ace-text);
-  opacity: 0;
-  transform: translateY(-2px);
-  transition: opacity var(--ace-transition), transform var(--ace-transition);
-}
-
-.ace-text-event-pill::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ace-success);
-  flex-shrink: 0;
-}
-
-.ace-text-event-pill:not(:empty) {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.ace-text-event-pill--err {
-  color: var(--ace-warning);
-  border-color: var(--ace-warning);
-  background: #fff;
-}
-
-.ace-text-event-pill--err::before {
-  background: var(--ace-warning);
-}
-
-/* Sticky success variant — matches the statusbar `--ok-sticky` colour
-   and stays visible until cleared (cut/paste prompt). */
-.ace-text-event-pill--ok-sticky {
-  color: #2f6b3f;
-}
-
-/* Soft-delete pill: keep the muted dot, the inline keycap carries the colour. */
-.ace-text-event-pill--undo::before {
-  background: var(--ace-border);
-}
 
 /* ---- Three-column layout ---- */
 
@@ -1174,6 +1113,7 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
 /* ---- Text panel ---- */
 
 .ace-text-panel {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 100%;
@@ -1186,6 +1126,91 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
   font-size: var(--ace-font-size-base);
   display: flex;
   flex-direction: column;
+}
+
+.ace-notification-receipt {
+  position: absolute;
+  left: 50%;
+  bottom: 104px;
+  z-index: 35;
+  min-width: 260px;
+  min-height: 42px;
+  max-width: min(420px, calc(100% - 48px));
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 9px 12px 9px 14px;
+  border: 1px solid var(--ace-border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 14px 42px rgba(17, 17, 17, 0.11);
+  color: var(--ace-text);
+  font-size: var(--ace-font-size-2xs);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity var(--ace-transition),
+    transform var(--ace-transition),
+    visibility 0s linear var(--ace-transition);
+  visibility: hidden;
+}
+
+.ace-notification-receipt:not(:empty) {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+  transition:
+    opacity var(--ace-transition),
+    transform var(--ace-transition),
+    visibility 0s;
+  visibility: visible;
+}
+
+.ace-notification-receipt--ok,
+.ace-notification-receipt--ok-sticky {
+  color: #2f6b3f;
+}
+
+.ace-notification-receipt--err {
+  border-color: rgba(168, 51, 46, 0.42);
+  color: var(--ace-warning);
+}
+
+.ace-notification-receipt--undo {
+  justify-content: space-between;
+}
+
+.ace-notification-receipt--undo::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--ace-text);
+  border-radius: 0 0 0 6px;
+  opacity: 0.58;
+  transform: scaleX(var(--undo-progress, 1));
+  transform-origin: left center;
+  transition: transform linear var(--undo-duration, 7s);
+}
+
+.ace-notification-receipt--undo:hover::after,
+.ace-notification-receipt--undo:focus-within::after {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ace-notification-receipt {
+    transform: translate(-50%, 0);
+    transition: none;
+  }
+
+  .ace-notification-receipt--undo::after {
+    transition: none;
+  }
 }
 
 /* Push the legend (last child) to the bottom when content doesn't fill the panel */

@@ -1726,6 +1726,7 @@
     // If a soft-delete swapped in an undo affordance, wire its click +
     // hover-pause + 7 s auto-clear timer. Idempotent.
     _initUndoAffordance();
+    _syncReceiptFromStatusbar();
 
     // Server-emitted "ok" pills (e.g. /api/undo's "Nothing to undo")
     // arrive as plain OOB swaps and don't run the client-side fade
@@ -2625,8 +2626,7 @@
   /** Unified apply helper used by keycap click, search Enter, and tree Enter. */
   function _applyCode(codeId) {
     if (_codeApplicationDisabled()) return false;
-    // The server emits a branch-specific OOB status (Applied / Removed /
-    // Merged with adjacent) on /api/code/apply-sentence, which swaps into
+    // The server emits a branch-specific OOB status on /api/code/apply-sentence, which swaps into
     // #ace-statusbar-event. No client-side status message here.
     const isSelection = !!window.__aceLastSelection;
     if (isSelection) {
@@ -3351,6 +3351,12 @@
       }
       b.style.setProperty("--undo-progress", String(progress));
     });
+    document.querySelectorAll(".ace-notification-receipt--undo").forEach(function (el) {
+      if (durationMs !== undefined) {
+        el.style.setProperty("--undo-duration", (durationMs / 1000) + "s");
+      }
+      el.style.setProperty("--undo-progress", String(progress));
+    });
   }
 
   function _undoStart(remainingMs) {
@@ -3385,6 +3391,60 @@
     _undoStart(_undoRemainingMs);
   }
 
+  function _receiptEl() {
+    return document.getElementById("ace-notification-receipt");
+  }
+
+  function _clearReceiptClasses(el) {
+    if (!el) return;
+    el.classList.remove(
+      "ace-notification-receipt--ok",
+      "ace-notification-receipt--ok-sticky",
+      "ace-notification-receipt--err",
+      "ace-notification-receipt--undo",
+    );
+  }
+
+  function _setReceiptLiveSemantics(el, enabled) {
+    if (!el) return;
+    if (enabled) {
+      el.setAttribute("role", "status");
+      el.setAttribute("aria-live", "polite");
+    } else {
+      el.removeAttribute("role");
+      el.removeAttribute("aria-live");
+    }
+  }
+
+  function _syncReceiptFromStatusbar() {
+    const sb = document.querySelector(".ace-statusbar-event");
+    const receipt = _receiptEl();
+    if (!sb || !receipt) return;
+    if (sb.classList.contains("ace-statusbar-event--undo")) return;
+
+    const text = sb.textContent.trim();
+    if (!text) return;
+
+    let kind = null;
+    if (sb.classList.contains("ace-statusbar-event--err")) {
+      kind = "err";
+    } else if (sb.classList.contains("ace-statusbar-event--ok-sticky")) {
+      kind = "ok-sticky";
+    } else if (sb.classList.contains("ace-statusbar-event--ok")) {
+      kind = "ok";
+    }
+    if (!kind) return;
+
+    const receiptClass = "ace-notification-receipt--" + kind;
+    if (receipt.textContent.trim() === text && receipt.classList.contains(receiptClass)) return;
+
+    _setReceiptLiveSemantics(receipt, true);
+    receipt.textContent = text;
+    receipt.removeAttribute("style");
+    _clearReceiptClasses(receipt);
+    receipt.classList.add(receiptClass);
+  }
+
   function _clearUndoAffordance() {
     if (_undoTimer) { clearTimeout(_undoTimer); _undoTimer = null; }
     _undoStartTime = null;
@@ -3395,10 +3455,12 @@
       sbEl.textContent = "";
       sbEl.classList.remove("ace-statusbar-event--undo");
     }
-    const pillEl = document.querySelector(".ace-text-event-pill--undo");
-    if (pillEl) {
-      pillEl.textContent = "";
-      pillEl.classList.remove("ace-text-event-pill--undo");
+    const receiptEl = document.querySelector(".ace-notification-receipt--undo");
+    if (receiptEl) {
+      receiptEl.textContent = "";
+      receiptEl.removeAttribute("style");
+      receiptEl.classList.remove("ace-notification-receipt--undo");
+      _setReceiptLiveSemantics(receiptEl, true);
     }
   }
 
@@ -3406,22 +3468,28 @@
     const sbEvent = document.querySelector(".ace-statusbar-event--undo");
     if (!sbEvent) return;
 
-    // Always re-mirror — the pill is inside #text-panel and gets clobbered
+    // Always re-mirror — the receipt is inside #text-panel and gets clobbered
     // by any primary swap that lands during the affordance window. Listener-
     // binding is gated separately, per-button.
-    const pill = document.getElementById("ace-text-event-pill");
-    if (pill && pill.innerHTML !== sbEvent.innerHTML) {
-      pill.classList.add("ace-text-event-pill--undo");
-      pill.innerHTML = sbEvent.innerHTML;
+    const receipt = _receiptEl();
+    if (receipt) {
+      _clearReceiptClasses(receipt);
+      receipt.classList.add("ace-notification-receipt--undo");
+      _setReceiptLiveSemantics(receipt, false);
+      if (receipt.innerHTML !== sbEvent.innerHTML) {
+        receipt.innerHTML = sbEvent.innerHTML;
+      }
     }
 
-    // Bind per-button so the freshly-mirrored pill button gets its handlers
+    // Bind per-button so the freshly-mirrored receipt button gets its handlers
     // even when the persistent statusbar button is already wired.
     _undoButtons().forEach(function (btn) {
       if (btn.dataset.aceUndoBound === "1") return;
       btn.dataset.aceUndoBound = "1";
       btn.addEventListener("mouseenter", _undoPause);
       btn.addEventListener("mouseleave", _undoResume);
+      btn.addEventListener("focusin", _undoPause);
+      btn.addEventListener("focusout", _undoResume);
       btn.addEventListener("click", function (e) {
         e.preventDefault();
         document.querySelectorAll(".ace-statusbar-undo-keycap").forEach(function (k) {
@@ -3443,13 +3511,13 @@
 
     // First time we've seen this affordance? Kick off the countdown.
     // Otherwise re-apply current state to all buttons (covers freshly-
-    // mirrored pill button mid-countdown or while paused).
+    // mirrored receipt button mid-countdown or while paused).
     if (_undoStartTime === null && _undoRemainingMs === 0) {
       _undoFrozenProgress = 1;
       _undoStart(UNDO_DURATION_MS);
     } else if (_undoStartTime !== null) {
       // Running — recompute current visual progress and restart the
-      // transition so the new pill button picks up the animation.
+      // transition so the new receipt picks up the animation.
       const elapsed = Date.now() - _undoStartTime;
       const currentProgress = Math.max(0, 1 - elapsed / _undoRemainingMs);
       const newRemaining = Math.max(0, _undoRemainingMs - elapsed);
@@ -3463,7 +3531,7 @@
   }
 
   /**
-   * Show an ephemeral or sticky message in the status bar event segment.
+   * Show an ephemeral or sticky message in the status bar / coding receipt.
    *   kind="ok": text for ~2 s then fades (via empty-state CSS + timer clears text).
    *   kind="err": sticky until the next _setStatus() call.
    * Mirrors to the ARIA live region (assertive when kind="err").
@@ -3471,8 +3539,8 @@
   function _setStatus(text, kind) {
     kind = kind || "ok";
     const sbEl = document.querySelector(".ace-statusbar-event");
-    const pillEl = document.getElementById("ace-text-event-pill");
-    if (!sbEl && !pillEl) return;
+    const receiptEl = _receiptEl();
+    if (!sbEl && !receiptEl) return;
 
     if (_statusEventClearTimer) {
       clearTimeout(_statusEventClearTimer);
@@ -3484,14 +3552,12 @@
       sbEl.classList.remove("ace-statusbar-event--ok", "ace-statusbar-event--ok-sticky", "ace-statusbar-event--err");
       if (text) sbEl.classList.add("ace-statusbar-event--" + kind);
     }
-    if (pillEl) {
-      pillEl.textContent = text || "";
-      pillEl.classList.remove(
-        "ace-text-event-pill--ok",
-        "ace-text-event-pill--ok-sticky",
-        "ace-text-event-pill--err",
-      );
-      if (text) pillEl.classList.add("ace-text-event-pill--" + kind);
+    if (receiptEl) {
+      _setReceiptLiveSemantics(receiptEl, true);
+      receiptEl.textContent = text || "";
+      receiptEl.removeAttribute("style");
+      _clearReceiptClasses(receiptEl);
+      if (text) receiptEl.classList.add("ace-notification-receipt--" + kind);
     }
 
     if (text) _announce(text, kind === "err");
@@ -3502,9 +3568,9 @@
           sbEl.textContent = "";
           sbEl.classList.remove("ace-statusbar-event--ok");
         }
-        if (pillEl) {
-          pillEl.textContent = "";
-          pillEl.classList.remove("ace-text-event-pill--ok");
+        if (receiptEl) {
+          receiptEl.textContent = "";
+          receiptEl.classList.remove("ace-notification-receipt--ok");
         }
       }, 2000);
     }
@@ -3516,26 +3582,26 @@
   /**
    * Schedule the same 2 s fade for "ok" status content delivered by a
    * server OOB swap (e.g. /api/undo's "Nothing to undo"). Plain HTMX
-   * swaps replace the pill element directly, bypassing _setStatus()'s
-   * timer — without this helper, server-emitted "ok" pills sit forever
+   * swaps replace the receipt element directly, bypassing _setStatus()'s
+   * timer — without this helper, server-emitted "ok" receipts sit forever
    * until the next user action. "err" / "ok-sticky" / "undo" variants
    * are intentionally sticky and skipped.
    */
   function _maybeFadeOkStatus() {
     const sb = document.querySelector(".ace-statusbar-event");
-    const pill = document.getElementById("ace-text-event-pill");
+    const receipt = _receiptEl();
     const sbOk = sb && sb.classList.contains("ace-statusbar-event--ok") && sb.textContent.trim();
-    const pillOk = pill && pill.classList.contains("ace-text-event-pill--ok") && pill.textContent.trim();
-    if (!sbOk && !pillOk) return;
+    const receiptOk = receipt && receipt.classList.contains("ace-notification-receipt--ok") && receipt.textContent.trim();
+    if (!sbOk && !receiptOk) return;
     if (_statusEventClearTimer) clearTimeout(_statusEventClearTimer);
     _statusEventClearTimer = setTimeout(function () {
       if (sb && sb.classList.contains("ace-statusbar-event--ok")) {
         sb.textContent = "";
         sb.classList.remove("ace-statusbar-event--ok");
       }
-      if (pill && pill.classList.contains("ace-text-event-pill--ok")) {
-        pill.textContent = "";
-        pill.classList.remove("ace-text-event-pill--ok");
+      if (receipt && receipt.classList.contains("ace-notification-receipt--ok")) {
+        receipt.textContent = "";
+        receipt.classList.remove("ace-notification-receipt--ok");
       }
     }, 2000);
   }

@@ -155,9 +155,8 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.ace-statusbar-undo-sep {
-  color: var(--ace-border);
-  user-select: none;
+.ace-statusbar-undo-spacer {
+  flex: 1 1 auto;
 }
 
 .ace-statusbar-undo {

@@ -270,6 +270,7 @@ class UndoManager:
         prefix = "Undone" if direction == 0 else "Redone"
         return {
             "description": f"{prefix}: {description}",
+            "notification": _notification_for(entry.op, direction),
             "source_id": entry.source_id,
             "flash_annotation_id": flash_id,
             "codebook_changed": entry.op in CODEBOOK_OPS,
@@ -709,6 +710,30 @@ def _redo_delete_folder_cascade(conn, entry):
     p = entry.payload
     delete_code(conn, p["folder_id"])
     return ("Deleted folder", None)
+
+
+_NOTIFICATION_LABELS: dict[OpType, str] = {
+    "annotation_add": "add code",
+    "annotation_delete": "remove code",
+    "annotation_merge_add": "merge code",
+    "code_add": "add code",
+    "code_delete": "delete code",
+    "code_rename": "rename code",
+    "code_recolour": "change colour",
+    "code_convert_to_folder": "convert code",
+    "code_reorder": "reorder codes",
+    "flag_toggle": "toggle flag",
+    "codebook_import": "import codebook",
+    "code_create_folder": "add folder",
+    "code_move_parent": "move code",
+    "code_indent_promote_to_folder": "add folder",
+    "code_delete_folder_cascade": "delete folder",
+}
+
+
+def _notification_for(op: OpType, direction: int) -> str:
+    prefix = "Undid" if direction == 0 else "Redid"
+    return f"{prefix} {_NOTIFICATION_LABELS.get(op, 'action')}"
 
 
 # Single registry of (undo, redo) handler pairs, keyed by op type. Adding a

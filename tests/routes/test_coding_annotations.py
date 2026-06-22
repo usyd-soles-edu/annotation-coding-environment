@@ -411,9 +411,9 @@ def test_undo_endpoint_pops_undo_stack(client_with_codes):
     # Now undo
     resp = client.post("/api/undo", data={"current_index": 0})
     assert resp.status_code == 200
-    # Status bar OOB present
     assert 'id="ace-statusbar-event"' in resp.text
-    assert "Undone:" in resp.text
+    assert 'id="ace-notification-receipt"' in resp.text
+    assert "Undid add code" in resp.text
 
 
 def test_undo_endpoint_empty_stack_returns_status(client_with_codes):
@@ -568,10 +568,7 @@ def test_undo_does_not_set_x_ace_toast_and_announces_via_live_region(client_with
     assert resp.status_code == 200
     assert "X-ACE-Toast" not in resp.headers
     assert 'id="ace-live-region"' in resp.text
-    # The new global undo emits a "Undone: ..." description that includes
-    # the code name and source display id.
-    assert "Undone:" in resp.text
-    assert "Theme A" in resp.text
+    assert "Undid add code" in resp.text
 
 
 def test_flag_does_not_set_x_ace_toast_and_announces_via_live_region(client_with_codes):
@@ -684,27 +681,20 @@ def test_delete_refreshes_grid(client_with_codes):
     assert sources[0]["count"] == 0
 
 
-def test_coding_page_text_header_has_three_rows(client_with_sources):
-    """Text panel header is wrapped in .ace-text-header with nav, event row, flag row in that order."""
+def test_coding_page_has_notification_receipt_host(client_with_sources):
+    """GET /code renders a local notification receipt host, not the old header pill."""
     client, _ = client_with_sources
     r = client.get("/code?index=0")
     assert r.status_code == 200
     body = r.text
 
-    # Wrapper present
     assert 'class="ace-text-header"' in body
-    # Three child rows — ordering matters
-    nav_idx = body.find('class="ace-text-nav"')
-    event_idx = body.find('class="ace-text-event-row"')
-    flag_idx = body.find('class="ace-flag-row"')
-    assert nav_idx > 0 and event_idx > 0 and flag_idx > 0
-    assert nav_idx < event_idx < flag_idx
-
-    # Event pill element present, empty on initial render
-    assert 'id="ace-text-event-pill"' in body
-    assert 'class="ace-text-event-pill"' in body
+    assert 'id="ace-notification-receipt"' in body
+    assert 'class="ace-notification-receipt"' in body
     assert 'role="status"' in body
     assert 'aria-live="polite"' in body
+    assert 'id="ace-text-event-pill"' not in body
+    assert "ace-text-event-row" not in body
 
 
 def test_apply_same_code_overlap_merges(client_with_codes):
@@ -727,7 +717,7 @@ def test_apply_same_code_overlap_merges(client_with_codes):
 
 
 def test_apply_status_applied_for_new_selection(client_with_codes):
-    """POST /api/code/apply emits an 'Applied <code>' OOB status for a new span."""
+    """POST /api/code/apply emits a concise OOB status for a new span."""
     client, coder_id, code_a, _, _ = client_with_codes
     client.cookies.set("coder_id", coder_id)
 
@@ -740,23 +730,24 @@ def test_apply_status_applied_for_new_selection(client_with_codes):
     # OOB status fragments present with the ok kind…
     assert 'id="ace-statusbar-event"' in body
     assert "ace-statusbar-event--ok" in body
-    assert "ace-text-event-pill--ok" in body
-    # …and the message names the applied code (code_a's name is "Theme A").
-    assert "Applied Theme A" in body
+    assert 'id="ace-notification-receipt"' in body
+    assert "ace-notification-receipt--ok" in body
+    assert 'id="ace-text-event-pill"' not in body
+    assert "Added code" in body
 
 
 def test_apply_status_merged_for_adjacent_same_code(client_with_codes):
-    """Re-applying the same code to an overlapping span emits a 'Merged' status."""
+    """Re-applying the same code to an overlapping span emits a concise merge status."""
     client, coder_id, code_a, _, _ = client_with_codes
     client.cookies.set("coder_id", coder_id)
 
-    # First apply — a fresh span → Applied.
+    # First apply — a fresh span.
     r1 = client.post("/api/code/apply", data={
         "code_id": code_a, "current_index": 0,
         "start_offset": 0, "end_offset": 10, "selected_text": "First docu",
     })
     assert r1.status_code == 200
-    assert "Applied Theme A" in r1.text
+    assert "Added code" in r1.text
 
     # Second apply, overlapping the first → merged into one spanning row.
     r2 = client.post("/api/code/apply", data={
@@ -765,8 +756,9 @@ def test_apply_status_merged_for_adjacent_same_code(client_with_codes):
     })
     assert r2.status_code == 200
     body = r2.text
-    assert "Merged Theme A with adjacent" in body
+    assert "Merged code" in body
     assert "ace-statusbar-event--ok" in body
+    assert "ace-notification-receipt--ok" in body
 
 
 def test_apply_different_code_overlap_creates_two(client_with_codes):
@@ -876,18 +868,18 @@ def test_applied_codes_panel_when_present(client_with_codes):
 
 
 def test_annotate_sentence_add_status(client_with_codes):
-    """POST /api/code/apply-sentence (new code) -> 'Applied' status fragment."""
+    """POST /api/code/apply-sentence (new code) -> concise status fragment."""
     client, _coder_id, code_a, _code_b, _db_path = client_with_codes
     resp = client.post(
         "/api/code/apply-sentence",
         data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
     )
     assert resp.status_code == 200
-    assert "Applied" in resp.text
-    assert "Theme A" in resp.text
-    # The status fragment swaps into the event channel.
+    assert "Added code" in resp.text
     assert 'id="ace-statusbar-event"' in resp.text
     assert "ace-statusbar-event--ok" in resp.text
+    assert 'id="ace-notification-receipt"' in resp.text
+    assert "ace-notification-receipt--ok" in resp.text
 
 
 def test_annotate_sentence_toggle_off_status(client_with_codes):
@@ -904,14 +896,33 @@ def test_annotate_sentence_toggle_off_status(client_with_codes):
         data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
     )
     assert resp.status_code == 200
-    assert "Removed" in resp.text
-    assert "Theme A" in resp.text
+    assert "Removed code" in resp.text
     assert 'id="ace-statusbar-event"' in resp.text
+    assert 'id="ace-notification-receipt"' in resp.text
+
+
+def test_delete_sentence_status_removed_code(client_with_codes):
+    """POST /api/code/delete-sentence emits the same concise remove receipt as the X shortcut."""
+    client, _coder_id, code_a, _code_b, _db_path = client_with_codes
+    client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
+    )
+
+    resp = client.post(
+        "/api/code/delete-sentence",
+        data={"sentence_index": 0, "current_index": 0},
+    )
+
+    assert resp.status_code == 200
+    assert "Removed code" in resp.text
+    assert 'id="ace-statusbar-event"' in resp.text
+    assert 'id="ace-notification-receipt"' in resp.text
 
 
 def test_annotate_sentence_merge_status(client_with_two_sentences):
     """Applying a code to a sentence adjacent to an existing same-code span
-    -> 'Merged with adjacent' status."""
+    -> concise merge status."""
     client, _coder_id, code_a, _db_path = client_with_two_sentences
     # Apply to sentence 0 (add)
     client.post(
@@ -924,9 +935,9 @@ def test_annotate_sentence_merge_status(client_with_two_sentences):
         data={"code_id": code_a, "sentence_index": 1, "current_index": 0},
     )
     assert resp.status_code == 200
-    assert "Merged" in resp.text
-    assert "adjacent" in resp.text
+    assert "Merged code" in resp.text
     assert 'id="ace-statusbar-event"' in resp.text
+    assert 'id="ace-notification-receipt"' in resp.text
 
 
 def test_undo_after_annotate_sentence_merge_restores_original_sentence(

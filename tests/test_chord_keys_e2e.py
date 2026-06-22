@@ -112,12 +112,9 @@ def test_single_key_still_applies(server):
             "() => document.querySelectorAll('.ace-applied-code-row').length > 0",
             timeout=2000,
         )
-        # The status message is now server-emitted (no client-side
-        # "Applied <key> · <name>" string) — assert the branch-specific
-        # "Applied <name> to sentence N" form instead.
         page.wait_for_function(
-            "() => document.querySelector('#ace-text-event-pill')?.textContent"
-            "      .includes('Applied Code 00 to sentence')",
+            "() => document.querySelector('#ace-notification-receipt')?.textContent"
+            "      .includes('Added code')",
             timeout=2000,
         )
         after = page.locator(".ace-applied-code-row").count()
@@ -142,7 +139,7 @@ def test_chord_mode_apply_pd(server):
         mode = page.evaluate("() => document.body.dataset.chordMode")
         assert mode == "awaiting"
         page.wait_for_function(
-            "() => document.querySelector('#ace-text-event-pill')?.textContent"
+            "() => document.querySelector('#ace-notification-receipt')?.textContent"
             "      .includes('Two-key shortcut: ;__')",
             timeout=2000,
         )
@@ -156,7 +153,7 @@ def test_chord_mode_apply_pd(server):
 
         page.keyboard.press("p")
         page.wait_for_function(
-            "() => document.querySelector('#ace-text-event-pill')?.textContent"
+            "() => document.querySelector('#ace-notification-receipt')?.textContent"
             "      .includes('Two-key shortcut: ;p_')",
             timeout=2000,
         )
@@ -168,11 +165,9 @@ def test_chord_mode_apply_pd(server):
             "      .some(el => el.textContent.includes('Privacy'))",
             timeout=2000,
         )
-        # Server-emitted status (chord shortcut no longer appears in the
-        # message — only the code name and sentence number).
         page.wait_for_function(
-            "() => document.querySelector('#ace-text-event-pill')?.textContent"
-            "      .includes('Applied Privacy of data to sentence')",
+            "() => document.querySelector('#ace-notification-receipt')?.textContent"
+            "      .includes('Added code')",
             timeout=2000,
         )
 
@@ -237,7 +232,7 @@ def test_chord_mode_invalid_chord_reports_error(server):
         page.keyboard.press("z")
         page.keyboard.press("z")
         page.wait_for_function(
-            "() => document.querySelector('#ace-text-event-pill')?.textContent"
+            "() => document.querySelector('#ace-notification-receipt')?.textContent"
             "      .includes('No code for ;zz')",
             timeout=2000,
         )
