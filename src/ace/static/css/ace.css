@@ -421,7 +421,6 @@ body {
   text-underline-offset: 4px;
 }
 .ace-home-action:focus-visible,
-.ace-home-action.ace-home-action--keyboard,
 .ace-home-resume-link:focus-visible,
 .ace-home-tool-link:focus-visible {
   outline: 0;
@@ -429,7 +428,6 @@ body {
   text-decoration: none;
 }
 .ace-home-action:focus-visible::before,
-.ace-home-action.ace-home-action--keyboard::before,
 .ace-home-resume-link:focus-visible::before,
 .ace-home-tool-link:focus-visible::before {
   content: "";

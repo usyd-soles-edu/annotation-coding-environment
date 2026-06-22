@@ -28,7 +28,7 @@ def test_new_project_uses_native_folder_picker(ace_server, tmp_path, browser_nam
             )
 
             page.goto(ace_server)
-            page.get_by_role("button", name="New project").click()
+            page.get_by_role("link", name="New project").click()
             page.locator("#new-project-input").fill("Created from picker")
             page.get_by_role("button", name="Choose folder").click()
 
@@ -65,7 +65,7 @@ def test_open_existing_uses_native_file_picker(ace_server, tmp_path, browser_nam
             )
 
             page.goto(ace_server)
-            page.get_by_role("button", name="Open existing").click()
+            page.get_by_role("button", name="Open project").click()
 
             expect(page).to_have_url(re.compile(r".*/import$"), timeout=5000)
         finally:

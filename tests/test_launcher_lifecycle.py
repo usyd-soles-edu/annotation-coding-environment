@@ -277,7 +277,7 @@ class TestChromiumBrowserSmoke:
             try:
                 page = browser.new_page()
                 page.goto(url_line, wait_until="networkidle")
-                expect(page.get_by_role("button", name="New project")).to_be_visible()
+                expect(page.get_by_role("link", name="New project")).to_be_visible()
             finally:
                 browser.close()
 

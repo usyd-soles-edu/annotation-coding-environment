@@ -1012,15 +1012,6 @@
     requestAuditUndo(false);
   }, true);
 
-  // Thin wrapper: arrow-key navigation uses replaceState so back-button
-  // doesn't stack 50 entries.
-  function maybeAutoNavigate(targetRow) {
-    if (!targetRow) return;
-    const codeId = codeIdFromCodebookRow(targetRow);
-    if (!codeId || codeId === data.code.id) return;
-    loadCode(codeId, { pushHistory: false, viewTransition: false });
-  }
-
   // Document-level `/` → focus codebook search.
   // Registered at capture phase, matching the existing code_view.js convention.
   document.addEventListener("keydown", (evt) => {
