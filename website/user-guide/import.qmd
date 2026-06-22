@@ -1,0 +1,21 @@
+---
+title: "Import sources"
+---
+
+ACE can import text sources from a CSV file or from a folder of plain text files.
+
+## CSV import
+
+Use CSV import when your sources already live in a spreadsheet or export table. Keep one row per source. A typical file includes a source name, optional metadata, and the text to code.
+
+Before importing, check that the source text is in a consistent column and that rows do not contain accidental duplicates.
+
+## Folder import
+
+Use folder import when each source is already a separate text file. ACE creates one source per file.
+
+This is useful for interview transcripts, document sets, field notes, and other files that are easier to manage outside a spreadsheet.
+
+## After import
+
+After import, ACE stores source text inside the `.ace` project file. Keep the original source files as your archival copy, but code from the imported project.

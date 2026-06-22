@@ -92,3 +92,12 @@ def test_headless_tree_controller_exposes_mode_policy_contract():
     assert "isCodingMode" in tree_source
     assert "isAuditMode" in tree_source
     assert "isReadonlyMode" in tree_source
+
+
+def test_headless_tree_create_actions_follow_codebook_editing_policy():
+    tree_source = (
+        ROOT / "src" / "ace" / "static" / "js" / "codebook_headless_tree_source.js"
+    ).read_text(encoding="utf-8")
+
+    assert "codebookEditingDisabled() || firstVisibleCodeItem()" in tree_source
+    assert "codeApplicationDisabled() || firstVisibleCodeItem()" not in tree_source

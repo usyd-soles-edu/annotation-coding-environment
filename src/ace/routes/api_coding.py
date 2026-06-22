@@ -45,7 +45,6 @@ async def annotate(
 ):
     """Create an annotation and return updated text panel + annotation list."""
     from ace.models.annotation import add_annotation_merging
-    from ace.models.codebook import code_name
 
     coder_id = _require_coder(request)
 
@@ -73,15 +72,10 @@ async def annotate(
         else:
             undo.record_add(source_id, ann_id)
 
-        # Branch-specific status (mirrors /code/apply-sentence): Merged when
-        # adjacent same-code spans were unioned, otherwise Applied. The
-        # selection route does not toggle-off (re-applying the same span
-        # merges into the existing one), so there is no Removed branch here.
-        name = code_name(conn, code_id)
         if replaced_ids:
-            status_msg = f"Merged {name} with adjacent"
+            status_msg = "Merged code"
         else:
-            status_msg = f"Applied {name}"
+            status_msg = "Added code"
         status_html = _oob_status(status_msg, "ok").body.decode()
 
         return _annotation_only_response(
@@ -121,7 +115,7 @@ async def delete_annotation_route(
             conn,
             coder_id,
             current_index,
-            _oob_status_undo("Applied code removed"),
+            _oob_status_undo("Removed code"),
         )
 
 
@@ -149,7 +143,7 @@ async def undo_route(
             result = mgr.undo(conn)
         except Exception:
             logger.exception("Undo failed")
-            return _with_headers(_oob_status("Undo failed — please report this", "err"), no_swap)
+            return _with_headers(_oob_status("Undo failed", "err"), no_swap)
 
         return _build_undo_response(
             request,
@@ -184,7 +178,7 @@ async def redo_route(
             result = mgr.redo(conn)
         except Exception:
             logger.exception("Redo failed")
-            return _with_headers(_oob_status("Redo failed — please report this", "err"), no_swap)
+            return _with_headers(_oob_status("Redo failed", "err"), no_swap)
 
         return _build_undo_response(
             request,
@@ -299,7 +293,6 @@ async def annotate_sentence(
     from ace.models.annotation import (
         add_annotation, delete_annotation, get_annotations_for_source,
     )
-    from ace.models.codebook import code_name
     from ace.models.source import get_source_content
     from ace.services.text_splitter import split_into_units
 
@@ -323,9 +316,6 @@ async def annotate_sentence(
         start = unit["start_offset"]
         end = unit["end_offset"]
 
-        # Resolve the code's display name for the branch-specific status message.
-        name = code_name(conn, code_id)
-
         # Check if this exact code already exists on this sentence (toggle)
         existing = get_annotations_for_source(conn, source_id, coder_id)
         existing_same_code = None
@@ -342,7 +332,7 @@ async def annotate_sentence(
             # Toggle off: remove this specific code
             delete_annotation(conn, existing_same_code["id"])
             undo.record_delete(source_id, existing_same_code["id"])
-            status_msg = f"Removed {name} from sentence {sentence_index + 1}"
+            status_msg = "Removed code"
         else:
             # Auto-merge: check if adjacent sentence already has the same code
             neighbour = None
@@ -369,7 +359,7 @@ async def annotate_sentence(
                     new_start, new_end, new_text,
                 )
                 undo.record_merge_add(source_id, ann_id, replaced_ids)
-                status_msg = f"Merged {name} with adjacent"
+                status_msg = "Merged code"
             else:
                 try:
                     ann_id = add_annotation(
@@ -379,7 +369,7 @@ async def annotate_sentence(
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
                 undo.record_add(source_id, ann_id)
-                status_msg = f"Applied {name} to sentence {sentence_index + 1}"
+                status_msg = "Added code"
 
         status_html = _oob_status(status_msg, "ok").body.decode()
         return _annotation_only_response(request, conn, coder_id, current_index, extra=status_html)
@@ -432,5 +422,5 @@ async def delete_sentence_annotations(
             delete_annotation(conn, most_recent["id"])
             undo.record_delete(source_id, most_recent["id"])
 
-        extra = _oob_announce("Annotation removed") if most_recent else ""
+        extra = _oob_status_undo("Removed code") if most_recent else ""
         return _annotation_only_response(request, conn, coder_id, current_index, extra)

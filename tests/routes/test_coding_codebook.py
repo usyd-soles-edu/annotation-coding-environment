@@ -292,15 +292,6 @@ def test_coding_sidebar_declares_coding_mode(client_with_codes):
     assert "Press Enter to apply" in resp.text
 
 
-def test_coding_sidebar_declares_coding_mode(client_with_codes):
-    """Code sidebar renders with explicit coding mode in the coding route."""
-    client, *_ = client_with_codes
-    resp = client.get("/code")
-    assert resp.status_code == 200
-    assert 'data-codebook-mode="coding"' in resp.text
-    assert "Press Enter to apply" in resp.text
-
-
 def test_codebook_import_preview_uses_compact_mapping_dialog(
     client_with_sources_no_codes, tmp_path
 ):
@@ -610,7 +601,7 @@ def test_code_rename_records_undo_entry(client_with_codes):
     # Undo
     resp = client.post("/api/undo", data={"current_index": 0})
     assert resp.status_code == 200
-    assert "Undone:" in resp.text
+    assert "Undid rename code" in resp.text
 
     # Verify the rename was undone in the DB (status bar text mentions the
     # new name in the "back to" description, so an HTML-text assertion is
@@ -995,7 +986,7 @@ def test_reorder_codes_noop_does_not_record_undo_entry(client_with_codes):
     # One undo should fully reverse the swap. After it, second undo says nothing.
     resp = client.post("/api/undo", data={"current_index": 0})
     assert resp.status_code == 200
-    assert "Undone:" in resp.text
+    assert "Undid reorder codes" in resp.text
 
     resp = client.post("/api/undo", data={"current_index": 0})
     assert resp.status_code == 200
@@ -1003,12 +994,14 @@ def test_reorder_codes_noop_does_not_record_undo_entry(client_with_codes):
 
 
 def test_invalid_code_name_returns_status_oob_swap(client_with_codes):
-    """Code validation error returns an OOB swap into the status bar, not #toast."""
+    """Code validation error returns OOB swaps into the statusbar fallback and receipt."""
     client, _coder, _a, _b, _path = client_with_codes
     # Whitespace-only name passes Form(...) presence check but fails .strip() guard
     resp = client.post("/api/codes", data={"name": "   "})
     assert resp.status_code == 200
     assert "ace-statusbar-event" in resp.text
+    assert "ace-notification-receipt" in resp.text
+    assert "ace-notification-receipt--err" in resp.text
     # Errors must also reach screen readers via the assertive live region.
     assert "ace-live-region-assertive" in resp.text
     assert 'id="toast"' not in resp.text
@@ -1406,7 +1399,7 @@ def test_reorder_in_scope_records_undo(client_with_codes):
 
     r = client.post("/api/undo", data={"current_index": 0})
     assert r.status_code == 200
-    assert "Undone:" in r.text
+    assert "Undid reorder codes" in r.text
 
     after_undo = _sort_orders_at_root(db_path)
     assert after_undo == before, "undo must restore prior sort_order"
@@ -1438,7 +1431,7 @@ def test_reorder_in_scope_noop_does_not_record(client_with_codes):
     # identity call did not push.
     r = client.post("/api/undo", data={"current_index": 0})
     assert r.status_code == 200
-    assert "Undone:" in r.text
+    assert "Undid reorder codes" in r.text
     r = client.post("/api/undo", data={"current_index": 0})
     assert r.status_code == 200
     assert "Nothing to undo" in r.text

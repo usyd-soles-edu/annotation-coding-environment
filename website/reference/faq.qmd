@@ -1,0 +1,23 @@
+---
+title: "FAQ"
+---
+
+## Is ACE cloud-based?
+
+No. ACE works with local `.ace` project files.
+
+## Can I use ACE with sensitive data?
+
+ACE does not upload project data automatically, but you still need to follow your ethics approval, data management plan, and institutional storage requirements. Be careful where you save and back up `.ace` files.
+
+## Can multiple coders use the same project?
+
+ACE is designed for small teams, but it does not provide real-time collaborative editing. In most workflows, coders work on separate project files and then compare agreement.
+
+## Why do agreement results differ between codes?
+
+Agreement depends on how often a code is used, how clearly it is defined, and how similarly coders apply it. Low agreement is often a prompt to review the code definition and examples.
+
+## Where do I report problems?
+
+Report bugs or documentation issues on the [GitHub issue tracker](https://github.com/usyd-soles-edu/annotation-coding-environment/issues).

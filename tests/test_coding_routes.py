@@ -396,35 +396,54 @@ def test_coding_page_has_inline_collapse_restore_script(client_with_codes):
 
 
 
-def test_oob_status_emits_both_statusbar_and_pill_fragments():
-    """_oob_status emits OOB fragments for both the statusbar and the text pill."""
+def test_oob_status_emits_statusbar_receipt_and_live_region_fragments():
+    """_oob_status emits global fallback, coding receipt, and live region OOB fragments."""
     from ace.routes.api import _oob_status
 
     response = _oob_status("Validation failed", "err")
     body = response.body.decode("utf-8")
 
-    # Statusbar fragment present
     assert 'id="ace-statusbar-event"' in body
     assert "ace-statusbar-event--err" in body
-    # Text-panel pill fragment present
-    assert 'id="ace-text-event-pill"' in body
-    assert "ace-text-event-pill--err" in body
-    # Both use OOB outerHTML swap
-    assert body.count('hx-swap-oob="outerHTML"') >= 2
-    # Message HTML-escaped and present in both fragments
+
+    assert 'id="ace-notification-receipt"' in body
+    assert "ace-notification-receipt--err" in body
+    assert 'id="ace-text-event-pill"' not in body
+
     assert body.count("Validation failed") >= 2
-    # ARIA live region fragment also present (assertive for err)
     assert 'id="ace-live-region-assertive"' in body
+    assert 'role="alert"' in body
 
 
 def test_oob_status_ok_kind_uses_ok_class_suffix():
-    """_oob_status with kind='ok' uses --ok class suffix on both fragments."""
+    """_oob_status with kind='ok' uses --ok class suffix on global and receipt fragments."""
     from ace.routes.api import _oob_status
 
     response = _oob_status("Saved", "ok")
     body = response.body.decode("utf-8")
     assert "ace-statusbar-event--ok" in body
-    assert "ace-text-event-pill--ok" in body
+    assert "ace-notification-receipt--ok" in body
+    assert 'id="ace-live-region"' in body
+
+
+def test_oob_status_undo_emits_receipt_with_button_and_live_region():
+    """_oob_status_undo emits the new receipt affordance while preserving the global fallback."""
+    from ace.routes.api_support import _oob_status_undo
+
+    body = _oob_status_undo("Removed code")
+
+    assert 'id="ace-statusbar-event"' in body
+    assert "ace-statusbar-event--undo" in body
+    assert 'id="ace-notification-receipt"' in body
+    assert "ace-notification-receipt--undo" in body
+    receipt = body[body.index('id="ace-notification-receipt"'):body.index('data-ace-undo-affordance')]
+    assert 'role="status"' not in receipt
+    assert 'aria-live="polite"' not in receipt
+    assert 'data-ace-undo-affordance="1"' in body
+    assert 'aria-keyshortcuts="Z"' in body
+    assert 'aria-label="Undo last action"' in body
+    assert "Removed code" in body
+    assert 'id="ace-live-region"' in body
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,17 @@
+---
+title: "Source notes"
+---
+
+Source notes are short notes attached to a whole source rather than to a specific coded passage.
+
+Use notes for observations that help interpret the source, such as context, data quality, uncertainty, or follow-up questions.
+
+## Open and edit notes
+
+Open the note drawer from the coding screen. Notes save into the `.ace` project file.
+
+Empty notes are removed, so the project only keeps notes with content.
+
+## Export notes
+
+Use the notes export when you want to review source-level observations outside ACE or include them in an audit trail.

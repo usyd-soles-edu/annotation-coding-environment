@@ -646,13 +646,7 @@ async def convert_code_to_folder_route(
             annotation_ids=result["annotation_ids"],
         )
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        n = len(result["annotation_ids"])
-        if n:
-            unit = "annotation" if n == 1 else "annotations"
-            message = f'Converted "{result["name"]}" to folder · preserved {n} {unit}'
-        else:
-            message = f'Converted "{result["name"]}" to folder'
-        content += _oob_status_undo(message)
+        content += _oob_status_undo("Converted code")
         return HTMLResponse(content)
 
 
@@ -742,7 +736,6 @@ async def delete_code_route(
         ).fetchone()
         if prev is None:
             raise HTTPException(status_code=404, detail="code not found")
-        code_name = prev["name"]
         resolved_mode = _request_codebook_mode(request, explicit=codebook_mode)
         fallback_code_id = None
         if (
@@ -770,13 +763,6 @@ async def delete_code_route(
             )
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
 
-        # Soft-delete affordance: status bar carries an inline [Z] undo keycap.
-        n = len(affected_anns)
-        if n > 0:
-            unit = "annotation" if n == 1 else "annotations"
-            message = f'Deleted "{code_name}" · {n} {unit} removed'
-        else:
-            message = f'Deleted "{code_name}"'
         return _render_codebook_mutation_response(
             request,
             conn,
@@ -786,5 +772,5 @@ async def delete_code_route(
             current_code_id=current_code_id,
             affected_code_ids=[code_id],
             fallback_code_id=fallback_code_id,
-            status_html=_oob_status_undo(message),
+            status_html=_oob_status_undo("Deleted code"),
         )

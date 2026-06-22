@@ -1,0 +1,27 @@
+:root {
+  --ace-docs-text: #111111;
+  --ace-docs-muted: #4a4a4a;
+  --ace-docs-border: #d9d9d9;
+}
+
+body {
+  color: var(--ace-docs-text);
+}
+
+.sidebar-title {
+  font-weight: 700;
+}
+
+.subtitle,
+.description,
+.quarto-title-meta {
+  color: var(--ace-docs-muted);
+}
+
+table {
+  font-size: 0.95rem;
+}
+
+th {
+  border-bottom-color: var(--ace-docs-border);
+}

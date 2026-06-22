@@ -1,0 +1,16 @@
+---
+title: "Coding workflow"
+---
+
+This section covers the core workflow in ACE: import sources, build a codebook, code passages, and keep source-level notes.
+
+## Pages in this section
+
+- [Import sources](user-guide/import.qmd)
+- [Code text](user-guide/coding.qmd)
+- [Codebooks](user-guide/codebooks.qmd)
+- [Source notes](user-guide/notes.qmd)
+
+## Suggested order
+
+Start with import, then create a small codebook before coding the full dataset. Add source notes when observations apply to a whole source rather than to one selected passage.

@@ -1,0 +1,13 @@
+---
+title: "Reference"
+---
+
+This section collects quick lookup material for ACE.
+
+## Pages in this section
+
+- [Keyboard shortcuts](shortcuts.qmd)
+- [Project files](file-format.qmd)
+- [FAQ](faq.qmd)
+
+Use these pages when you need a specific shortcut, file-format note, or answer to a common question.

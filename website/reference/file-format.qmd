@@ -1,0 +1,19 @@
+---
+title: "Project files"
+---
+
+ACE projects are saved as `.ace` files.
+
+## What a project file contains
+
+A project file stores imported source text, codebook entries, annotations, notes, coder information, and related project data.
+
+The file is local to your machine unless you deliberately move, copy, sync, or share it.
+
+## Backups
+
+Treat `.ace` files as research data. Keep backups and avoid editing them manually.
+
+## Privacy
+
+ACE does not require a cloud account and does not upload project files automatically. If you store `.ace` files in a cloud-synced folder, that sync is controlled by your storage provider, not by ACE.

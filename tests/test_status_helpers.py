@@ -21,6 +21,15 @@ def test_bridge_exposes_set_status():
     assert "window._setStatus" in src, "missing _setStatus export"
 
 
+def test_bridge_routes_status_to_notification_receipt():
+    src = BRIDGE.read_text(encoding="utf-8")
+
+    assert 'document.getElementById("ace-notification-receipt")' in src
+    assert 'ace-notification-receipt--ok' in src
+    assert 'ace-notification-receipt--err' in src
+    assert 'ace-text-event-pill' not in src
+
+
 def test_bridge_has_assertive_announce_branch():
     src = BRIDGE.read_text(encoding="utf-8")
     assert "ace-live-region-assertive" in src, "missing assertive live region handling"
