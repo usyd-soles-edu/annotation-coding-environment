@@ -652,7 +652,7 @@ import {
 
   function availableCreateActions() {
     const name = searchRaw.trim();
-    if (!name || chordFilterActive || isReadonlyMode() || firstVisibleCodeItem()) return [];
+    if (!name || chordFilterActive || codeApplicationDisabled() || firstVisibleCodeItem()) return [];
 
     const actions = [];
     if (!findDuplicateName("code", name)) {
