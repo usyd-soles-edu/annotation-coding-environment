@@ -2,7 +2,7 @@
 title: "Keyboard shortcuts"
 ---
 
-ACE is designed for keyboard-driven coding. Shortcuts depend on where focus is: the source text or the codebook.
+Shortcuts depend on where focus is: source text, codebook, or search.
 
 ## Source text
 
@@ -34,9 +34,15 @@ ACE is designed for keyboard-driven coding. Shortcuts depend on where focus is: 
 | `Delete` / `Backspace` | Soft-delete |
 | `Esc` | Clear cut, clear search, or return focus to source |
 
-## Search commands
+## Search
 
-| Command | Action |
+| Shortcut | Action |
 |---|---|
-| `/code Name` | Create or search for a code |
-| `/folder Name` | Create or search for a folder |
+| `/` | Open search |
+| `Enter` | Apply the selected code or create a code when shown |
+| `Shift+Enter` | Create a folder when shown |
+| `Esc` | Clear search or return to source |
+
+## Tip
+
+Use the shortcuts shown inside ACE first. Use this page as a reference when you need the full list.

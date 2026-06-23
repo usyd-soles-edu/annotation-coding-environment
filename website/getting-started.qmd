@@ -1,8 +1,8 @@
 ---
-title: "Getting started"
+title: "Quick start"
 ---
 
-This page gives the shortest path from a fresh ACE install to a coded project.
+This is the shortest path from a fresh ACE install to your first coded project.
 
 ## 1. Install ACE
 
@@ -15,22 +15,33 @@ The app is not code-signed yet, so macOS Gatekeeper or Windows SmartScreen may s
 
 ## 2. Create or open a project
 
-ACE stores each project as a local `.ace` file. You can create a new project from the start screen or open an existing `.ace` file.
+Open ACE. The front page gives you the main project actions.
 
-Keep the project file somewhere you can back up. If your team has multiple coders, each coder usually works on their own copy before agreement is calculated across files.
+![](assets/guide/landing.png)
+
+Choose **New project** to create a local `.ace` file, or **Open project** to reopen an existing one.
+
+Keep the `.ace` file somewhere you can back up. If your team has multiple coders, each coder usually works in their own copy.
 
 ## 3. Import sources
 
-Use the import screen to add sources from a CSV file or a folder of text files. ACE keeps the source text in the project file after import.
+Import either:
+
+- a CSV file, with one row per source
+- a folder of `.txt` or `.md` files, with one file per source
+
+![](assets/guide/import-options.png)
 
 ## 4. Create a codebook
 
-Add codes for the concepts you want to track. You can group related codes into folders and use keyboard shortcuts to code quickly.
+Add codes for the ideas you want to mark in the text. Put related codes into folders so the codebook stays easy to scan.
 
 ## 5. Code text
 
-Move through each source sentence by sentence, select the passage you want, and apply one or more codes.
+Move through the source sentence by sentence. Select text, then apply one or more codes from the codebook.
+
+![](assets/guide/coding-view-with-codebook.png)
 
 ## 6. Review and export
 
-Use the review and agreement tools to inspect coding patterns, compare coders, and export data for further analysis.
+Use the review, agreement, and export tools when coding is ready to inspect outside ACE.

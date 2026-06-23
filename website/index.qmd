@@ -8,7 +8,8 @@ toc: false
 
 ![](assets/ace-landing-page-2026-06.png)
 
-ACE is an open-source desktop application for collaborative qualitative coding of text. You can find out more about ACE in the [GitHub repository](https://github.com/usyd-soles-edu/annotation-coding-environment). If you want to learn to use ACE, begin with [Getting started](getting-started.qmd).
+ACE is an open-source desktop application for collaborative qualitative coding of text. You can find out more about ACE in the [GitHub repository](https://github.com/usyd-soles-edu/annotation-coding-environment). If you want to learn to use ACE, begin with [Quick start](getting-started.qmd).
+
 
 #### Citation
 

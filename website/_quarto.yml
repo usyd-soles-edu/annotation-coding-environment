@@ -9,35 +9,55 @@ project:
 website:
   title: "ACE"
   site-url: "https://usyd-soles-edu.github.io/annotation-coding-environment/"
+  favicon: "assets/logo.svg"
   search: true
   sidebar:
     style: docked
     logo: "assets/logo.svg"
     search: true
     contents:
-      - section: "Start"
+      - section: "Start here"
         contents:
-          - index.qmd
-          - getting-started.qmd
-          - install.qmd
-      - section: "Coding workflow"
+          - text: "Welcome"
+            href: index.qmd
+          - text: "Get ACE"
+            href: install.qmd
+          - text: "Quick start"
+            href: getting-started.qmd
+          - text: "Try the sample data"
+            href: sample-data.qmd
+      - section: "Build a project"
         contents:
-          - workflow.qmd
-          - user-guide/import.qmd
-          - user-guide/coding.qmd
-          - user-guide/codebooks.qmd
-          - user-guide/notes.qmd
-      - section: "Review and export"
+          - text: "Overview"
+            href: workflow.qmd
+          - text: "Import sources"
+            href: user-guide/import.qmd
+          - text: "Create a codebook"
+            href: user-guide/codebooks.qmd
+          - text: "Add source notes"
+            href: user-guide/notes.qmd
+      - section: "Code your data"
         contents:
-          - review-export.qmd
-          - user-guide/agreement.qmd
-          - user-guide/export.qmd
+          - text: "Code text"
+            href: user-guide/coding.qmd
+          - text: "Keyboard shortcuts"
+            href: reference/shortcuts.qmd
+      - section: "Review your work"
+        contents:
+          - text: "Overview"
+            href: review-export.qmd
+          - text: "Agreement"
+            href: user-guide/agreement.qmd
+          - text: "Export data"
+            href: user-guide/export.qmd
       - section: "Reference"
         contents:
-          - reference/index.qmd
-          - reference/shortcuts.qmd
-          - reference/file-format.qmd
-          - reference/faq.qmd
+          - text: "Overview"
+            href: reference/index.qmd
+          - text: "Project files"
+            href: reference/file-format.qmd
+          - text: "FAQ"
+            href: reference/faq.qmd
 
 format:
   html:

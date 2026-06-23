@@ -2,20 +2,54 @@
 title: "Codebooks"
 ---
 
-A codebook is the set of codes used to annotate source text.
+A codebook is the list of codes you apply to text.
 
-## Codes
+![](../assets/guide/coding-view-with-codebook.png)
 
-Codes represent concepts, themes, labels, or categories. Each code has a name and colour. Code colours are used for highlights and chips in the coding interface.
+## Add a code
+
+Use a code for a concept, theme, label, or category.
+
+Good code names are short and specific:
+
+- `accessibility barrier`
+- `workaround`
+- `memory issue`
+
+Each code has a colour. ACE uses that colour for highlights and chips.
 
 ## Folders
 
-Folders group related codes. Folders are for organisation only; annotations are applied to codes, not folders.
+Use folders to group related codes.
+
+Folders are only for organisation. You apply codes to text, not folders.
+
+Example:
+
+- `Barriers`
+- `Strategies`
+- `Emotions`
 
 ## Reordering
 
-The order of codes matters because ACE assigns quick keyboard positions from the visible code order. Put frequently used codes near the top.
+Put common codes near the top. ACE assigns quick keyboard positions from the visible code order.
+
+If a code is hard to reach, move it higher.
+
+## Import a codebook
+
+Use codebook import when your codebook already exists in a CSV file.
+
+The sample codebook uses:
+
+- `name`
+- `group`
+- `definition`
+
+ACE creates folders from the `group` column and codes from the `name` column.
 
 ## Sharing a codebook
 
-For team projects, agree on the codebook before independent coding begins. If coders use different codebook versions, agreement results can be harder to interpret.
+For team projects, agree on the codebook before independent coding begins.
+
+If coders use different codebook versions, agreement results become harder to interpret.

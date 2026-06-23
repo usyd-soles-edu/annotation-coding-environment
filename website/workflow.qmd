@@ -1,16 +1,37 @@
 ---
-title: "Coding workflow"
+title: "Build a project"
 ---
 
-This section covers the core workflow in ACE: import sources, build a codebook, code passages, and keep source-level notes.
+Build a project in this order:
 
-## Pages in this section
+1. Create a project file.
+2. Import source text.
+3. Check the imported sources.
+4. Create or import a codebook.
+5. Add source notes when needed.
+
+## Project file
+
+ACE stores each project in one `.ace` file. The file contains sources, codes, annotations, notes, and project settings.
+
+Use a clear file name, such as `interviews_round_1.ace`, and keep it in a backed-up folder.
+
+## Import first
+
+Start by importing sources. You can add more later, but it is easier to check the dataset before coding begins.
+
+![](assets/guide/folder-import-review.png)
+
+## Codebook second
+
+Create a small starting codebook before coding the full dataset. Keep code names short. Use folders for grouping, not for coding.
+
+## Notes when useful
+
+Use source notes for observations about a whole transcript or document. Use annotations for specific passages.
+
+## Detailed pages
 
 - [Import sources](user-guide/import.qmd)
-- [Code text](user-guide/coding.qmd)
 - [Codebooks](user-guide/codebooks.qmd)
 - [Source notes](user-guide/notes.qmd)
-
-## Suggested order
-
-Start with import, then create a small codebook before coding the full dataset. Add source notes when observations apply to a whole source rather than to one selected passage.

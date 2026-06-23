@@ -2,22 +2,55 @@
 title: "Code text"
 ---
 
-The coding screen is built around three areas: the codebook, the source text, and the applied-code bar.
+The coding screen has three main areas:
+
+- codebook on the left
+- source text in the centre
+- applied codes at the bottom
+
+![](../assets/guide/coding-view-with-codebook.png)
 
 ## Navigate sources
 
-Use the source grid to choose a source. Within a source, move through sentences and passages with the keyboard or mouse.
+Use the source grid to choose a source.
+
+Within a source:
+
+- press `Up` or `Down` to move sentence by sentence
+- press `Shift+Left` or `Shift+Right` to move between sources
+- click text when you want to select manually
 
 ## Apply codes
 
-Select the passage you want to code, then apply a code from the codebook. ACE supports keyboard-driven coding so repeated actions do not require moving back and forth between panels.
+Steps:
+
+1. Select the passage you want to code.
+2. Apply a code from the codebook.
+3. Check the highlight and applied-code bar.
+
+You can apply visible codes with keyboard shortcuts. The codebook shows the available shortcut beside each code.
 
 If the same code is applied to overlapping text, ACE merges the overlapping spans into a single annotation for that code.
 
 ## Review applied codes
 
-The applied-code bar shows which codes are attached to the current passage. Use it to check whether a passage has been coded as intended.
+The applied-code bar shows codes attached to the current passage.
+
+Use it to check whether the passage has the right codes before moving on.
+
+To remove a code, use the delete control for that applied code.
 
 ## Undo and redo
 
-Use undo and redo while coding to recover from recent changes. Undo history is kept for the open project during the current app session.
+Use undo and redo while coding to recover from recent changes.
+
+Undo history is kept for the open project during the current app session.
+
+## Recommended rhythm
+
+1. Move to the next sentence.
+2. Read it.
+3. Select the exact passage if needed.
+4. Apply one or more codes.
+5. Check the highlight.
+6. Move on.

@@ -2,20 +2,57 @@
 title: "Import sources"
 ---
 
-ACE can import text sources from a CSV file or from a folder of plain text files.
+ACE imports source text from a CSV file or a folder of text files.
+
+After import, the text is stored inside the `.ace` project file.
 
 ## CSV import
 
-Use CSV import when your sources already live in a spreadsheet or export table. Keep one row per source. A typical file includes a source name, optional metadata, and the text to code.
+Use CSV import when your sources are already in a spreadsheet.
 
-Before importing, check that the source text is in a consistent column and that rows do not contain accidental duplicates.
+Your CSV should have:
+
+- one row per source
+- one column for the source ID or name
+- one column for the text to code
+
+Steps:
+
+1. Open your project.
+2. Choose **Import sources**.
+3. Select the CSV file.
+4. Pick the source ID column.
+5. Pick the text column.
+6. Check the preview.
+7. Start coding when the import looks right.
 
 ## Folder import
 
-Use folder import when each source is already a separate text file. ACE creates one source per file.
+Use folder import when each source is already a separate `.txt` or `.md` file.
 
-This is useful for interview transcripts, document sets, field notes, and other files that are easier to manage outside a spreadsheet.
+![](../assets/guide/new-project-folder-selected.png)
 
-## After import
+Steps:
 
-After import, ACE stores source text inside the `.ace` project file. Keep the original source files as your archival copy, but code from the imported project.
+1. Open your project.
+2. Choose **Import sources**.
+3. Select the folder.
+4. Check the sample preview.
+5. Start coding when the import looks right.
+
+![](../assets/guide/folder-import-review.png)
+
+ACE creates one source per file. The file name becomes the source name.
+
+Folder import works well for interview transcripts, field notes, and document sets.
+
+## Check before coding
+
+Before coding, check:
+
+- the number of imported sources
+- the source names
+- a few random previews
+- whether line breaks and punctuation look sensible
+
+Keep the original source files as your archival copy. Code from the imported ACE project.

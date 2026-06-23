@@ -1,16 +1,27 @@
 ---
-title: "Install from source"
+title: "Get ACE"
 ---
 
-Most users should install ACE from the [GitHub Releases page](https://github.com/usyd-soles-edu/annotation-coding-environment/releases/latest). Source installation is mainly for developers and advanced users.
+Most users should install ACE from the [GitHub Releases page](https://github.com/usyd-soles-edu/annotation-coding-environment/releases/latest).
 
-## Requirements
+## Install the desktop app
+
+- On macOS Apple Silicon, download the `aarch64.dmg`, open it, and drag ACE to Applications.
+- On Windows, download the `x64-setup.exe` and run the installer.
+
+The app is not code-signed yet, so macOS Gatekeeper or Windows SmartScreen may show a warning on first launch.
+
+## Install from source
+
+Source installation is mainly for developers and advanced users.
+
+### Requirements
 
 - Python 3.11 or newer
 - Git
 - `uv`
 
-## Run the web app locally
+### Run the web app locally
 
 Clone the repository, install dependencies, and start ACE:
 
@@ -22,7 +33,7 @@ uv run ace
 
 ACE will start a local server on port 8080.
 
-## Development server
+### Development server
 
 For development with reloads:
 
@@ -30,7 +41,7 @@ For development with reloads:
 uv run uvicorn ace.app:create_app --factory --host 127.0.0.1 --port 8080 --reload --reload-dir src/ace
 ```
 
-## Desktop wrapper
+### Desktop wrapper
 
 The desktop app is a Tauri wrapper around the local ACE server. To run it during development:
 

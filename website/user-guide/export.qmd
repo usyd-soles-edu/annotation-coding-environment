@@ -2,15 +2,32 @@
 title: "Export data"
 ---
 
-ACE exports project data so you can analyse or archive coding outside the app.
+Export data when coding is ready to analyse, share, or archive outside ACE.
 
-## Common exports
+## What to export
 
-- Annotations: coded spans, source identifiers, coder identifiers, and code names.
-- Codebook: the list of active codes.
-- Notes: source-level notes.
-- Agreement data: long-form spans for comparison across coders.
+- **Annotations**: coded spans, source IDs, coder IDs, and code names.
+- **Codebook**: the active list of codes.
+- **Notes**: source-level notes.
+- **Agreement data**: long-form spans for coder comparison.
 
-## Good practice
+## Before export
 
-Keep exported files with enough context to understand them later. Record the ACE version, project file, export date, and any codebook changes made during analysis.
+Check:
+
+- the correct project file is open
+- the coder name is correct
+- coding is complete enough for the export purpose
+- the codebook names are final enough for analysis
+
+## Keep context
+
+Save exports with enough context to understand them later.
+
+Record:
+
+- ACE version
+- project file name
+- export date
+- coding round
+- major codebook changes

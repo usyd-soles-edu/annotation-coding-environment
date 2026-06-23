@@ -1,0 +1,65 @@
+---
+title: "Try the sample data"
+---
+
+ACE includes a guide-ready version of the Manchester Folk-Methods example dataset.
+
+Use it to practise importing sources, importing a codebook, coding text, and exporting results.
+
+## What is included
+
+The sample folder contains:
+
+- `sources.csv`: all 19 interview transcripts in CSV form.
+- `sources/`: the same 19 transcripts as text files.
+- `codebook.csv`: 132 codes converted from the deposited codebook PDF.
+
+The CSV and folder routes contain the same source material. Use one route, not both.
+
+## Get the files
+
+Download or browse the sample package from the ACE repository:
+
+[Open the sample data folder](https://github.com/usyd-soles-edu/annotation-coding-environment/tree/main/examples/ace-guide-manchester-folk-methods)
+
+Keep the three parts together if you want to follow the guide exactly.
+
+## Option 1: CSV import
+
+1. Open ACE and create a new project.
+2. Choose **Import sources**.
+3. Select `sources.csv`.
+4. Choose `source_id` as the source ID column.
+5. Choose `text` as the text column.
+6. Check the import preview.
+
+ACE will create 19 sources named `P01` through `P19`.
+
+## Option 2: Folder import
+
+1. Open ACE and create a new project.
+2. Choose **Import sources**.
+3. Select the `sources/` folder.
+4. Check the import preview.
+
+![](assets/guide/folder-import-review.png)
+
+ACE will import each `.txt` file as one source.
+
+## Import the codebook
+
+After importing sources:
+
+1. Open the codebook menu.
+2. Import `codebook.csv`.
+3. Check that folders and codes appear in the codebook.
+
+ACE creates folders from the `group` column and codes from the `name` column.
+
+## Attribution
+
+The sample is derived from:
+
+Fflur, Myfanwy (2026). *Identifying "Folk-Methods" Employed With Fitness Applications By Users With Chronic Mobility Issues To Improve Application Design - Survey Results, Interview Transcripts and Codebook*. University of Manchester. Dataset. <https://doi.org/10.48420/31900453.v1>
+
+Original dataset licence: Creative Commons Attribution 4.0 International.
