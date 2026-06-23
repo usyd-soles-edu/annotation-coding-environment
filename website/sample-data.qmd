@@ -54,7 +54,15 @@ After importing sources:
 2. Import `codebook.csv`.
 3. Check that folders and codes appear in the codebook.
 
+The sample codebook has:
+
+- `name`: the code name
+- `group`: the folder name
+- `definition`: the code definition
+
 ACE creates folders from the `group` column and codes from the `name` column.
+
+For a codebook without folders, use a CSV with a `name` column and leave the folder mapping blank during import.
 
 ## Attribution
 

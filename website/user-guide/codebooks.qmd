@@ -40,13 +40,47 @@ If a code is hard to reach, move it higher.
 
 Use codebook import when your codebook already exists in a CSV file.
 
-The sample codebook uses:
+At minimum, the CSV needs one column with the code name.
+
+Example without folders:
+
+```csv
+name,definition
+accessibility barrier,Something that makes the tool harder to use.
+workaround,A strategy used to manage a limitation.
+```
+
+ACE creates one code for each row.
+
+To import folders, add a folder or group column.
+
+Example with folders:
+
+```csv
+name,group,definition
+accessibility barrier,Barriers,Something that makes the tool harder to use.
+workaround,Strategies,A strategy used to manage a limitation.
+memory issue,Barriers,A memory-related difficulty.
+```
+
+ACE creates folders from the folder or group column, then places each code inside the matching folder.
+
+The sample codebook uses these columns:
 
 - `name`
 - `group`
 - `definition`
 
-ACE creates folders from the `group` column and codes from the `name` column.
+Steps:
+
+1. Open the codebook menu.
+2. Choose **Import codebook (CSV)**.
+3. Select the CSV file.
+4. Check the detected columns.
+5. Confirm the import.
+6. Check that the codes appear in the sidebar.
+
+If the CSV has no folder column, leave the folder mapping blank.
 
 ## Sharing a codebook
 

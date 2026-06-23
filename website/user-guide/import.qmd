@@ -16,15 +16,27 @@ Your CSV should have:
 - one column for the source ID or name
 - one column for the text to code
 
+Example:
+
+```csv
+source_id,text
+P01,"First transcript text..."
+P02,"Second transcript text..."
+```
+
 Steps:
 
-1. Open your project.
-2. Choose **Import sources**.
-3. Select the CSV file.
-4. Pick the source ID column.
-5. Pick the text column.
-6. Check the preview.
-7. Start coding when the import looks right.
+1. Open ACE.
+2. Choose **New project**.
+3. Name the project and choose where to save it.
+4. Choose **Import sources**.
+5. Select the CSV file.
+6. Pick the source ID column.
+7. Pick the text column.
+8. Check the preview.
+9. Start coding when the import looks right.
+
+If your CSV has metadata columns, keep them in the file for your records. ACE only needs the source ID and text columns for coding.
 
 ## Folder import
 
