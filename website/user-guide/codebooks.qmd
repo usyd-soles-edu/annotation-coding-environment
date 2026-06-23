@@ -12,9 +12,9 @@ Use a code for a concept, theme, label, or category.
 
 Good code names are short and specific:
 
-- `accessibility barrier`
-- `workaround`
-- `memory issue`
+- **`accessibility barrier`**
+- **`workaround`**
+- **`memory issue`**
 
 Each code has a colour. ACE uses that colour for highlights and chips.
 
@@ -26,9 +26,9 @@ Folders are only for organisation. You apply codes to text, not folders.
 
 Example:
 
-- `Barriers`
-- `Strategies`
-- `Emotions`
+- **`Barriers`**
+- **`Strategies`**
+- **`Emotions`**
 
 ## Reordering
 
@@ -67,18 +67,18 @@ ACE creates folders from the folder or group column, then places each code insid
 
 The sample codebook uses these columns:
 
-- `name`
-- `group`
-- `definition`
+- **`name`**
+- **`group`**
+- **`definition`**
 
 Steps:
 
-1. Open the codebook menu.
-2. Choose **Import codebook (CSV)**.
-3. Select the CSV file.
-4. Check the detected columns.
-5. Confirm the import.
-6. Check that the codes appear in the sidebar.
+1. **Open the codebook menu.**
+2. **Choose Import codebook (CSV).**
+3. **Select the CSV file.**
+4. **Check the detected columns.**
+5. **Confirm the import.**
+6. **Check that the codes appear** in the sidebar.
 
 If the CSV has no folder column, leave the folder mapping blank.
 

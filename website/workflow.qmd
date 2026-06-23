@@ -4,11 +4,11 @@ title: "Build a project"
 
 Build a project in this order:
 
-1. Create a project file.
-2. Import source text.
-3. Check the imported sources.
-4. Create or import a codebook.
-5. Add source notes when needed.
+1. **Create a project file.**
+2. **Import source text.**
+3. **Check the imported sources.**
+4. **Create or import a codebook.**
+5. **Add source notes when needed.**
 
 ## Project file
 
@@ -32,6 +32,6 @@ Use source notes for observations about a whole transcript or document. Use anno
 
 ## Detailed pages
 
-- [Import sources](user-guide/import.qmd)
-- [Codebooks](user-guide/codebooks.qmd)
-- [Source notes](user-guide/notes.qmd)
+- **[Import sources](user-guide/import.qmd)**
+- **[Codebooks](user-guide/codebooks.qmd)**
+- **[Source notes](user-guide/notes.qmd)**
