@@ -51,6 +51,11 @@ def test_landing_project_actions_are_keyboard_named(client):
     assert "Quick resume" in resp.text
     assert 'id="tools-title" class="ace-home-section-title">Tools</h2>' in resp.text
     assert 'aria-keyshortcuts="a"' in resp.text
+    assert 'href="https://usyd-soles-edu.github.io/annotation-coding-environment/"' in resp.text
+    assert 'target="_blank"' in resp.text
+    assert 'rel="noopener noreferrer"' in resp.text
+    assert 'aria-label="User guide, opens in a new tab"' in resp.text
+    assert '<span class="ace-home-tool-label">User guide</span>' in resp.text
     assert 'id="ace-home-shortcuts" class="ace-home-shortcuts"' in resp.text
     assert '<span class="ace-home-shortcuts-title">Shortcuts</span>' in resp.text
     assert '<span class="ace-home-shortcut-pair"><kbd>n</kbd><span>New</span></span>' in resp.text

@@ -1,0 +1,93 @@
+---
+title: "Review coded text"
+---
+
+Review coded text shows every excerpt for one code across the project.
+
+Use it when you want to check how a code has been applied before exporting or comparing coders.
+
+![Review coded text view showing the codebook, source tracks, and excerpts for the Conditions code](../assets/guide/review-coded-text.png)
+
+## Open the view
+
+From the coding screen:
+
+1. Focus a code in the codebook.
+2. Press `V`.
+3. ACE opens the coded-text view for that code.
+
+You can also use the codebook menu item for viewing coded text.
+
+## What you see
+
+The view has three areas:
+
+- codebook on the left
+- source tracks in the middle
+- excerpts on the right
+
+The header shows how many excerpts use the selected code and how many sources contain it.
+
+## Read source tracks
+
+Source tracks are a compact plot of where the selected code appears.
+
+Each row is one source. Marks on the row show where excerpts for the selected code occur in that source. A source with many marks has many excerpts for the code. A source with no marks is not shown in the track list for that code.
+
+Use source tracks to answer quick review questions:
+
+- Is this code concentrated in one source?
+- Does it appear across many sources?
+- Are excerpts clustered in one part of a source?
+- Which source should I inspect first?
+
+## Change codes
+
+Use the codebook to review another code:
+
+1. Move to the codebook.
+2. Use `Up` or `Down` to move through codes.
+3. ACE updates the page for the focused code.
+
+Press `Enter` when you want to rename the focused code.
+
+## Filter sources
+
+Use source tracks to narrow the excerpts:
+
+1. Move to **Source tracks**.
+2. Use `Up` or `Down` to move through sources.
+3. Press `Space` to pin a source.
+4. Press `Space` again to unpin it.
+
+Pinned sources limit the excerpt list to those sources.
+
+Use **Clear** to return to all sources.
+
+When no source is pinned, the excerpts list shows all sources for the selected code.
+
+## Read excerpts
+
+Use the excerpts list to inspect coded passages.
+
+You can:
+
+- sort by source, length, or position
+- filter excerpt text with the search box
+- move through excerpts with `Up` and `Down`
+
+Use the excerpts list for close reading. Use the source tracks for orientation.
+
+## Edit the codebook
+
+The audit view uses the same codebook as the coding screen.
+
+You can rename, reorder, move, or delete codes from the codebook. Undo is available for codebook edits.
+
+You cannot apply codes to source text from this view. Return to coding when you need to add or remove annotations.
+
+## Return to coding
+
+Press `V` to return to the coding screen.
+
+Press `N` to return to coding with the notes drawer open.

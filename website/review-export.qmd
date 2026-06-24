@@ -1,14 +1,32 @@
 ---
-title: "Review and export"
+title: "Review your work"
 ---
 
-This section covers the work that usually happens after coding: checking consistency, comparing coders, and exporting project data for analysis or archiving.
+After coding, use ACE to check the work and prepare exports.
 
-## Pages in this section
+## Check the project
 
+Before exporting, scan:
+
+- sources with no codes
+- codes that were rarely used
+- passages with unexpected codes
+- source notes that need follow-up
+
+Use [Review coded text](user-guide/audit.qmd) to inspect every excerpt for one code across the project.
+
+## Compare coders
+
+Use agreement when two or more coders worked on the same source set.
+
+Agreement helps you find codes that need discussion. It is not a replacement for reading examples together.
+
+## Export when ready
+
+Export annotations, codebooks, notes, or agreement data when the project is ready for analysis outside ACE.
+
+## Detailed pages
+
+- [Review coded text](user-guide/audit.qmd)
 - [Agreement](user-guide/agreement.qmd)
 - [Export data](user-guide/export.qmd)
-
-## Suggested order
-
-Use agreement summaries to identify codes that need discussion or clarification. Export annotations, notes, codebooks, or agreement data once the project is ready for analysis outside ACE.
