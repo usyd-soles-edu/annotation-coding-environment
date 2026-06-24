@@ -55,6 +55,14 @@
     }
   } catch (_) {}
 </script>
+<script>
+  // Restore applied-codes inspector collapse state before CSS loads.
+  try {
+    if (localStorage.getItem("ace-applied-codes-collapsed") === "1") {
+      document.documentElement.dataset.aceAppliedCodesCollapsed = "1";
+    }
+  } catch (_) {}
+</script>
 <link rel="stylesheet" href="/static/css/coding.css">
 <style id="code-colours">
 {% for code in codes %}
@@ -201,7 +209,7 @@ rect.ace-flash-{{ code["id"] }} {
              class="ace-notification-receipt"
              role="status"
              aria-live="polite"></div>
-        <div class="ace-legend" aria-hidden="true"><span class="k">&larr;</span> codebook &middot; <span class="k">&uarr;&darr;</span> sentence &middot; <span class="k">&rarr;</span> applied &middot; <span class="k">/</span> find &middot; <span class="k">Del</span> &middot; <span class="k">Z</span> undo</div>
+        <div class="ace-legend" aria-hidden="true"><span class="k">&larr;</span> codebook &middot; <span class="k">&uarr;&darr;</span> sentence &middot; <span class="k">&rarr;</span> applied &middot; <span class="k">]</span> panel &middot; <span class="k">/</span> find &middot; <span class="k">Del</span> &middot; <span class="k">Z</span> undo</div>
         </main>
         {% endblock %}
       </div>
@@ -221,6 +229,15 @@ rect.ace-flash-{{ code["id"] }} {
             </span>
             <span class="ace-applied-codes-total"
                   aria-label="{{ applied_code_rows|length }} applied {{ 'code' if applied_code_rows|length == 1 else 'codes' }}">{{ applied_code_rows|length }}</span>
+            <button type="button"
+                    class="ace-applied-codes-toggle"
+                    data-ace-applied-toggle
+                    aria-controls="ace-applied-codes-panel"
+                    aria-expanded="true"
+                    aria-label="Collapse applied codes"
+                    title="Collapse applied codes">
+              <span aria-hidden="true">&rsaquo;</span>
+            </button>
           </header>
 
           <div class="ace-applied-timeline" aria-hidden="true">
@@ -300,6 +317,42 @@ rect.ace-flash-{{ code["id"] }} {
           {% else %}
           <p class="ace-applied-codes-empty">No codes applied to this source.</p>
           {% endif %}
+        </section>
+        {% endblock %}
+
+        {% block applied_codes_rail %}
+        <section id="ace-applied-codes-rail"
+                 class="ace-applied-codes-rail"
+                 aria-label="Applied codes collapsed"
+                 aria-hidden="true"
+                 inert
+                 {% if open_note_drawer|default(false) %}data-note-hidden="1"{% endif %}>
+          <button type="button"
+                  class="ace-applied-rail-toggle"
+                  data-ace-applied-toggle
+                  aria-controls="ace-applied-codes-panel"
+                  aria-expanded="false"
+                  aria-label="Expand applied codes"
+                  title="Expand applied codes">
+            <span aria-hidden="true">&lsaquo;</span>
+          </button>
+          <span class="ace-applied-rail-total"
+                aria-label="{{ applied_code_rows|length }} applied {{ 'code' if applied_code_rows|length == 1 else 'codes' }}">{{ applied_code_rows|length }}</span>
+          <span class="ace-applied-rail-stack" aria-hidden="true">
+            {% if applied_code_rows %}
+              {% for code in applied_code_rows %}
+                {% if loop.index0 < 6 %}
+                <span class="ace-applied-rail-tick"
+                      style="--rail-colour: {{ code['colour'] }};"></span>
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              <span class="ace-applied-rail-tick ace-applied-rail-tick--empty"></span>
+              <span class="ace-applied-rail-tick ace-applied-rail-tick--empty"></span>
+              <span class="ace-applied-rail-tick ace-applied-rail-tick--empty"></span>
+            {% endif %}
+          </span>
+          <span class="ace-applied-rail-label" aria-hidden="true">Applied</span>
         </section>
         {% endblock %}
 

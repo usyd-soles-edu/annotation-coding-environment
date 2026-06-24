@@ -963,8 +963,10 @@ def _annotation_only_response(
     ctx["request"] = request
 
     applied_html = render_block(templates.env, "coding.html", "applied_codes_panel", ctx)
+    applied_rail_html = render_block(templates.env, "coding.html", "applied_codes_rail", ctx)
     parts = [
         _inject_oob(applied_html, "ace-applied-codes-panel"),
+        _inject_oob(applied_rail_html, "ace-applied-codes-rail"),
         _render_colour_style_oob(ctx["codes"]),
         _render_ann_data_oob(ctx),
         _render_sources_data_oob(ctx),

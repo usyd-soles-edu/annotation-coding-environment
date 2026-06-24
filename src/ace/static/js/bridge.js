@@ -121,6 +121,8 @@
         );
         localStorage.setItem("ace-tab-hint-seen", "1");
       }
+    } else if (t.closest("#ace-right-inspector")) {
+      _setActiveZone("applied");
     } else if (t.closest("#text-panel, #text-scroll, #content-scroll")) {
       _setActiveZone("source");
     }
@@ -207,7 +209,83 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     _refreshSidebarTreeController();
+    _syncAppliedCollapseA11y();
   });
+
+  const APPLIED_COLLAPSED_KEY = "ace-applied-codes-collapsed";
+
+  function _isNoteDrawerOpenDom() {
+    return document.documentElement.dataset.aceNoteOpen === "1";
+  }
+
+  function _isAppliedCollapsed() {
+    return document.documentElement.dataset.aceAppliedCodesCollapsed === "1";
+  }
+
+  function _syncAppliedCollapseA11y() {
+    const collapsed = _isAppliedCollapsed();
+    const noteOpen = _isNoteDrawerOpenDom();
+    const panel = document.getElementById("ace-applied-codes-panel");
+    const rail = document.getElementById("ace-applied-codes-rail");
+    const expandedToggle = document.querySelector(".ace-applied-codes-toggle");
+    const railToggle = document.querySelector(".ace-applied-rail-toggle");
+
+    if (panel) {
+      panel.toggleAttribute("inert", collapsed || noteOpen);
+      panel.setAttribute("aria-hidden", collapsed || noteOpen ? "true" : "false");
+    }
+    if (rail) {
+      rail.toggleAttribute("inert", !collapsed || noteOpen);
+      rail.setAttribute("aria-hidden", collapsed && !noteOpen ? "false" : "true");
+    }
+    if (expandedToggle) expandedToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    if (railToggle) railToggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
+
+  function _focusAppliedEntry() {
+    if (_isNoteDrawerOpenDom()) return false;
+    _syncAppliedCollapseA11y();
+    if (_isAppliedCollapsed()) {
+      const railToggle = document.querySelector(".ace-applied-rail-toggle");
+      if (railToggle) {
+        railToggle.focus();
+        return true;
+      }
+      return false;
+    }
+    const firstRow = document.querySelector(".ace-applied-code-row");
+    if (firstRow) {
+      firstRow.focus();
+      return true;
+    }
+    const expandedToggle = document.querySelector(".ace-applied-codes-toggle");
+    if (expandedToggle) {
+      expandedToggle.focus();
+      return true;
+    }
+    return false;
+  }
+
+  function _setAppliedCollapsed(collapsed, opts) {
+    if (collapsed) {
+      document.documentElement.dataset.aceAppliedCodesCollapsed = "1";
+      try { localStorage.setItem(APPLIED_COLLAPSED_KEY, "1"); } catch (_) {}
+    } else {
+      delete document.documentElement.dataset.aceAppliedCodesCollapsed;
+      try { localStorage.removeItem(APPLIED_COLLAPSED_KEY); } catch (_) {}
+    }
+    _syncAppliedCollapseA11y();
+    if (opts && opts.focus) _focusAppliedEntry();
+  }
+
+  function _toggleAppliedCollapsedShortcut() {
+    _setAppliedCollapsed(!_isAppliedCollapsed(), { focus: true });
+  }
+
+  window.aceIsAppliedCollapsed = _isAppliedCollapsed;
+  window.aceSetAppliedCollapsed = _setAppliedCollapsed;
+  window.aceFocusAppliedEntry = _focusAppliedEntry;
+  window.aceToggleAppliedCollapsed = _toggleAppliedCollapsedShortcut;
 
   function _toggleFolderCollapse(folderRow) {
     const controller = _getSidebarTreeController();
@@ -770,6 +848,7 @@
       _shortcutRow("V", "View coded text") +
       _shortcutRow("Applied ↑ / ↓", "Move through applied codes") +
       _shortcutRow("Applied ← / Esc", "Return to source") +
+      _shortcutRow("]", "Open / collapse applied codes") +
       _shortcutRow("Applied Delete", "Delete the focused annotation") +
       _shortcutRow("Tab", "Cycle source → search → tree → source") +
       _shortcutRow("⌥ + →", "Move item into the folder above") +
@@ -1457,6 +1536,14 @@
       }
     }
 
+    const appliedCollapseToggle = e.target.closest("[data-ace-applied-toggle]");
+    if (appliedCollapseToggle) {
+      e.preventDefault();
+      e.stopPropagation();
+      _setAppliedCollapsed(!_isAppliedCollapsed(), { focus: true });
+      return;
+    }
+
     const removeAppliedButton = e.target.closest(".ace-applied-annotation-remove");
     if (removeAppliedButton) {
       e.preventDefault();
@@ -1727,6 +1814,7 @@
     // hover-pause + 7 s auto-clear timer. Idempotent.
     _initUndoAffordance();
     _syncReceiptFromStatusbar();
+    _syncAppliedCollapseA11y();
 
     // Server-emitted "ok" pills (e.g. /api/undo's "Nothing to undo")
     // arrive as plain OOB swaps and don't run the client-side fade
@@ -3684,6 +3772,7 @@
     let el = document.activeElement;
     if (!el) return null;
     if (el.id === "text-panel" || el.closest("#text-panel")) return "text";
+    if (el.closest("#ace-right-inspector")) return "applied";
     if (el.id === "code-search-input") return "search";
     if (el.closest("#ace-code-create-actions")) return "create";
     const headlessTree = document.getElementById("ace-headless-tree-mount");
@@ -5062,6 +5151,7 @@
     _setAmbient();
     _initCodePeek();
     _initCodingTextControls();
+    _syncAppliedCollapseA11y();
 
     // Set initial roving tabindex — first treeitem gets tabindex="0"
     const items = _getTreeItems();
