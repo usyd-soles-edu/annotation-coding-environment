@@ -18,8 +18,21 @@ Shortcuts depend on where focus is: source text, codebook, or search.
 | `Shift+F` | Toggle flag |
 | `N` | Open, edit, or close source notes |
 | `V` | Review coded text for the focused code |
+| `Right` | Move focus to applied codes |
+| `]` | Open or collapse the applied-codes inspector |
 | `/` | Search codes |
 | `Tab` | Cycle between coding zones |
+
+## Applied codes
+
+| Shortcut | Action |
+|---|---|
+| `Up` / `Down` | Move through applied codes |
+| `Up` from the first code | Move to the collapse button |
+| `Enter` / `Space` on the collapse button | Collapse the applied-codes inspector |
+| `Enter` / `Space` on the collapsed rail | Reopen the applied-codes inspector |
+| `Left` / `Esc` | Return focus to source text |
+| `Delete` / `Backspace` | Delete the focused annotation |
 
 ## Codebook
 

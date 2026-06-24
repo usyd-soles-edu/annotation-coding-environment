@@ -44,9 +44,25 @@ If the same code is applied to overlapping text, ACE merges the overlapping span
 
 The right-side applied-codes inspector shows codes already used in the current source. Use it to check whether a source has been coded at all and whether the code mix looks plausible.
 
-To remove a code, use the delete control for that applied code.
+Each row is a code used in the source. Select a row to preview where that code appears in the text. If a code has multiple occurrences, open the row to review each occurrence separately.
+
+To remove a code, use the delete control for that applied code. If one code appears more than once, open the row first and remove the specific occurrence.
 
 If a source has no codes yet, the panel says so.
+
+## Collapse the applied-codes inspector
+
+The applied-codes inspector can be collapsed when you want more room for the source text. In the collapsed state, ACE keeps a narrow rail on the right. The rail still shows the number of applied codes and colour markers, so you can see whether the current source has coding without reopening the full inspector.
+
+Use the collapse button in the applied-codes header, or press `]` while focus is in the source text or applied-codes inspector.
+
+Keyboard navigation follows the same left-to-right layout as the screen:
+
+- press `Right` from the source text to move into applied codes
+- press `Up` from the first applied-code row to reach the collapse button
+- press `Enter` or `Space` on the collapse button to close the inspector
+- press `Enter` or `Space` on the collapsed rail to reopen it
+- press `Left` or `Esc` from applied codes to return to the source text
 
 ## Undo and redo
 
