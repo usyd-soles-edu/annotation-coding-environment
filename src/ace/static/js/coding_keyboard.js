@@ -38,7 +38,7 @@
   function activeZone() {
     const el = document.activeElement;
     if (el && el.closest) {
-      if (el.closest(".ace-applied-codes-panel")) return "applied";
+      if (el.closest("#ace-right-inspector")) return "applied";
       if (el.closest("#code-sidebar")) return "codebook";
       if (el.closest("#text-panel, #text-scroll, #content-scroll")) return "source";
     }
@@ -252,7 +252,51 @@
   function focusAppliedPanel() {
     rememberSourceAnchor();
     clearDeletePickMode();
+    if (typeof window.aceFocusAppliedEntry === "function") {
+      const focused = window.aceFocusAppliedEntry();
+      syncAppliedFocusables();
+      return focused;
+    }
     return focusAppliedAt(0);
+  }
+
+  function collapseButton() {
+    return document.querySelector(".ace-applied-codes-toggle");
+  }
+
+  function railButton() {
+    return document.querySelector(".ace-applied-rail-toggle");
+  }
+
+  function focusCollapseButton() {
+    const button = collapseButton();
+    if (!button) return false;
+    clearDeletePickMode();
+    appliedFocusToken += 1;
+    setZone("applied");
+    syncAppliedFocusables();
+    button.focus({ preventScroll: true });
+    return true;
+  }
+
+  function focusRailButton() {
+    const button = railButton();
+    if (!button) return false;
+    clearDeletePickMode();
+    appliedFocusToken += 1;
+    setZone("applied");
+    syncAppliedFocusables();
+    button.focus({ preventScroll: true });
+    return true;
+  }
+
+  function toggleAppliedPanel() {
+    if (typeof window.aceToggleAppliedCollapsed === "function") {
+      window.aceToggleAppliedCollapsed();
+      syncAppliedFocusables();
+      return true;
+    }
+    return false;
   }
 
   function focusFirstOccurrence(groupRow) {
@@ -369,6 +413,12 @@
       focusAppliedPanel();
       return true;
     }
+    if (key === "]") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      toggleAppliedPanel();
+      return true;
+    }
     if (key === "Delete" || key === "Backspace") {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -381,16 +431,74 @@
   function handleAppliedKey(event) {
     const key = event.key;
     if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
-    const row = document.activeElement && document.activeElement.closest
-      ? document.activeElement.closest(".ace-applied-code-row, .ace-applied-annotation-row")
+    const active = document.activeElement;
+    const row = active && active.closest
+      ? active.closest(".ace-applied-code-row, .ace-applied-annotation-row")
       : null;
+
+    if (key === "]") {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      toggleAppliedPanel();
+      return true;
+    }
+
+    if (active && active.closest && active.closest("#ace-applied-codes-rail")) {
+      if (key === "Enter" || key === " ") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (typeof window.aceSetAppliedCollapsed === "function") {
+          window.aceSetAppliedCollapsed(false, { focus: true });
+          syncAppliedFocusables();
+        }
+        return true;
+      }
+      if (key === "ArrowLeft" || key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        window.aceClearAppliedCodePreview?.();
+        returnToSource();
+        return true;
+      }
+      return false;
+    }
+
+    if (active && active.closest && active.closest(".ace-applied-codes-toggle")) {
+      if (key === "ArrowDown") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        focusAppliedAt(0);
+        return true;
+      }
+      if (key === "Enter" || key === " ") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (typeof window.aceSetAppliedCollapsed === "function") {
+          window.aceSetAppliedCollapsed(true, { focus: false });
+          syncAppliedFocusables();
+          focusRailButton();
+        }
+        return true;
+      }
+      if (key === "ArrowLeft" || key === "Escape") {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        returnToSource();
+        return true;
+      }
+      return false;
+    }
+
     if (!row) return false;
 
     if (key === "ArrowDown" || key === "ArrowUp") {
       event.preventDefault();
       event.stopImmediatePropagation();
+      const rows = appliedRows();
+      const idx = rows.indexOf(row);
+      if (key === "ArrowUp" && idx === 0 && !deletePickMode && focusCollapseButton()) return true;
       if (deletePickMode) nextDeleteCandidate(key === "ArrowDown" ? 1 : -1);
-      else focusAppliedAt(appliedRows().indexOf(row) + (key === "ArrowDown" ? 1 : -1));
+      else focusAppliedAt(idx + (key === "ArrowDown" ? 1 : -1));
       return true;
     }
     if (key === "ArrowRight" || key === "Enter") {
@@ -445,7 +553,7 @@
     const target = event.target;
     if (!codingPage()) return;
     if (!target || !target.closest) return;
-    if (target.closest(".ace-applied-codes-panel")) {
+    if (target.closest("#ace-right-inspector")) {
       const row = target.closest(".ace-applied-code-row, .ace-applied-annotation-row");
       if (row) {
         const rows = appliedRows();

@@ -82,6 +82,158 @@ def test_source_right_enters_applied_codes_and_left_returns_to_sentence(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_source_right_focuses_applied_rail_when_collapsed(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+            _apply_annotation(page, 0, 0, 15, "First sentence.")
+            page.wait_for_selector(".ace-applied-code-row")
+            page.evaluate("localStorage.setItem('ace-applied-codes-collapsed', '1')")
+            page.reload()
+            page.wait_for_selector(".ace-sentence")
+            page.wait_for_selector("#ace-applied-codes-rail")
+
+            _click_source_sentence(page)
+            page.keyboard.press("ArrowRight")
+            expect(page.locator(".ace-applied-rail-toggle")).to_be_focused()
+            assert page.evaluate("document.body.dataset.activeZone") == "applied"
+            expect(page.locator("#ace-applied-codes-panel")).to_have_attribute(
+                "aria-hidden", "true"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_enter_on_applied_rail_expands_and_focuses_first_row(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+            _apply_annotation(page, 0, 0, 15, "First sentence.")
+            page.wait_for_selector(".ace-applied-code-row")
+            page.evaluate("localStorage.setItem('ace-applied-codes-collapsed', '1')")
+            page.reload()
+            page.wait_for_selector(".ace-sentence")
+
+            _click_source_sentence(page)
+            page.keyboard.press("ArrowRight")
+            expect(page.locator(".ace-applied-rail-toggle")).to_be_focused()
+            page.keyboard.press("Enter")
+            expect(page.locator("#ace-applied-codes-panel")).to_have_attribute(
+                "aria-hidden", "false"
+            )
+            expect(page.locator(".ace-applied-code-row").first).to_be_focused()
+            assert page.evaluate(
+                "localStorage.getItem('ace-applied-codes-collapsed')"
+            ) is None
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_collapsed_applied_rail_refreshes_after_keyboard_coding(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+            page.locator(".ace-applied-codes-toggle").click()
+            page.wait_for_function(
+                "() => document.documentElement.dataset.aceAppliedCodesCollapsed === '1'"
+            )
+            expect(page.locator(".ace-applied-rail-total")).to_have_text("0")
+
+            _click_source_sentence(page)
+            page.keyboard.press("1")
+            expect(page.locator(".ace-applied-rail-total")).to_have_text("1")
+            expect(page.locator(".ace-applied-rail-tick:not(.ace-applied-rail-tick--empty)")).to_have_count(1)
+            expect(page.locator("#ace-applied-codes-panel")).to_have_attribute(
+                "aria-hidden", "true"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_bracket_toggles_applied_codes_panel_without_conflicting_with_search(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+            _apply_annotation(page, 0, 0, 15, "First sentence.")
+            page.wait_for_selector(".ace-applied-code-row")
+
+            _click_source_sentence(page)
+            page.keyboard.press("]")
+            page.wait_for_function(
+                "() => document.documentElement.dataset.aceAppliedCodesCollapsed === '1'"
+            )
+            expect(page.locator(".ace-applied-rail-toggle")).to_be_focused()
+
+            page.keyboard.press("]")
+            page.wait_for_function(
+                "() => document.documentElement.dataset.aceAppliedCodesCollapsed !== '1'"
+            )
+            expect(page.locator(".ace-applied-code-row").first).to_be_focused()
+
+            page.keyboard.press("ArrowLeft")
+            page.keyboard.press("/")
+            expect(page.locator("#code-search-input")).to_be_focused()
+            page.keyboard.press("]")
+            expect(page.locator("#code-search-input")).to_be_focused()
+            expect(page.locator("#code-search-input")).to_have_value("]")
+            page.evaluate("document.getElementById('code-search-input').value = ''")
+            expect(page.locator("#ace-applied-codes-panel")).to_have_attribute(
+                "aria-hidden", "false"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_applied_up_arrow_reaches_collapse_button(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+            _apply_annotation(page, 0, 0, 15, "First sentence.")
+            page.wait_for_selector(".ace-applied-code-row")
+
+            _click_source_sentence(page)
+            page.keyboard.press("ArrowRight")
+            expect(page.locator(".ace-applied-code-row").first).to_be_focused()
+            page.keyboard.press("ArrowUp")
+            expect(page.locator(".ace-applied-codes-toggle")).to_be_focused()
+            page.keyboard.press("ArrowDown")
+            expect(page.locator(".ace-applied-code-row").first).to_be_focused()
+            page.keyboard.press("ArrowUp")
+            page.keyboard.press("Enter")
+            page.wait_for_function(
+                "() => document.documentElement.dataset.aceAppliedCodesCollapsed === '1'"
+            )
+            expect(page.locator(".ace-applied-rail-toggle")).to_be_focused()
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_codebook_enter_applies_and_returns_to_source(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()

@@ -835,6 +835,11 @@ def test_applied_codes_panel_empty_state(client_with_codes):
     r = client.get("/code?index=0")
     body = r.text
     assert 'id="ace-applied-codes-panel"' in body
+    assert 'id="ace-applied-codes-rail"' in body
+    assert 'class="ace-applied-codes-rail"' in body
+    assert 'data-ace-applied-toggle' in body
+    assert 'aria-controls="ace-applied-codes-panel"' in body
+    assert 'aria-label="0 applied codes"' in body
     assert 'No codes applied to this source.' in body
     assert 'class="ace-applied-code-row"' not in body
 
@@ -858,6 +863,10 @@ def test_applied_codes_panel_when_present(client_with_codes):
     r = client.get("/code?index=0")
     body = r.text
     assert 'id="ace-applied-codes-panel"' in body
+    assert 'id="ace-applied-codes-rail"' in body
+    assert 'aria-label="1 applied code"' in body
+    assert 'class="ace-applied-rail-tick"' in body
+    assert 'data-ace-applied-toggle' in body
     assert 'class="ace-applied-code-row"' in body
     assert 'class="ace-applied-timeline-marker"' in body
     assert 'Code positions in source' in body
@@ -865,6 +874,28 @@ def test_applied_codes_panel_when_present(client_with_codes):
     title_pos = body.index('Applied codes</span>')
     row_pos = body.index('class="ace-applied-code-row"')
     assert title_pos < row_pos
+
+
+def test_apply_response_refreshes_collapsed_applied_codes_rail(client_with_codes):
+    """Annotation-only swaps refresh both the expanded panel and collapsed rail."""
+    client, coder_id, code_a, _, _ = client_with_codes
+    client.cookies.set("coder_id", coder_id)
+    resp = client.post(
+        "/api/code/apply",
+        data={
+            "code_id": code_a,
+            "current_index": 0,
+            "start_offset": 0,
+            "end_offset": 5,
+            "selected_text": "First",
+        },
+    )
+    body = resp.text
+    assert resp.status_code == 200
+    assert 'id="ace-applied-codes-panel"' in body
+    assert 'id="ace-applied-codes-rail"' in body
+    assert 'hx-swap-oob="outerHTML"' in body
+    assert 'aria-label="1 applied code"' in body
 
 
 def test_annotate_sentence_add_status(client_with_codes):
