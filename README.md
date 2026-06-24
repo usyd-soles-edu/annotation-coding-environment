@@ -10,7 +10,7 @@ ACE is an open-source desktop application for collaborative qualitative coding o
 
 ## Citation
 
-Harianto, J., Van Den Berg, F., Lilje, O., Pang, R., & Widjaja, M. (2026). *Annotation Coding Environment (ACE) for collaborative qualitative coding* (Version 1.0.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.20488469
+Harianto, J., Van Den Berg, F., Lilje, O., Pang, R., & Widjaja, M. (2026). *Annotation Coding Environment (ACE) for collaborative qualitative coding* (Version 1.3.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.20488469
 
 ## Features
 

@@ -792,13 +792,36 @@
    * 7. Navigation
    * ================================================================ */
 
+  async function _recordSourceNavigation(fromIndex, toIndex) {
+    if (!Number.isFinite(fromIndex) || !Number.isFinite(toIndex) || fromIndex === toIndex) return;
+    try {
+      const body = new URLSearchParams();
+      body.set("from_index", String(fromIndex));
+      body.set("to_index", String(toIndex));
+      await fetch("/api/navigation", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      });
+    } catch (_) {}
+  }
+
   window.aceNavigate = async function (index) {
     if (!Number.isFinite(index) || index < 0 || index >= window.__aceTotalSources) return;
+    const fromIndex = window.__aceCurrentIndex;
     // Flush any pending or in-flight note save before tearing down the page.
     // Without this, debounced saves get cancelled by the navigation.
     if (typeof window.aceFlushNoteIfDirty === "function") {
       try { await window.aceFlushNoteIfDirty(); } catch (_) {}
     }
+    await _recordSourceNavigation(fromIndex, index);
+    try {
+      const url = new URL(window.location.href);
+      if (!url.searchParams.has("index")) {
+        url.searchParams.set("index", String(fromIndex));
+        history.replaceState({}, "", url.pathname + url.search);
+      }
+    } catch (_) {}
     window.__aceCurrentIndex = index;
     window.__aceFocusIndex = -1;
     _setAmbient();

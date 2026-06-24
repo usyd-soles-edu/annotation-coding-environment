@@ -67,13 +67,13 @@ We use semantic versioning. Bump the minor number for larger user-facing feature
 To release:
 
 1. Add a new section at the top of `CHANGELOG.md` describing what changed
-2. Bump the release number in `src/ace/__init__.py`, `desktop/launcher/Cargo.toml`, `desktop/launcher/Cargo.lock`, `desktop/launcher/Packager.toml`, and `.zenodo.json`
-3. Check `.zenodo.json` is committed and still contains the stable ACE `description`. Zenodo reads metadata from the tagged archive, so stale or uncommitted metadata changes will appear on the DOI record.
+2. Bump the release number in `src/ace/__init__.py`, `desktop/launcher/Cargo.toml`, `desktop/launcher/Cargo.lock`, `desktop/launcher/Packager.toml`, `CITATION.cff`, the README citation, and the website citation on `website/index.qmd`
+3. Check `CITATION.cff` has the intended `version`, `date-released`, DOI, authors, license, and repository URL. Zenodo reads citation metadata from the tagged archive, so stale or uncommitted metadata changes can appear on the DOI record.
 4. Commit it: `git commit -am "chore(release): bump version to X.Y.Z"`
 5. Push `main`: `git push origin main`
-6. Tag it: `git tag vX.Y.Z`
+6. Tag it from the release commit on `main`: `git tag vX.Y.Z`
 7. Push the tag: `git push origin vX.Y.Z`
-8. Confirm the `Release Desktop App` GitHub Actions workflow succeeds and publishes the GitHub release for the tag
+8. Confirm the `Release Desktop App` GitHub Actions workflow succeeds and publishes the draft GitHub release for the tag
 
 ### Writing the changelog
 
@@ -81,24 +81,22 @@ The changelog is for users, not developers. Only mention things that someone usi
 
 Use these categories:
 
-- **Added** — new features or capabilities
-- **Changed** — existing behaviour that works differently now
-- **Fixed** — bugs that were resolved
-- **Removed** — features or options that were taken out
+- **Changes** — user-visible features, capabilities, workflow changes, or removed behaviour
+- **Fixes** — bugs, corrections, release metadata updates, or other user-facing repairs
 
 Example:
 
 ```markdown
 ## 0.2.0
 
-### Added
-- Grouped codes with collapsible sidebar headers
+### Changes
 
-### Changed
-- CSV import simplified — colour column removed
+- **Codebook sidebar** — added grouped codes with collapsible sidebar headers.
+- **CSV import** — simplified imports by removing the colour column.
 
-### Fixed
-- Source panel no longer expands when annotating long text (#44)
+### Fixes
+
+- **Source panel** — kept the panel from expanding when annotating long text.
 ```
 
 ## Project layout

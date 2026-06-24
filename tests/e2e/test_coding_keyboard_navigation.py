@@ -18,6 +18,104 @@ def _click_source_sentence(page, index: int = 0) -> None:
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_undo_walks_back_through_coding_and_source_navigation(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+
+            _apply_annotation(page, 0, 0, 15, "First sentence.")
+            assert len(_annotation_data(page)) == 1
+
+            _click_source_sentence(page)
+            page.keyboard.press("Shift+ArrowRight")
+            page.wait_for_url("**/code?index=1")
+            page.wait_for_function("() => window.__aceCurrentIndex === 1")
+
+            _apply_annotation(page, 0, 0, 15, "Third sentence.")
+            assert len(_annotation_data(page)) == 1
+
+            page.keyboard.press("Z")
+            page.wait_for_function(
+                "() => JSON.parse(document.getElementById('ace-ann-data')"
+                ".dataset.annotations || '[]').length === 0"
+            )
+            assert page.evaluate("() => window.__aceCurrentIndex") == 1
+
+            page.keyboard.press("Z")
+            page.wait_for_url("**/code?index=0")
+            page.wait_for_function("() => window.__aceCurrentIndex === 0")
+            assert len(_annotation_data(page)) == 1
+
+            page.keyboard.press("Z")
+            page.wait_for_function(
+                "() => JSON.parse(document.getElementById('ace-ann-data')"
+                ".dataset.annotations || '[]').length === 0"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_source_grid_navigation_is_undoable(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-grid-tile")
+
+            page.locator(".ace-grid-tile").nth(1).click()
+            page.wait_for_url("**/code?index=1")
+            page.wait_for_function("() => window.__aceCurrentIndex === 1")
+
+            page.keyboard.press("Z")
+            page.wait_for_url("**/code?index=0")
+            page.wait_for_function("() => window.__aceCurrentIndex === 0")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_browser_back_is_history_only_for_source_navigation(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+
+            _apply_annotation(page, 0, 0, 15, "First sentence.")
+            _click_source_sentence(page)
+            page.keyboard.press("Shift+ArrowRight")
+            page.wait_for_url("**/code?index=1")
+            page.wait_for_function("() => window.__aceCurrentIndex === 1")
+
+            page.go_back(wait_until="domcontentloaded")
+            page.wait_for_url("**/code?index=0")
+            page.wait_for_function("() => window.__aceCurrentIndex === 0")
+            assert len(_annotation_data(page)) == 1
+
+            page.keyboard.press("Z")
+            page.wait_for_function("() => window.__aceCurrentIndex === 0")
+            assert len(_annotation_data(page)) == 1
+
+            page.keyboard.press("Z")
+            page.wait_for_function(
+                "() => JSON.parse(document.getElementById('ace-ann-data')"
+                ".dataset.annotations || '[]').length === 0"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_source_left_right_switch_zones_not_sentences(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()

@@ -979,7 +979,7 @@ def _resolve_source_id(conn, coder_id: str, current_index: int) -> str | None:
     from ace.models.assignment import get_assignments_for_coder
 
     assignments = get_assignments_for_coder(conn, coder_id)
-    if not assignments or current_index >= len(assignments):
+    if not assignments or current_index < 0 or current_index >= len(assignments):
         return None
     return assignments[current_index]["source_id"]
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0
+
+### Changes
+
+- **Applied codes sidebar** — made the right-side applied-codes panel collapsible, with a compact rail that stays updated as codes are applied or removed.
+- **Coding shortcuts** — added keyboard support for opening and collapsing the applied-codes sidebar while preserving existing source, codebook, and applied-code navigation shortcuts.
+- **Undo navigation** — source navigation through ACE controls, including the source grid, now participates in the undo/redo sequence so coding and source jumps can be walked back in order.
+
+### Fixes
+
+- **Browser history** — kept browser Back/Forward separate from ACE undo while ensuring source-history entries point at explicit source indexes.
+- **Release metadata** — updated version, citation, desktop packaging, and changelog metadata for the 1.3.0 release.
+
 ## 1.2.0
 
 ### Changes

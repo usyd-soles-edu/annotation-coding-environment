@@ -130,11 +130,13 @@ def ace_server(tmp_path):
         add_code(conn, "Alpha", "#D55E00")
         add_code(conn, "Bravo", "#56B4E9")
         add_code(conn, "Charlie", "#009E73")
-        # One source so /code renders a non-empty text panel — required for
-        # clicking #text-panel to work as a "switch active zone" gesture.
+        # Two sources so source navigation flows can be exercised while still
+        # keeping each test project small.
         sid = add_source(conn, "S001", "First sentence. Second sentence.", "row")
+        sid2 = add_source(conn, "S002", "Third sentence. Fourth sentence.", "row")
         coder = list_coders(conn)[0]["id"]
         add_assignment(conn, sid, coder)
+        add_assignment(conn, sid2, coder)
     finally:
         conn.close()
 

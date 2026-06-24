@@ -499,6 +499,69 @@ def test_undo_cross_source_includes_navigate_trigger(client_with_codes):
     assert data["ace-navigate"]["index"] == 0
 
 
+def test_navigation_undo_interleaves_between_cross_source_annotations(client_with_codes):
+    """Navigation should sit in the same undo sequence as coding actions."""
+    import json as _json
+
+    client, _coder_id, code_id, _, db_path = client_with_codes
+
+    client.post("/api/code/apply", data={
+        "current_index": 0, "code_id": code_id,
+        "start_offset": 0, "end_offset": 5, "selected_text": "First",
+    })
+    nav = client.post("/api/navigation", data={"from_index": 0, "to_index": 1})
+    assert nav.status_code == 204
+    client.post("/api/code/apply", data={
+        "current_index": 1, "code_id": code_id,
+        "start_offset": 0, "end_offset": 6, "selected_text": "Second",
+    })
+
+    first = client.post("/api/undo", data={"current_index": 1})
+    assert first.status_code == 200
+    assert "ace-navigate" not in first.headers.get("HX-Trigger", "")
+
+    second = client.post("/api/undo", data={"current_index": 1})
+    assert second.status_code == 200
+    trigger = _json.loads(second.headers.get("HX-Trigger", "{}"))
+    assert trigger["ace-navigate"]["index"] == 0
+
+    third = client.post("/api/undo", data={"current_index": 0})
+    assert third.status_code == 200
+    assert _count_active_annotations(client, db_path, 0) == 0
+    assert _count_active_annotations(client, db_path, 1) == 0
+
+
+def test_navigation_redo_replays_source_jump(client_with_codes):
+    """Redo should move forward through the source navigation entry."""
+    import json as _json
+
+    client, _coder_id, _code_id, _, _db_path = client_with_codes
+
+    assert client.post("/api/navigation", data={"from_index": 0, "to_index": 1}).status_code == 204
+    undo = client.post("/api/undo", data={"current_index": 1})
+    assert _json.loads(undo.headers["HX-Trigger"])["ace-navigate"]["index"] == 0
+
+    redo = client.post("/api/redo", data={"current_index": 0})
+    assert _json.loads(redo.headers["HX-Trigger"])["ace-navigate"]["index"] == 1
+
+
+@pytest.mark.parametrize(
+    ("from_index", "to_index"),
+    [(-1, 0), (0, -1), (2, 0), (0, 2)],
+)
+def test_navigation_rejects_out_of_range_indices(
+    client_with_codes, from_index, to_index
+):
+    client, _coder_id, _code_id, _, _db_path = client_with_codes
+
+    resp = client.post(
+        "/api/navigation",
+        data={"from_index": from_index, "to_index": to_index},
+    )
+
+    assert resp.status_code == 400
+
+
 def test_flag_source(client_with_sources):
     """POST /api/code/flag toggles the flagged status."""
     client, _ = client_with_sources
