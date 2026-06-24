@@ -36,6 +36,7 @@ OpType = Literal[
     "code_reorder",
     "flag_toggle",
     "codebook_import",
+    "source_navigation",
     # NEW for v7 folder model:
     "code_create_folder",
     "code_move_parent",
@@ -173,6 +174,13 @@ class UndoManager:
             op="flag_toggle",
             source_id=source_id,
             payload={"coder_id": coder_id, "prev_flagged": bool(prev_flagged)},
+        ))
+
+    def record_navigation(self, from_source_id: str, to_source_id: str) -> None:
+        self._push(UndoEntry(
+            op="source_navigation",
+            source_id=to_source_id,
+            payload={"from_source_id": from_source_id, "to_source_id": to_source_id},
         ))
 
     def record_codebook_import(self, imported_code_ids: list[str]) -> None:
@@ -544,6 +552,18 @@ def _redo_flag_toggle(conn, entry):
     return f"flag on {src}", None
 
 
+def _undo_source_navigation(conn, entry):
+    entry.source_id = entry.payload["from_source_id"]
+    src = _source_display_id(conn, entry.source_id)
+    return f"navigation to {src}", None
+
+
+def _redo_source_navigation(conn, entry):
+    entry.source_id = entry.payload["to_source_id"]
+    src = _source_display_id(conn, entry.source_id)
+    return f"navigation to {src}", None
+
+
 def _undo_codebook_import(conn, entry):
     from ace.models.codebook import delete_code
     ids = entry.payload["imported_code_ids"]
@@ -723,6 +743,7 @@ _NOTIFICATION_LABELS: dict[OpType, str] = {
     "code_convert_to_folder": "convert code",
     "code_reorder": "reorder codes",
     "flag_toggle": "toggle flag",
+    "source_navigation": "navigate",
     "codebook_import": "import codebook",
     "code_create_folder": "add folder",
     "code_move_parent": "move code",
@@ -749,6 +770,7 @@ _HANDLERS: dict[OpType, tuple[Handler, Handler]] = {
     "code_convert_to_folder":        (_undo_code_convert_to_folder,      _redo_code_convert_to_folder),
     "code_reorder":                  (_undo_code_reorder,                _redo_code_reorder),
     "flag_toggle":                   (_undo_flag_toggle,                 _redo_flag_toggle),
+    "source_navigation":             (_undo_source_navigation,           _redo_source_navigation),
     "codebook_import":               (_undo_codebook_import,             _redo_codebook_import),
     "code_create_folder":            (_undo_create_folder,               _redo_create_folder),
     "code_move_parent":              (_undo_move_parent,                 _redo_move_parent),

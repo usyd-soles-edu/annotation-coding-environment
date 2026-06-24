@@ -12,6 +12,7 @@ from fastapi import (
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
+    Response,
 )
 
 
@@ -189,6 +190,36 @@ async def redo_route(
             codebook_mode=codebook_mode,
             current_code_id=current_code_id,
         )
+
+
+@router.post("/navigation")
+async def navigation_route(
+    request: Request,
+    from_index: int = Form(...),
+    to_index: int = Form(...),
+):
+    """Record app-initiated source navigation in the undo sequence."""
+    from ace.models.assignment import get_assignments_for_coder
+
+    coder_id = _require_coder(request)
+
+    with _project_db(request) as conn:
+        assignments = get_assignments_for_coder(conn, coder_id)
+        if (
+            from_index < 0
+            or to_index < 0
+            or from_index >= len(assignments)
+            or to_index >= len(assignments)
+        ):
+            raise HTTPException(status_code=400, detail="source index out of range")
+
+        if from_index != to_index:
+            _get_undo_manager(request).record_navigation(
+                assignments[from_index]["source_id"],
+                assignments[to_index]["source_id"],
+            )
+
+    return Response(status_code=204)
 
 
 @router.post("/code/flag")

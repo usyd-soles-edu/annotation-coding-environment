@@ -24,6 +24,7 @@ def test_api_route_split_preserves_core_routes():
         "/api/code/delete-annotation",
         "/api/undo",
         "/api/redo",
+        "/api/navigation",
         "/api/code/flag",
         "/api/source-note/{source_id}",
         "/api/export/notes",
