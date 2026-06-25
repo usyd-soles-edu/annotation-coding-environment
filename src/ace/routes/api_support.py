@@ -1202,41 +1202,91 @@ def _codebook_mapping_select(
     )
 
 
-def _render_codebook_import_preview(previewed: list[dict]) -> str:
-    if not previewed:
+def _codebook_import_status_label(row: dict) -> str:
+    if row["status"] == "new":
+        return "+"
+    return "x"
+
+
+def _render_codebook_import_mapping_preview(ledger: dict, limit: int = 5) -> str:
+    rows = ledger["rows"][:limit]
+    if not rows:
         return (
             '<div class="ace-codebook-import-empty">'
-            'No importable codes found with these columns.</div>'
+            'No rows found in this file.</div>'
         )
 
-    groups: dict[str, list[dict]] = {}
-    for code in previewed:
-        groups.setdefault(code.get("group_name") or "", []).append(code)
+    parts = []
+    for row in rows:
+        name = row["name"] or "(blank)"
+        folder = row.get("group_name") or "No folder/group"
+        definition = row.get("definition") or "No definition"
+        reason = row.get("reason") or (
+            f'will add code in {folder}' if row["status"] == "new" else row["status"]
+        )
+        parts.append(
+            '<div class="ace-codebook-import-preview-line">'
+            f'<span class="ace-codebook-import-rownum">{row["row_number"]}</span>'
+            '<span class="ace-codebook-import-line-main">'
+            f'<span><b>Code name</b> {html.escape(name)}</span>'
+            f'<span><b>Folder/group</b> {html.escape(folder)}</span>'
+            f'<span><b>Definition</b> {html.escape(definition)}</span>'
+            f'<em>{html.escape(reason)}</em>'
+            '</span></div>'
+        )
+    return "".join(parts)
+
+
+def _render_codebook_import_review(ledger: dict, limit: int = 12) -> str:
+    rows = [
+        row for row in ledger["rows"]
+        if row["status"] in {"new", "existing"}
+    ][:limit]
+    if not rows:
+        return (
+            '<div class="ace-codebook-import-empty">'
+            'No new or existing codes to review.</div>'
+        )
 
     parts = []
-    for group_name, codes in groups.items():
-        if group_name:
-            parts.append(
-                '<div class="ace-codebook-import-folder">'
-                f'{html.escape(group_name)}</div>'
-            )
-        for code in codes:
-            status = "exists" if code["exists"] else "new"
-            definition = (code.get("definition") or "").strip()
-            definition_html = (
-                f'<span class="ace-codebook-import-definition">'
-                f'{html.escape(definition)}</span>'
-                if definition else ""
-            )
-            parts.append(
-                f'<div class="ace-codebook-import-row ace-codebook-import-row--{status}">'
-                f'<span class="ace-codebook-import-stripe" '
-                f'style="background:{html.escape(code["colour"])}"></span>'
-                f'<span class="ace-codebook-import-name">{html.escape(code["name"])}</span>'
-                f'{definition_html}'
-                f'<span class="ace-codebook-import-badge">{status}</span>'
-                '</div>'
-            )
+    for row in rows:
+        marker = _codebook_import_status_label(row)
+        name = row["name"] or f'Row {row["row_number"]}'
+        folder = row.get("group_name") or "root"
+        note = row.get("reason") or f'row {row["row_number"]}'
+        parts.append(
+            f'<div class="ace-codebook-import-review-row ace-codebook-import-review-row--{html.escape(row["status"])}">'
+            f'<span class="ace-codebook-import-mark">{html.escape(marker)}</span>'
+            '<span class="ace-codebook-import-review-main">'
+            f'<strong>{html.escape(name)}</strong>'
+            f'<span>{html.escape(folder)}</span>'
+            '</span>'
+            f'<span class="ace-codebook-import-review-note">{html.escape(note)}</span>'
+            '</div>'
+        )
+    return "".join(parts)
+
+
+def _render_codebook_import_skipped(ledger: dict) -> str:
+    skipped = [row for row in ledger["rows"] if row["status"] == "skipped"]
+    if not skipped:
+        return (
+            '<div class="ace-codebook-import-empty">'
+            'No skipped rows.</div>'
+        )
+
+    parts = []
+    for row in skipped:
+        name = row["name"] or f'Row {row["row_number"]}'
+        parts.append(
+            '<div class="ace-codebook-import-skipped-row">'
+            f'<span class="ace-codebook-import-rownum">row {row["row_number"]}</span>'
+            '<span class="ace-codebook-import-review-main">'
+            f'<strong>{html.escape(name)}</strong>'
+            f'<span>{html.escape(row["reason"])}</span>'
+            '</span>'
+            '</div>'
+        )
     return "".join(parts)
 
 
@@ -1247,7 +1297,7 @@ def _codebook_import_payload(
     group_column: str | None,
     definition_column: str | None,
 ) -> dict:
-    from ace.models.codebook import preview_codebook_csv
+    from ace.models.codebook import preview_codebook_csv_ledger
 
     if not name_column:
         return {
@@ -1255,43 +1305,52 @@ def _codebook_import_payload(
                 '<div class="ace-codebook-import-empty">'
                 'Choose the column that contains code names.</div>'
             ),
+            "review_html": (
+                '<div class="ace-codebook-import-empty">'
+                'Choose a code-name column to continue.</div>'
+            ),
+            "skipped_html": (
+                '<div class="ace-codebook-import-empty">'
+                'Choose a code-name column to continue.</div>'
+            ),
             "codes_json": "[]",
             "new_count": 0,
             "exists_count": 0,
+            "skipped_count": 0,
+            "row_count": 0,
             "summary": "No code column selected",
-            "import_label": "Import",
+            "import_label": "Import 0 codes",
             "disabled": True,
         }
 
-    previewed = preview_codebook_csv(
+    ledger = preview_codebook_csv_ledger(
         conn,
         path,
         name_column=name_column,
         group_column=group_column,
         definition_column=definition_column,
     )
-    new_codes = [c for c in previewed if not c["exists"]]
-    existing_codes = [c for c in previewed if c["exists"]]
-    codes_for_import = [
-        {
-            "name": c["name"],
-            "colour": c["colour"],
-            "group_name": c.get("group_name"),
-            "definition": c.get("definition"),
-        }
-        for c in new_codes
-    ]
-    new_count = len(new_codes)
-    exists_count = len(existing_codes)
-    summary = f"{new_count} new"
+    codes_for_import = ledger["importable"]
+    new_count = ledger["counts"]["new"]
+    exists_count = ledger["counts"]["existing"]
+    skipped_count = ledger["counts"]["skipped"]
+    row_count = ledger["counts"]["rows"]
+    summary_parts = [f"{new_count} new"]
     if exists_count:
-        summary += f" · {exists_count} already exist"
+        summary_parts.append(f"{exists_count} existing")
+    if skipped_count:
+        summary_parts.append(f"{skipped_count} skipped")
+    summary = " · ".join(summary_parts)
     import_label = f'Import {new_count} code{"s" if new_count != 1 else ""}'
     return {
-        "preview_html": _render_codebook_import_preview(previewed),
+        "preview_html": _render_codebook_import_mapping_preview(ledger),
+        "review_html": _render_codebook_import_review(ledger),
+        "skipped_html": _render_codebook_import_skipped(ledger),
         "codes_json": json.dumps(codes_for_import),
         "new_count": new_count,
         "exists_count": exists_count,
+        "skipped_count": skipped_count,
+        "row_count": row_count,
         "summary": summary,
         "import_label": import_label,
         "disabled": new_count == 0,

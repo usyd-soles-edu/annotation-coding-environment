@@ -18,6 +18,7 @@ from ace.models.codebook import (
     list_codes,
     move_code_to_parent,
     preview_codebook_csv,
+    preview_codebook_csv_ledger,
     restore_code,
     update_code,
 )
@@ -345,6 +346,123 @@ def test_preview_codebook_csv_accepts_selected_columns(tmp_db, tmp_path):
     assert preview[0]["group_name"] == "Equity"
     assert preview[0]["definition"] == "Barriers to using a service"
     assert preview[0]["exists"] is False
+
+
+def test_preview_codebook_csv_ledger_reports_add_existing_and_skipped(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "Test")
+    add_code(conn, "Existing", "#111111")
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_text(
+        "name,group,definition\n"
+        "New Code,Workflow,Imported definition\n"
+        "Existing,Workflow,Should not update\n"
+        ",Workflow,Missing name\n"
+        "New Code,Workflow,Duplicate row\n",
+        encoding="utf-8",
+    )
+
+    ledger = preview_codebook_csv_ledger(
+        conn,
+        csv_path,
+        name_column="name",
+        group_column="group",
+        definition_column="definition",
+    )
+
+    assert ledger["row_count"] == 4
+    assert ledger["fieldnames"] == ["name", "group", "definition"]
+    assert [row["status"] for row in ledger["rows"]] == [
+        "new",
+        "existing",
+        "skipped",
+        "skipped",
+    ]
+    assert ledger["rows"][0]["name"] == "New Code"
+    assert ledger["rows"][0]["group_name"] == "Workflow"
+    assert ledger["rows"][0]["definition"] == "Imported definition"
+    assert ledger["rows"][0]["row_number"] == 2
+    assert ledger["rows"][1]["reason"] == "already in this project"
+    assert ledger["rows"][2]["reason"] == "missing code name"
+    assert ledger["rows"][3]["reason"] == "duplicate in this file"
+    assert [row["name"] for row in ledger["importable"]] == ["New Code"]
+    assert ledger["counts"] == {
+        "rows": 4,
+        "new": 1,
+        "existing": 1,
+        "skipped": 2,
+    }
+
+
+def test_preview_codebook_csv_ledger_handles_short_rows(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "Test")
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_text(
+        "name,group,definition\n"
+        "New Code\n"
+        ",Workflow\n",
+        encoding="utf-8",
+    )
+
+    ledger = preview_codebook_csv_ledger(
+        conn,
+        csv_path,
+        name_column="name",
+        group_column="group",
+        definition_column="definition",
+    )
+    legacy_preview = preview_codebook_csv(
+        conn,
+        csv_path,
+        name_column="name",
+        group_column="group",
+        definition_column="definition",
+    )
+
+    assert ledger["rows"][0]["status"] == "new"
+    assert ledger["rows"][0]["group_name"] is None
+    assert ledger["rows"][0]["definition"] is None
+    assert ledger["rows"][1]["status"] == "skipped"
+    assert ledger["rows"][1]["reason"] == "missing code name"
+    assert legacy_preview[0]["name"] == "New Code"
+
+
+def test_preview_codebook_csv_ledger_preserves_colour_sequence(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "Test")
+    add_code(conn, "Existing", "#111111")
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_text(
+        "name\n"
+        "Existing\n"
+        "New Code\n",
+        encoding="utf-8",
+    )
+
+    legacy_preview = preview_codebook_csv(conn, csv_path)
+    ledger = preview_codebook_csv_ledger(conn, csv_path)
+
+    assert legacy_preview[1]["name"] == "New Code"
+    assert ledger["importable"][0]["name"] == "New Code"
+    assert ledger["importable"][0]["colour"] == legacy_preview[1]["colour"]
+
+
+def test_preview_codebook_csv_still_returns_existing_shape(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "Test")
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_text(
+        "name,group,definition\nAlpha,Theme,Definition\n", encoding="utf-8"
+    )
+
+    preview = preview_codebook_csv(conn, csv_path)
+
+    assert preview == [
+        {
+            "name": "Alpha",
+            "colour": preview[0]["colour"],
+            "group_name": "Theme",
+            "definition": "Definition",
+            "exists": False,
+        }
+    ]
 
 
 def test_export_codebook_to_csv(tmp_db, tmp_path):

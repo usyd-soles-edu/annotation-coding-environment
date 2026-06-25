@@ -4566,6 +4566,7 @@
 
     // Import button
     if (e.target.closest("#codebook-menu-import-btn")) {
+      window._aceCodebookImportReturnFocus = document.getElementById("codebook-menu-btn");
       _setCodebookMenuOpen(false);
       fetch("/api/native/pick-file", {
         method: "POST",
@@ -4707,9 +4708,27 @@
 
     const selects = Array.from(dialog.querySelectorAll("[data-codebook-import-map]"));
     const preview = dialog.querySelector("#codebook-import-preview");
+    const review = dialog.querySelector("#codebook-import-review");
+    const skipped = dialog.querySelector("#codebook-import-skipped");
     const commit = dialog.querySelector("#codebook-import-commit");
     const subtitle = dialog.querySelector(".ace-import-dialog-sub");
+    const tabs = Array.from(dialog.querySelectorAll("[data-codebook-import-view]"));
+    const panels = Array.from(dialog.querySelectorAll("[data-codebook-import-panel]"));
+    const counts = dialog.querySelector("[data-codebook-import-counts]");
     let requestSeq = 0;
+
+    function showView(view) {
+      tabs.forEach(function (tab) {
+        const selected = tab.dataset.codebookImportView === view;
+        tab.setAttribute("aria-selected", selected ? "true" : "false");
+        tab.tabIndex = selected ? 0 : -1;
+      });
+      panels.forEach(function (panel) {
+        const selected = panel.dataset.codebookImportPanel === view;
+        panel.classList.toggle("is-active", selected);
+        panel.hidden = !selected;
+      });
+    }
 
     function refreshPreview() {
       const seq = ++requestSeq;
@@ -4719,9 +4738,9 @@
       body.set("group_column", dialog.querySelector("#codebook-map-group")?.value || "");
       body.set("definition_column", dialog.querySelector("#codebook-map-definition")?.value || "");
 
-      if (preview) {
-        preview.setAttribute("aria-busy", "true");
-      }
+      const activePanel = dialog.querySelector(".ace-codebook-import-panel.is-active .ace-codebook-import-preview-list");
+      if (activePanel) activePanel.setAttribute("aria-busy", "true");
+      if (counts) counts.textContent = "Updating preview";
 
       fetch("/api/codes/import/preview-map", {
         method: "POST",
@@ -4735,10 +4754,26 @@
           preview.innerHTML = data.preview_html || "";
           preview.removeAttribute("aria-busy");
         }
+        if (review) {
+          review.innerHTML = data.review_html || "";
+          review.removeAttribute("aria-busy");
+        }
+        if (skipped) {
+          skipped.innerHTML = data.skipped_html || "";
+          skipped.removeAttribute("aria-busy");
+        }
         if (commit) {
           commit.dataset.codes = data.codes_json || "[]";
           commit.textContent = data.import_label || "Import";
           commit.disabled = !!data.disabled;
+        }
+        if (counts) {
+          const parts = [];
+          if (typeof data.row_count === "number") parts.push(data.row_count + " rows");
+          if (typeof data.new_count === "number") parts.push(data.new_count + " new");
+          if (typeof data.exists_count === "number" && data.exists_count > 0) parts.push(data.exists_count + " existing");
+          if (typeof data.skipped_count === "number" && data.skipped_count > 0) parts.push(data.skipped_count + " skipped");
+          counts.textContent = parts.join(" · ");
         }
         if (subtitle) {
           const filename = (dialog.dataset.csvPath || "").split(/[\\/]/).pop();
@@ -4747,10 +4782,13 @@
             : (data.summary || "");
         }
       }).catch(function () {
-        if (preview) {
-          preview.removeAttribute("aria-busy");
-          preview.innerHTML = '<div class="ace-codebook-import-empty">Could not update preview.</div>';
-        }
+        if (seq !== requestSeq) return;
+        [preview, review, skipped].forEach(function (region) {
+          if (!region) return;
+          region.removeAttribute("aria-busy");
+          region.innerHTML = '<div class="ace-codebook-import-empty">Could not update preview.</div>';
+        });
+        if (counts) counts.textContent = "Preview failed";
         if (commit) commit.disabled = true;
       });
     }
@@ -4758,6 +4796,30 @@
     selects.forEach(function (select) {
       select.addEventListener("change", refreshPreview);
     });
+    tabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        showView(tab.dataset.codebookImportView || "match");
+      });
+      tab.addEventListener("keydown", function (evt) {
+        const current = tabs.indexOf(tab);
+        let next = current;
+        if (evt.key === "ArrowRight") next = (current + 1) % tabs.length;
+        else if (evt.key === "ArrowLeft") next = (current - 1 + tabs.length) % tabs.length;
+        else if (evt.key === "Home") next = 0;
+        else if (evt.key === "End") next = tabs.length - 1;
+        else return;
+        evt.preventDefault();
+        tabs[next].focus();
+        showView(tabs[next].dataset.codebookImportView || "match");
+      });
+    });
+    dialog.addEventListener("close", function () {
+      const returnTarget = window._aceCodebookImportReturnFocus;
+      if (returnTarget && document.contains(returnTarget)) returnTarget.focus();
+      window._aceCodebookImportReturnFocus = null;
+    }, { once: true });
+    const title = dialog.querySelector("#codebook-import-title");
+    if (title && typeof title.focus === "function") title.focus({ preventScroll: true });
   };
 
   window.aceImportFromPreview = function (btn) {

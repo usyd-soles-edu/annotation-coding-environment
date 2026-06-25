@@ -495,6 +495,11 @@ def _normalise_column_name(name: str) -> str:
     return " ".join(name.strip().lower().replace("_", " ").replace("-", " ").split())
 
 
+def _csv_cell(row: dict, column: str) -> str:
+    value = row.get(column, "")
+    return "" if value is None else str(value)
+
+
 def _detect_codebook_columns(fieldnames: list[str]) -> dict[str, str | None]:
     by_normalised = {_normalise_column_name(name): name for name in fieldnames}
     detected: dict[str, str | None] = {}
@@ -526,6 +531,64 @@ def inspect_codebook_csv(path: str | Path, sample_limit: int = 20) -> dict:
     }
 
 
+def _resolve_codebook_csv_columns(
+    fieldnames: list[str],
+    name_column: str | None = None,
+    group_column: str | None = None,
+    definition_column: str | None = None,
+) -> tuple[str, str | None, str | None]:
+    detected = _detect_codebook_columns(fieldnames)
+    resolved_name = name_column or detected.get("name")
+    resolved_group = group_column if group_column is not None else detected.get("group")
+    resolved_definition = (
+        definition_column
+        if definition_column is not None
+        else detected.get("definition")
+    )
+
+    if not resolved_name or resolved_name not in fieldnames:
+        raise ValueError("Choose a code-name column to import")
+    if resolved_group == "":
+        resolved_group = None
+    if resolved_definition == "":
+        resolved_definition = None
+    if resolved_group is not None and resolved_group not in fieldnames:
+        raise ValueError("Selected folder column was not found in the CSV")
+    if resolved_definition is not None and resolved_definition not in fieldnames:
+        raise ValueError("Selected definition column was not found in the CSV")
+    return resolved_name, resolved_group, resolved_definition
+
+
+def _normalise_codebook_csv_row(
+    row: dict,
+    *,
+    name_column: str,
+    group_column: str | None,
+    definition_column: str | None,
+    colour: str,
+) -> dict:
+    name = _csv_cell(row, name_column).strip()
+
+    group_name = None
+    if group_column:
+        g = _csv_cell(row, group_column).strip()
+        if g:
+            group_name = g
+
+    definition = None
+    if definition_column:
+        d = _csv_cell(row, definition_column).strip()
+        if d:
+            definition = d
+
+    return {
+        "name": name,
+        "colour": colour,
+        "group_name": group_name,
+        "definition": definition,
+    }
+
+
 def _parse_codebook_csv(
     path: str | Path,
     name_column: str | None = None,
@@ -542,56 +605,139 @@ def _parse_codebook_csv(
     with open(path, newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames or []
-        detected = _detect_codebook_columns(fieldnames)
-        name_column = name_column or detected.get("name")
-        group_column = group_column if group_column is not None else detected.get("group")
-        definition_column = (
-            definition_column
-            if definition_column is not None
-            else detected.get("definition")
-        )
-
-        if reader.fieldnames is None or not name_column or name_column not in fieldnames:
+        if reader.fieldnames is None:
             raise ValueError("Choose a code-name column to import")
-        if group_column == "":
-            group_column = None
-        if definition_column == "":
-            definition_column = None
-        if group_column is not None and group_column not in fieldnames:
-            raise ValueError("Selected folder column was not found in the CSV")
-        if definition_column is not None and definition_column not in fieldnames:
-            raise ValueError("Selected definition column was not found in the CSV")
+        name_column, group_column, definition_column = _resolve_codebook_csv_columns(
+            fieldnames,
+            name_column=name_column,
+            group_column=group_column,
+            definition_column=definition_column,
+        )
 
         rows: list[dict] = []
         seen_names: set[str] = set()
         for row in reader:
-            name = row.get(name_column, "").strip()
+            name = _csv_cell(row, name_column).strip()
             name_key = name.lower()
             if not name or name_key in seen_names:
                 continue
             seen_names.add(name_key)
 
             colour = next_colour(len(rows))
-
-            group_name = None
-            if group_column:
-                g = row.get(group_column, "").strip()
-                if g:
-                    group_name = g
-
-            definition = None
-            if definition_column:
-                d = row.get(definition_column, "").strip()
-                if d:
-                    definition = d
-
-            rows.append({
-                "name": name,
-                "colour": colour,
-                "group_name": group_name,
-                "definition": definition,
-            })
+            rows.append(_normalise_codebook_csv_row(
+                row,
+                name_column=name_column,
+                group_column=group_column,
+                definition_column=definition_column,
+                colour=colour,
+            ))
     return rows
+
+
+def preview_codebook_csv_ledger(
+    conn: sqlite3.Connection,
+    path: str | Path,
+    name_column: str | None = None,
+    group_column: str | None = None,
+    definition_column: str | None = None,
+) -> dict:
+    """Return row-level preview metadata for the codebook import dialog."""
+    path = Path(path)
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames or []
+        if reader.fieldnames is None:
+            raise ValueError("Choose a code-name column to import")
+        name_column, group_column, definition_column = _resolve_codebook_csv_columns(
+            fieldnames,
+            name_column=name_column,
+            group_column=group_column,
+            definition_column=definition_column,
+        )
+
+        existing = {
+            r["name"].lower()
+            for r in conn.execute(
+                "SELECT name FROM codebook_code "
+                "WHERE deleted_at IS NULL AND kind = 'code'"
+            ).fetchall()
+        }
+        seen_names: set[str] = set()
+        rows: list[dict] = []
+        importable: list[dict] = []
+        accepted_count = 0
+        row_count = 0
+
+        for csv_index, row in enumerate(reader, start=2):
+            row_count += 1
+            name = _csv_cell(row, name_column).strip()
+            name_key = name.lower()
+            base = _normalise_codebook_csv_row(
+                row,
+                name_column=name_column,
+                group_column=group_column,
+                definition_column=definition_column,
+                colour="",
+            )
+
+            if not name:
+                rows.append({
+                    **base,
+                    "row_number": csv_index,
+                    "status": "skipped",
+                    "reason": "missing code name",
+                    "exists": False,
+                })
+                continue
+
+            if name_key in seen_names:
+                rows.append({
+                    **base,
+                    "row_number": csv_index,
+                    "status": "skipped",
+                    "reason": "duplicate in this file",
+                    "exists": False,
+                })
+                continue
+            seen_names.add(name_key)
+
+            colour = next_colour(accepted_count)
+            accepted_count += 1
+            item = {
+                **_normalise_codebook_csv_row(
+                    row,
+                    name_column=name_column,
+                    group_column=group_column,
+                    definition_column=definition_column,
+                    colour=colour,
+                ),
+                "row_number": csv_index,
+                "status": "existing" if name_key in existing else "new",
+                "reason": "already in this project" if name_key in existing else "",
+                "exists": name_key in existing,
+            }
+            rows.append(item)
+            if not item["exists"]:
+                importable.append({
+                    "name": item["name"],
+                    "colour": item["colour"],
+                    "group_name": item.get("group_name"),
+                    "definition": item.get("definition"),
+                })
+
+    counts = {
+        "rows": row_count,
+        "new": sum(1 for row in rows if row["status"] == "new"),
+        "existing": sum(1 for row in rows if row["status"] == "existing"),
+        "skipped": sum(1 for row in rows if row["status"] == "skipped"),
+    }
+    return {
+        "fieldnames": fieldnames,
+        "rows": rows,
+        "importable": importable,
+        "counts": counts,
+        "row_count": row_count,
+    }
 
 
 def preview_codebook_csv(
@@ -607,22 +753,23 @@ def preview_codebook_csv(
     matches against existing code rows — folder names sharing a string with
     an incoming code are not considered duplicates (kinds are independent).
     """
-    rows = _parse_codebook_csv(
+    ledger = preview_codebook_csv_ledger(
+        conn,
         path,
         name_column=name_column,
         group_column=group_column,
         definition_column=definition_column,
     )
-    existing = {
-        r["name"].lower()
-        for r in conn.execute(
-            "SELECT name FROM codebook_code "
-            "WHERE deleted_at IS NULL AND kind = 'code'"
-        ).fetchall()
-    }
     return [
-        {**r, "exists": r["name"].lower() in existing}
-        for r in rows
+        {
+            "name": row["name"],
+            "colour": row["colour"],
+            "group_name": row.get("group_name"),
+            "definition": row.get("definition"),
+            "exists": row["exists"],
+        }
+        for row in ledger["rows"]
+        if row["status"] in {"new", "existing"}
     ]
 
 
