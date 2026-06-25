@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.1
+
+### Fixes
+
+- **New project setup** — cleared the selected folder after a project-name conflict when choosing another folder, so the stale conflicting path cannot be submitted again.
+- **Agreement results** — made insufficient-data verdicts show the actual number of coded positions and the 50-position threshold.
+- **Release metadata** — updated the package, desktop launcher, citation, README, website citation, and changelog metadata for the 1.4.1 version bump.
+
 ## 1.4.0
 
 ### Changes

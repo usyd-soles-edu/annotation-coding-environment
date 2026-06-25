@@ -237,8 +237,10 @@ window.addEventListener("keydown", function(event) {
   window._aceChooseAnotherFolder = function() {
     pendingOverwrite = false;
     pendingRecentPath = "";
+    selectedFolder = "";
     modal.innerHTML = "";
-    chooseFolderBtn.focus();
+    updateFormState();
+    chooseFolderBtn.focus({ preventScroll: true });
   };
 
   document.addEventListener("htmx:afterRequest", function(evt) {

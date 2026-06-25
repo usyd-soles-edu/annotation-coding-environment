@@ -94,6 +94,16 @@ def test_insufficient_data():
     v = classify_code(m)
     assert v.status == "insufficient"
     assert v.colour == "grey"
+    assert "30 coded positions" in v.guidance
+    assert "50" in v.guidance
+
+
+def test_pairwise_insufficient_data_names_position_threshold():
+    m = _make_metrics(ac1=0.90, n_positions=12)
+    v = classify_code(m, pairwise=True)
+    assert v.status == "insufficient"
+    assert "12 coded positions" in v.guidance
+    assert "50" in v.guidance
 
 
 def test_paradox_detected():

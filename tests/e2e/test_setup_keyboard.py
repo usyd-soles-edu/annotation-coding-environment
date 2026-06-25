@@ -313,6 +313,46 @@ def test_new_project_rejects_unsafe_project_name_before_submit(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_new_project_choose_another_folder_clears_conflicting_path(
+    ace_server, tmp_path, browser_name
+):
+    existing = tmp_path / "Conflict.ace"
+    conn = create_project(str(existing), "Conflict")
+    conn.close()
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-folder",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body='{"path": "%s"}' % str(tmp_path).replace('\\', '\\\\'),
+                ),
+            )
+
+            page.goto(f"{ace_server}/new-project")
+            page.locator("#new-project-input").fill("Conflict")
+            page.locator("#choose-project-folder-btn").click()
+            expect(page.locator("#new-project-folder-label")).to_have_text(str(tmp_path))
+            expect(page.locator("#create-project-btn")).to_be_enabled()
+            page.locator("#create-project-btn").click()
+            expect(page.locator("#project-overwrite-dialog")).to_be_visible()
+
+            page.get_by_role("button", name="Choose another folder").click()
+
+            expect(page.locator("#project-overwrite-dialog")).to_have_count(0)
+            expect(page.locator("#new-project-folder-label")).to_have_text("No folder chosen")
+            expect(page.locator("#new-project-path-preview")).to_have_text("")
+            expect(page.locator("#create-project-btn")).to_be_disabled()
+            assert page.evaluate("document.activeElement.id") == "choose-project-folder-btn"
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_landing_dismisses_last_recent_project(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
