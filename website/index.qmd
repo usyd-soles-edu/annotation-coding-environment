@@ -8,9 +8,9 @@ toc: false
 
 ![](assets/ace-landing-page-2026-06.png)
 
-ACE is an open-source desktop application for collaborative qualitative coding of text. You can find out more about ACE in the [GitHub repository](https://github.com/usyd-soles-edu/annotation-coding-environment). If you want to learn to use ACE, begin with [Quick start](getting-started.qmd).
+ACE is an open-source desktop application for collaborative qualitative coding of text. You can find out more about ACE in the [GitHub repository](https://github.com/usyd-soles-edu/annotation-coding-environment). If you want to learn to use ACE, begin with [Get ACE](install.qmd) and then [Quick start](getting-started.qmd).
 
 
 #### Citation
 
-Harianto, J., Van Den Berg, F., Lilje, O., Pang, R., & Widjaja, M. (2026). *Annotation Coding Environment (ACE) for collaborative qualitative coding* (Version 1.3.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.20488469
+**Harianto, J., Van Den Berg, F., Lilje, O., Pang, R., & Widjaja, M.** (2026). *Annotation Coding Environment (ACE) for collaborative qualitative coding* (Version 1.4.0) [Computer software]. Zenodo. https://doi.org/10.5281/zenodo.20488469

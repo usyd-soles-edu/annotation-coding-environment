@@ -4,16 +4,11 @@ title: "Quick start"
 
 This is the shortest path from a fresh ACE install to your first coded project.
 
-## 1. Install ACE
+### 1. Install ACE
 
-Download the latest installer from the [GitHub Releases page](https://github.com/usyd-soles-edu/annotation-coding-environment/releases/latest).
+Download and install ACE using the instructions in [Get ACE](install.qmd).
 
-- On macOS Apple Silicon, download the `aarch64.dmg`, open it, and drag ACE to Applications.
-- On Windows, download the `x64-setup.exe` and run the installer.
-
-The app is not code-signed yet, so macOS Gatekeeper or Windows SmartScreen may show a warning on first launch.
-
-## 2. Create or open a project
+### 2. Create or open a project
 
 Open ACE. The front page gives you the main project actions.
 
@@ -23,7 +18,7 @@ Choose **New project** to create a local `.ace` file, or **Open project** to reo
 
 Keep the `.ace` file somewhere you can back up. If your team has multiple coders, each coder usually works in their own copy.
 
-## 3. Import sources
+### 3. Import sources
 
 Import either:
 
@@ -32,16 +27,16 @@ Import either:
 
 ![](assets/guide/import-options.png)
 
-## 4. Create a codebook
+### 4. Create a codebook
 
 Add codes for the ideas you want to mark in the text. Put related codes into folders so the codebook stays easy to scan.
 
-## 5. Code text
+### 5. Code text
 
-Move through the source sentence by sentence. Select text, then apply one or more codes from the codebook.
+Move through the source sentence by sentence. Select text, then apply one or more codes from the codebook. To learn more about coding, see [Code text](user-guide/coding.qmd) and [Keyboard shortcuts](reference/shortcuts.qmd).
 
 ![](assets/guide/coding-view-with-codebook.png)
 
-## 6. Review and export
+### 6. Review and export
 
 Use the review, agreement, and export tools when coding is ready to inspect outside ACE.

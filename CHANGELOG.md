@@ -1,16 +1,30 @@
 # Changelog
 
+## 1.4.0
+
+### Changes
+
+- **Codebook import** — redesigned the import review so the column choices are easier to check before bringing a codebook into a project. ACE still guesses the code, folder/group, and definition columns, but the screen now makes it clearer that these are columns from your file.
+- **Keyboard setup flows** — made the agreement file picker and new-project screen usable from the keyboard. You can move through the setup controls with arrow keys, choose files from the agreement page, remove selected files, and compute agreement without reaching for the mouse.
+- **Website guide** — tightened the first steps in the guide so new users are pointed to the install page before the quick-start workflow.
+
+### Fixes
+
+- **Landing page navigation** — restored the User guide link to the front-page arrow-key cycle.
+- **Agreement file review** — made Delete and Backspace ignore file rows without a valid row index instead of treating them as the first selected file.
+- **Release metadata** — updated the package, desktop launcher, citation, README, website citation, and changelog metadata for the 1.4.0 release.
+
 ## 1.3.0
 
 ### Changes
 
-- **Applied codes sidebar** — made the right-side applied-codes panel collapsible, with a compact rail that stays updated as codes are applied or removed.
-- **Coding shortcuts** — added keyboard support for opening and collapsing the applied-codes sidebar while preserving existing source, codebook, and applied-code navigation shortcuts.
-- **Undo navigation** — source navigation through ACE controls, including the source grid, now participates in the undo/redo sequence so coding and source jumps can be walked back in order.
+- **Applied codes sidebar** — made the right-side applied-codes panel collapsible. When it is closed, a compact rail still shows the applied codes and stays current as codes are added or removed.
+- **Coding shortcuts** — added keyboard support for opening and closing the applied-codes sidebar without disrupting the existing source, codebook, and applied-code shortcuts.
+- **Undo navigation** — source navigation through ACE controls, including the source grid, now sits in the undo/redo sequence, so coding and source jumps can be walked back in order.
 
 ### Fixes
 
-- **Browser history** — kept browser Back/Forward separate from ACE undo while ensuring source-history entries point at explicit source indexes.
+- **Browser history** — kept browser Back/Forward separate from ACE undo, while making source-history entries point at explicit source indexes.
 - **Release metadata** — updated version, citation, desktop packaging, and changelog metadata for the 1.3.0 release.
 
 ## 1.2.0
