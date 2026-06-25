@@ -551,7 +551,7 @@ body {
 }
 .ace-task-location {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto auto 1fr;
   align-items: center;
   gap: var(--ace-space-2) var(--ace-space-3);
 }
@@ -563,6 +563,18 @@ body {
   min-width: 0;
   font-size: var(--ace-font-size-sm);
   overflow-wrap: anywhere;
+}
+.ace-task-key-hint {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--ace-border);
+  border-radius: var(--ace-radius);
+  font-family: var(--ace-font-mono);
+  font-size: var(--ace-font-size-2xs);
+  color: var(--ace-text-muted);
 }
 .ace-task-path-preview {
   min-height: 1.5em;

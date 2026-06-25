@@ -10,9 +10,9 @@
     {% endif %}
   </div>
 
-  <div class="ace-agreement-file-list" role="list">
+  <div class="ace-agreement-file-list" role="list" aria-label="Selected files">
     {% for file in files %}
-      <div class="ace-agreement-file-row{% if file.error %} is-error{% endif %}" role="listitem">
+      <div class="ace-agreement-file-row{% if file.error %} is-error{% endif %}" role="listitem" tabindex="-1" data-agreement-file-row data-index="{{ loop.index0 }}">
         <div class="ace-agreement-file-main">
           <span class="ace-agreement-file-name">{{ file.filename }}</span>
           <span class="ace-agreement-file-coders">
@@ -28,14 +28,15 @@
             <span>{{ file.annotation_count }} {% if file.annotation_count == 1 %}annotation{% else %}annotations{% endif %}</span>
           {% endif %}
         </div>
-        <button type="button" class="ace-agreement-remove-btn" data-agreement-remove data-index="{{ loop.index0 }}" aria-label="Remove {{ file.filename }}">Remove</button>
+        <button type="button" class="ace-agreement-remove-btn" data-agreement-remove data-index="{{ loop.index0 }}" aria-label="Remove {{ file.filename }}" aria-keyshortcuts="Delete Backspace">Remove</button>
       </div>
     {% endfor %}
   </div>
 
   <div class="ace-agreement-review-actions">
-    <button type="button" class="ace-agreement-choose-btn" data-agreement-choose-again>Choose files</button>
-    <button type="button" class="ace-agreement-compute-btn" data-agreement-compute{% if not valid %} disabled{% endif %}>Compute agreement</button>
+    <span class="ace-agreement-shortcuts">F choose · C compute · ↑↓ files · Delete remove</span>
+    <button type="button" class="ace-agreement-choose-btn" data-agreement-choose-again aria-keyshortcuts="F R">Choose files</button>
+    <button type="button" class="ace-agreement-compute-btn" data-agreement-compute aria-keyshortcuts="C"{% if not valid %} disabled{% endif %}>Compute agreement</button>
   </div>
 </div>
 

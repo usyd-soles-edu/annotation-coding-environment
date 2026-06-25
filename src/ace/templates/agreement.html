@@ -14,7 +14,10 @@
     <h1 id="ace-agreement-title" class="ace-agreement-title" tabindex="-1">Inter-Coder Agreement</h1>
     <div class="ace-agreement-empty">
       <p>Select 2 or more .ace files to compute agreement</p>
-      <button class="ace-agreement-choose-btn" data-agreement-pick-start onclick="acePickAndCompute()">Choose files</button>
+      <div class="ace-agreement-empty-actions">
+        <button class="ace-agreement-choose-btn" data-agreement-pick-start aria-keyshortcuts="F R" onclick="acePickAndCompute()">Choose files</button>
+        <span class="ace-agreement-empty-shortcut">F</span>
+      </div>
     </div>
   </div>
 </main>
@@ -97,7 +100,10 @@
       _HEADING +
       '<div class="ace-agreement-error">' +
       '<p>Something went wrong. Please try again.</p>' +
-      '<button class="ace-agreement-choose-btn" data-agreement-pick-start onclick="acePickAndCompute()">Choose different files</button>' +
+      '<div class="ace-agreement-empty-actions">' +
+      '<button class="ace-agreement-choose-btn" data-agreement-pick-start aria-keyshortcuts="F R" onclick="acePickAndCompute()">Choose different files</button>' +
+      '<span class="ace-agreement-empty-shortcut">F</span>' +
+      '</div>' +
       '</div>';
     _focusAgreementTitle();
   }
@@ -263,6 +269,67 @@
     }
   }
 
+  function _agreementFileRows() {
+    return Array.from(document.querySelectorAll("[data-agreement-file-row]"));
+  }
+
+  function _agreementFileIndexFromElement(el) {
+    var row = el && el.closest && el.closest("[data-agreement-file-row]");
+    if (!row) { return -1; }
+    var index = Number(row.getAttribute("data-index"));
+    return Number.isInteger(index) ? index : -1;
+  }
+
+  function _focusAgreementFileRow(index) {
+    var rows = _agreementFileRows();
+    if (!rows.length) { return false; }
+    var safeIndex = Math.max(0, Math.min(index, rows.length - 1));
+    rows.forEach(function (row, i) {
+      row.tabIndex = i === safeIndex ? 0 : -1;
+    });
+    rows[safeIndex].focus({ preventScroll: true });
+    return true;
+  }
+
+  function _focusNextAgreementFileRow(delta) {
+    var rows = _agreementFileRows();
+    if (!rows.length) { return false; }
+    var current = rows.indexOf(document.activeElement);
+    if (current < 0) {
+      current = _agreementFileIndexFromElement(document.activeElement);
+    }
+    var next = current < 0 ? 0 : current + delta;
+    if (next < 0) {
+      next = rows.length - 1;
+    } else if (next >= rows.length) {
+      next = 0;
+    }
+    return _focusAgreementFileRow(next);
+  }
+
+  function _agreementShortcutAllowed(event) {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) {
+      return false;
+    }
+    var target = event.target;
+    if (!target) { return true; }
+    var tag = (target.tagName || "").toLowerCase();
+    return !(target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select");
+  }
+
+  function _removeAgreementFileAt(idx, opts) {
+    var paths = _selectedAgreementPaths();
+    if (!Number.isInteger(idx) || idx < 0 || idx >= paths.length) {
+      return false;
+    }
+    opts = opts || {};
+    _agreementBlockSyntheticComputeAfterRemove = true;
+    _setAgreementReviewBusy(true);
+    paths.splice(idx, 1);
+    _renderAgreementPreview(paths, opts).catch(_showGenericAgreementError);
+    return true;
+  }
+
   function _renderAgreementPreview(paths, opts) {
     var results = document.getElementById("agreement-results");
     var seq = ++_agreementPreviewSeq;
@@ -376,14 +443,8 @@
     var removeBtn = e.target.closest && e.target.closest("[data-agreement-remove]");
     if (removeBtn) {
       e.preventDefault();
-      var paths = _selectedAgreementPaths();
       var idx = Number(removeBtn.getAttribute("data-index"));
-      if (Number.isInteger(idx) && idx >= 0 && idx < paths.length) {
-        _agreementBlockSyntheticComputeAfterRemove = true;
-        _setAgreementReviewBusy(true);
-        paths.splice(idx, 1);
-        _renderAgreementPreview(paths, { focusRemoveIndex: idx }).catch(_showGenericAgreementError);
-      }
+      _removeAgreementFileAt(idx, { focusRemoveIndex: idx });
       return;
     }
 
@@ -410,6 +471,61 @@
     }
   });
 
+  document.addEventListener("keydown", function (e) {
+    if (!_agreementShortcutAllowed(e)) { return; }
+    var key = e.key;
+    var lower = key.length === 1 ? key.toLowerCase() : key;
+
+    if (lower === "f" || lower === "r") {
+      e.preventDefault();
+      window.acePickAndCompute();
+      return;
+    }
+
+    if (lower === "c") {
+      var compute = document.querySelector("[data-agreement-compute]");
+      if (compute && !compute.disabled) {
+        e.preventDefault();
+        var results = document.getElementById("agreement-results");
+        var previewPending = results && results.dataset.agreementPreviewPending === "true";
+        var buttonBusy = compute.getAttribute("aria-busy") === "true";
+        if (!buttonBusy && !previewPending && !_agreementPreviewSettling) {
+          _agreementBlockSyntheticComputeAfterRemove = false;
+          _startAgreementCompute();
+        }
+      }
+      return;
+    }
+
+    if (key === "ArrowDown" || key === "ArrowUp") {
+      if (_agreementFileRows().length) {
+        e.preventDefault();
+        _focusNextAgreementFileRow(key === "ArrowDown" ? 1 : -1);
+      } else {
+        var choose = document.querySelector("[data-agreement-pick-start], [data-agreement-choose-again]");
+        if (choose) {
+          e.preventDefault();
+          choose.focus({ preventScroll: true });
+        }
+      }
+      return;
+    }
+
+    if (key === "Delete" || key === "Backspace") {
+      var idx = _agreementFileIndexFromElement(document.activeElement);
+      if (idx >= 0) {
+        e.preventDefault();
+        _removeAgreementFileAt(idx, { focusRemoveIndex: idx });
+      }
+      return;
+    }
+
+    if (key === "Escape") {
+      e.preventDefault();
+      window.location.href = "/";
+    }
+  });
+
   window.acePickAndCompute = function() {
     fetch("/api/native/pick-files", {
       method: "POST",
@@ -432,6 +548,8 @@
       })
       .catch(_showGenericAgreementError);
   };
+
+  _focusAgreementChoose();
 
   function _replaceAgreementTerminalHistory(target, detail) {
     if (_suppressAgreementHistory || !target || target.id !== "agreement-results") {

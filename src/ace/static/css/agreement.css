@@ -414,6 +414,7 @@ th.col-num { text-align: right; }
   display: grid;
   align-content: center;
   justify-items: center;
+  gap: var(--ace-space-3);
   text-align: center;
   padding: 0 24px;
   color: var(--ace-text-muted);
@@ -422,7 +423,13 @@ th.col-num { text-align: right; }
 .ace-agreement-empty p,
 .ace-agreement-error p {
   font-size: var(--ace-font-size-base);
-  margin-bottom: 16px;
+  margin: 0;
+}
+
+.ace-agreement-empty-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ace-space-2);
 }
 
 .ace-agreement-choose-btn {
@@ -441,6 +448,20 @@ th.col-num { text-align: right; }
 }
 
 .ace-agreement-choose-btn:hover { background: var(--ace-border-light); }
+
+.ace-agreement-empty-shortcut {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  border: 1px solid var(--ace-border);
+  border-radius: var(--ace-radius);
+  background: var(--ace-bg);
+  color: var(--ace-text);
+  font-family: var(--ace-font-mono);
+  font-size: var(--ace-font-size-2xs);
+}
 
 .ace-agreement-review {
   width: 100%;
@@ -508,6 +529,11 @@ th.col-num { text-align: right; }
   color: var(--ace-danger);
 }
 
+.ace-agreement-file-row:focus {
+  outline: 2px solid var(--ace-text);
+  outline-offset: -2px;
+}
+
 .ace-agreement-remove-btn {
   min-height: 32px;
   padding: 5px 12px;
@@ -525,10 +551,21 @@ th.col-num { text-align: right; }
 }
 
 .ace-agreement-review-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
-  justify-content: flex-end;
+  align-items: center;
   margin-top: 16px;
+}
+
+.ace-agreement-shortcuts {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ace-font-mono);
+  font-size: var(--ace-font-size-2xs);
+  color: var(--ace-text-muted);
 }
 
 .ace-agreement-compute-btn {
@@ -561,11 +598,10 @@ th.col-num { text-align: right; }
   }
 
   .ace-agreement-review-actions {
-    flex-wrap: wrap;
+    grid-template-columns: 1fr;
   }
 
   .ace-agreement-review-actions button {
-    flex: 1 1 140px;
     justify-content: center;
   }
 }

@@ -120,6 +120,11 @@ def test_landing_arrow_keys_cycle_visible_actions_without_recent(
                 "() => document.activeElement.classList.contains('ace-home-tool-link')"
             )
             page.keyboard.press("ArrowDown")
+            assert page.evaluate(
+                "() => document.activeElement.classList.contains('ace-home-tool-link')"
+            )
+            assert page.evaluate("document.activeElement.textContent.trim()") == "User guide"
+            page.keyboard.press("ArrowDown")
             assert page.evaluate("document.activeElement.id") == "new-project-link"
 
             page.keyboard.press("Enter")
@@ -228,10 +233,16 @@ def test_new_project_form_controls_keep_keyboard_focus(
             page = browser.new_page()
             page.goto(f"{ace_server}/new-project")
             assert page.locator("#new-project-form").is_visible()
+            assert page.evaluate("document.activeElement.id") == "new-project-input"
 
-            page.locator("#choose-project-folder-btn").focus()
             page.keyboard.press("ArrowDown")
             assert page.evaluate("document.activeElement.id") == "choose-project-folder-btn"
+            page.keyboard.press("ArrowUp")
+            assert page.evaluate("document.activeElement.id") == "new-project-input"
+            page.keyboard.press("ArrowUp")
+            assert page.evaluate("document.activeElement.id") == "choose-project-folder-btn"
+            page.keyboard.press("ArrowDown")
+            assert page.evaluate("document.activeElement.id") == "new-project-input"
         finally:
             browser.close()
 
@@ -255,7 +266,7 @@ def test_new_project_page_creates_project_from_keyboard(
 
             page.goto(f"{ace_server}/new-project")
             page.locator("#new-project-input").fill("Keyboard Created")
-            _press_forward_tab(page, browser_name)
+            page.keyboard.press("ArrowDown")
             assert page.evaluate("document.activeElement.id") == "choose-project-folder-btn"
             page.keyboard.press("Enter")
             expect(page.locator("#new-project-folder-label")).to_have_text(str(tmp_path))
