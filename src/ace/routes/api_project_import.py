@@ -425,23 +425,56 @@ async def import_codebook_preview_path(
     safe_current_code_id = html.escape(current_code_id or "")
 
     dialog_html = (
-        '<dialog class="ace-dialog ace-import-dialog ace-codebook-import-dialog" '
-        f'data-csv-path="{safe_path}" data-current-index="{current_index}">'
-        '<div class="ace-import-dialog-title">Import Codebook</div>'
-        f'<div class="ace-import-dialog-sub">{filename} · {html.escape(payload["summary"])}</div>'
-        '<div class="ace-codebook-import-layout">'
-        '<section class="ace-codebook-import-map">'
-        '<p>ACE guessed these columns. Change only what looks wrong.</p>'
-        f'{_codebook_mapping_select(field_id="codebook-map-name", label="Code", columns=columns, selected=detected.get("name"))}'
-        f'{_codebook_mapping_select(field_id="codebook-map-group", label="Folder", columns=columns, selected=detected.get("group"), optional=True)}'
+        '<dialog class="ace-dialog ace-import-dialog ace-codebook-import-dialog ace-codebook-import-ledger" '
+        f'data-csv-path="{safe_path}" data-current-index="{current_index}" '
+        'aria-labelledby="codebook-import-title" aria-describedby="codebook-import-help">'
+        '<header class="ace-codebook-import-head">'
+        '<div>'
+        '<h2 id="codebook-import-title" class="ace-import-dialog-title" tabindex="-1">Import codebook</h2>'
+        f'<span class="ace-import-dialog-sub" data-codebook-import-summary>{filename} · {html.escape(payload["summary"])}</span>'
+        '</div>'
+        '<div class="ace-codebook-import-tabs" role="tablist" aria-label="Import steps">'
+        '<button type="button" id="codebook-import-tab-match" role="tab" '
+        'data-codebook-import-view="match" aria-selected="true" tabindex="0" '
+        'aria-controls="codebook-import-panel-match">Match</button>'
+        '<button type="button" id="codebook-import-tab-review" role="tab" '
+        'data-codebook-import-view="review" aria-selected="false" tabindex="-1" '
+        'aria-controls="codebook-import-panel-review">Review</button>'
+        '<button type="button" id="codebook-import-tab-skipped" role="tab" '
+        'data-codebook-import-view="skipped" aria-selected="false" tabindex="-1" '
+        'aria-controls="codebook-import-panel-skipped">Skipped</button>'
+        '</div>'
+        '</header>'
+        '<div class="ace-codebook-import-body">'
+        '<aside class="ace-codebook-import-map" id="codebook-import-help">'
+        '<p class="ace-codebook-import-kicker">Match columns</p>'
+        '<p>Select columns from your file to match ACE fields.</p>'
+        f'{_codebook_mapping_select(field_id="codebook-map-name", label="Code name", columns=columns, selected=detected.get("name"))}'
+        f'{_codebook_mapping_select(field_id="codebook-map-group", label="Folder/group", columns=columns, selected=detected.get("group"), optional=True)}'
         f'{_codebook_mapping_select(field_id="codebook-map-definition", label="Definition", columns=columns, selected=detected.get("definition"), optional=True)}'
-        '</section>'
-        '<section class="ace-codebook-import-sidebar-preview" aria-live="polite">'
-        '<div class="ace-codebook-import-sidebar-head">Sidebar preview</div>'
+        '</aside>'
+        '<section id="codebook-import-panel-match" class="ace-codebook-import-panel is-active" '
+        'data-codebook-import-panel="match" role="tabpanel" '
+        'aria-labelledby="codebook-import-tab-match">'
+        '<div class="ace-codebook-import-panel-head"><h3>File preview</h3>'
+        f'<span data-codebook-import-counts role="status" aria-live="polite" aria-atomic="true">{html.escape(payload["summary"])}</span></div>'
         f'<div id="codebook-import-preview" class="ace-codebook-import-preview-list">{payload["preview_html"]}</div>'
         '</section>'
+        '<section id="codebook-import-panel-review" class="ace-codebook-import-panel" '
+        'data-codebook-import-panel="review" role="tabpanel" hidden '
+        'aria-labelledby="codebook-import-tab-review">'
+        '<div class="ace-codebook-import-panel-head"><h3>Review changes</h3><span>No changes made yet</span></div>'
+        f'<div id="codebook-import-review" class="ace-codebook-import-preview-list">{payload["review_html"]}</div>'
+        '</section>'
+        '<section id="codebook-import-panel-skipped" class="ace-codebook-import-panel" '
+        'data-codebook-import-panel="skipped" role="tabpanel" hidden '
+        'aria-labelledby="codebook-import-tab-skipped">'
+        '<div class="ace-codebook-import-panel-head"><h3>Skipped rows</h3><span>Invalid rows only</span></div>'
+        f'<div id="codebook-import-skipped" class="ace-codebook-import-preview-list">{payload["skipped_html"]}</div>'
+        '</section>'
         '</div>'
-        '<div class="ace-import-actions">'
+        '<footer class="ace-import-actions">'
+        '<span class="ace-codebook-import-action-note">Import can be undone.</span>'
         '<button type="button" class="ace-btn" onclick="this.closest(\'dialog\').close()">Cancel</button>'
         f'<button type="button" class="ace-btn ace-btn--primary" '
         f'id="codebook-import-commit" onclick="aceImportFromPreview(this)" '
@@ -449,7 +482,7 @@ async def import_codebook_preview_path(
         f' data-codebook-mode="{safe_mode}" data-current-code-id="{safe_current_code_id}"'
         f'{" disabled" if payload["disabled"] else ""}>'
         f'{html.escape(payload["import_label"])}</button>'
-        '</div></dialog>'
+        '</footer></dialog>'
     )
 
     return HTMLResponse(dialog_html)
@@ -483,11 +516,21 @@ async def import_codebook_preview_map(
                     '<div class="ace-codebook-import-empty">'
                     f'Could not preview CSV: {html.escape(str(e))}</div>'
                 ),
+                "review_html": (
+                    '<div class="ace-codebook-import-empty">'
+                    f'Could not preview CSV: {html.escape(str(e))}</div>'
+                ),
+                "skipped_html": (
+                    '<div class="ace-codebook-import-empty">'
+                    f'Could not preview CSV: {html.escape(str(e))}</div>'
+                ),
                 "codes_json": "[]",
                 "new_count": 0,
                 "exists_count": 0,
+                "skipped_count": 0,
+                "row_count": 0,
                 "summary": "Preview failed",
-                "import_label": "Import",
+                "import_label": "Import 0 codes",
                 "disabled": True,
             }
         )

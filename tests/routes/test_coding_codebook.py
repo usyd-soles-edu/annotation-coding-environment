@@ -292,7 +292,7 @@ def test_coding_sidebar_declares_coding_mode(client_with_codes):
     assert "Press Enter to apply" in resp.text
 
 
-def test_codebook_import_preview_uses_compact_mapping_dialog(
+def test_codebook_import_preview_uses_ledger_dialog(
     client_with_sources_no_codes, tmp_path
 ):
     csv_path = tmp_path / "codebook.csv"
@@ -308,13 +308,20 @@ def test_codebook_import_preview_uses_compact_mapping_dialog(
 
     assert resp.status_code == 200
     assert "ace-codebook-import-dialog" in resp.text
+    assert "ace-codebook-import-ledger" in resp.text
+    assert "Import codebook" in resp.text
+    assert "Select columns from your file to match ACE fields." in resp.text
+    assert 'role="tablist"' in resp.text
+    assert 'role="tab"' in resp.text
+    assert 'role="tabpanel"' in resp.text
     assert 'id="codebook-map-name"' in resp.text
     assert 'value="Code Label" selected' in resp.text
     assert 'id="codebook-map-group"' in resp.text
     assert 'value="Theme" selected' in resp.text
     assert 'id="codebook-map-definition"' in resp.text
     assert 'value="Dictionary Definition" selected' in resp.text
-    assert "Sidebar preview" in resp.text
+    assert "Review changes" in resp.text
+    assert "Skipped rows" in resp.text
     assert "Barriers to using a service" in resp.text
 
 
@@ -400,6 +407,75 @@ def test_codebook_import_preview_map_returns_definition_payload(
     codes = json.loads(payload["codes_json"])
     assert codes[0]["definition"] == "Barriers to using a service"
     assert codes[0]["group_name"] == "Equity"
+
+
+def test_codebook_import_preview_map_returns_ledger_payload(
+    client_with_sources_no_codes, tmp_path
+):
+    csv_path = tmp_path / "codebook.csv"
+    csv_path.write_text(
+        "Code Label,Theme,Dictionary Definition\n"
+        "Access,Equity,Barriers to using a service\n"
+        ",Equity,Missing name\n"
+        "Access,Equity,Duplicate\n",
+        encoding="utf-8",
+    )
+
+    resp = client_with_sources_no_codes.post(
+        "/api/codes/import/preview-map",
+        data={
+            "path": str(csv_path),
+            "name_column": "Code Label",
+            "group_column": "Theme",
+            "definition_column": "Dictionary Definition",
+        },
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["new_count"] == 1
+    assert payload["skipped_count"] == 2
+    assert payload["row_count"] == 3
+    assert "preview_html" in payload
+    assert "review_html" in payload
+    assert "skipped_html" in payload
+    assert "missing code name" in payload["skipped_html"]
+    assert "duplicate in this file" in payload["skipped_html"]
+    codes = json.loads(payload["codes_json"])
+    assert len(codes) == 1
+    assert codes[0]["name"] == "Access"
+    assert codes[0]["group_name"] == "Equity"
+    assert payload["import_label"] == "Import 1 code"
+
+
+def test_codebook_import_preview_map_disables_import_when_no_new_codes(
+    client_with_codes, tmp_path
+):
+    client, _coder_id, _code_id, _other_code_id, _db_path = client_with_codes
+    csv_path = tmp_path / "codebook.csv"
+    csv_path.write_text(
+        "name,group,definition\n"
+        "Theme A,Existing,Already present\n",
+        encoding="utf-8",
+    )
+
+    resp = client.post(
+        "/api/codes/import/preview-map",
+        data={
+            "path": str(csv_path),
+            "name_column": "name",
+            "group_column": "group",
+            "definition_column": "definition",
+        },
+    )
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["new_count"] == 0
+    assert payload["disabled"] is True
+    assert payload["codes_json"] == "[]"
+    assert payload["import_label"] == "Import 0 codes"
+    assert "already in this project" in payload["review_html"]
 
 
 def test_codebook_import_preview_map_respects_no_definition_selection(
