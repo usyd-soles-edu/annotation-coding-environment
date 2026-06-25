@@ -495,6 +495,11 @@ def _normalise_column_name(name: str) -> str:
     return " ".join(name.strip().lower().replace("_", " ").replace("-", " ").split())
 
 
+def _csv_cell(row: dict, column: str) -> str:
+    value = row.get(column, "")
+    return "" if value is None else str(value)
+
+
 def _detect_codebook_columns(fieldnames: list[str]) -> dict[str, str | None]:
     by_normalised = {_normalise_column_name(name): name for name in fieldnames}
     detected: dict[str, str | None] = {}
@@ -562,17 +567,17 @@ def _normalise_codebook_csv_row(
     definition_column: str | None,
     colour: str,
 ) -> dict:
-    name = row.get(name_column, "").strip()
+    name = _csv_cell(row, name_column).strip()
 
     group_name = None
     if group_column:
-        g = row.get(group_column, "").strip()
+        g = _csv_cell(row, group_column).strip()
         if g:
             group_name = g
 
     definition = None
     if definition_column:
-        d = row.get(definition_column, "").strip()
+        d = _csv_cell(row, definition_column).strip()
         if d:
             definition = d
 
@@ -612,7 +617,7 @@ def _parse_codebook_csv(
         rows: list[dict] = []
         seen_names: set[str] = set()
         for row in reader:
-            name = row.get(name_column, "").strip()
+            name = _csv_cell(row, name_column).strip()
             name_key = name.lower()
             if not name or name_key in seen_names:
                 continue
@@ -665,7 +670,7 @@ def preview_codebook_csv_ledger(
 
         for csv_index, row in enumerate(reader, start=2):
             row_count += 1
-            name = row.get(name_column, "").strip()
+            name = _csv_cell(row, name_column).strip()
             name_key = name.lower()
             base = _normalise_codebook_csv_row(
                 row,

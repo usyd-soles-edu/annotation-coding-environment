@@ -439,6 +439,8 @@ def test_codebook_import_preview_map_returns_ledger_payload(
     assert "preview_html" in payload
     assert "review_html" in payload
     assert "skipped_html" in payload
+    assert "missing code name" not in payload["review_html"]
+    assert "duplicate in this file" not in payload["review_html"]
     assert "missing code name" in payload["skipped_html"]
     assert "duplicate in this file" in payload["skipped_html"]
     codes = json.loads(payload["codes_json"])

@@ -1238,11 +1238,14 @@ def _render_codebook_import_mapping_preview(ledger: dict, limit: int = 5) -> str
 
 
 def _render_codebook_import_review(ledger: dict, limit: int = 12) -> str:
-    rows = ledger["rows"][:limit]
+    rows = [
+        row for row in ledger["rows"]
+        if row["status"] in {"new", "existing"}
+    ][:limit]
     if not rows:
         return (
             '<div class="ace-codebook-import-empty">'
-            'Nothing to review.</div>'
+            'No new or existing codes to review.</div>'
         )
 
     parts = []

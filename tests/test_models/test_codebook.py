@@ -393,6 +393,39 @@ def test_preview_codebook_csv_ledger_reports_add_existing_and_skipped(tmp_db, tm
     }
 
 
+def test_preview_codebook_csv_ledger_handles_short_rows(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "Test")
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_text(
+        "name,group,definition\n"
+        "New Code\n"
+        ",Workflow\n",
+        encoding="utf-8",
+    )
+
+    ledger = preview_codebook_csv_ledger(
+        conn,
+        csv_path,
+        name_column="name",
+        group_column="group",
+        definition_column="definition",
+    )
+    legacy_preview = preview_codebook_csv(
+        conn,
+        csv_path,
+        name_column="name",
+        group_column="group",
+        definition_column="definition",
+    )
+
+    assert ledger["rows"][0]["status"] == "new"
+    assert ledger["rows"][0]["group_name"] is None
+    assert ledger["rows"][0]["definition"] is None
+    assert ledger["rows"][1]["status"] == "skipped"
+    assert ledger["rows"][1]["reason"] == "missing code name"
+    assert legacy_preview[0]["name"] == "New Code"
+
+
 def test_preview_codebook_csv_ledger_preserves_colour_sequence(tmp_db, tmp_path):
     conn = create_project(tmp_db, "Test")
     add_code(conn, "Existing", "#111111")

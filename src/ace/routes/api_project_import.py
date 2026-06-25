@@ -463,7 +463,7 @@ async def import_codebook_preview_path(
         '<section id="codebook-import-panel-review" class="ace-codebook-import-panel" '
         'data-codebook-import-panel="review" role="tabpanel" hidden '
         'aria-labelledby="codebook-import-tab-review">'
-        '<div class="ace-codebook-import-panel-head"><h3>Review changes</h3><span>No changes made yet</span></div>'
+        '<div class="ace-codebook-import-panel-head"><h3>Review changes</h3><span>New and existing codes</span></div>'
         f'<div id="codebook-import-review" class="ace-codebook-import-preview-list">{payload["review_html"]}</div>'
         '</section>'
         '<section id="codebook-import-panel-skipped" class="ace-codebook-import-panel" '
