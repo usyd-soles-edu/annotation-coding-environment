@@ -157,6 +157,27 @@ def test_coding_and_coded_text_views_load_headless_sidebar_controller(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_coded_text_view_distinguishes_codes_with_no_excerpts(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount [role='treeitem']")
+
+            code_id = page.locator(".ace-ht-row--code").first.get_attribute("data-code-id")
+            assert code_id
+            page.goto(f"{ace_server}/code/{code_id}/view")
+
+            expect(page.locator(".cv-empty")).to_have_text("No excerpts yet.")
+            expect(page.locator(".cv-empty")).not_to_contain_text("filter")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_main_codebook_arrow_keys_move_one_row_without_extra_outline(
     ace_server, browser_name
 ):
