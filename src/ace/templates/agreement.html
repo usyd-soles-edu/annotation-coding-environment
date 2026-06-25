@@ -276,7 +276,9 @@
   function _agreementFileIndexFromElement(el) {
     var row = el && el.closest && el.closest("[data-agreement-file-row]");
     if (!row) { return -1; }
-    var index = Number(row.getAttribute("data-index"));
+    var rawIndex = row.getAttribute("data-index");
+    if (!rawIndex || !/^\d+$/.test(rawIndex)) { return -1; }
+    var index = Number(rawIndex);
     return Number.isInteger(index) ? index : -1;
   }
 

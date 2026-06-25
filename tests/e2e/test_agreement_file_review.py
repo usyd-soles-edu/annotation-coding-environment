@@ -172,6 +172,16 @@ def test_agreement_choose_page_keyboard_shortcuts(
             page.keyboard.press("ArrowDown")
             expect(page.locator(".ace-agreement-file-row").nth(1)).to_be_focused()
 
+            page.locator(".ace-agreement-file-row").nth(1).evaluate(
+                "(row) => row.removeAttribute('data-index')"
+            )
+            page.keyboard.press("Delete")
+            expect(page.locator(".ace-agreement-file-row")).to_have_count(3)
+            expect(page.locator("#agreement-results")).to_contain_text("bob.ace")
+
+            page.locator(".ace-agreement-file-row").nth(1).evaluate(
+                "(row) => row.setAttribute('data-index', '1')"
+            )
             page.keyboard.press("Delete")
             expect(page.locator(".ace-agreement-file-row")).to_have_count(2, timeout=5000)
             expect(page.locator("#agreement-results")).not_to_contain_text("bob.ace")
