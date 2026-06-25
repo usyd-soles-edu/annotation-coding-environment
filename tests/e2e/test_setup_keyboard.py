@@ -280,6 +280,39 @@ def test_new_project_page_creates_project_from_keyboard(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_new_project_rejects_unsafe_project_name_before_submit(
+    ace_server, tmp_path, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-folder",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body='{"path": "%s"}' % str(tmp_path).replace('\\', '\\\\'),
+                ),
+            )
+
+            page.goto(f"{ace_server}/new-project")
+            page.locator("#new-project-input").fill("bad:name")
+            page.locator("#choose-project-folder-btn").click()
+            expect(page.locator("#new-project-folder-label")).to_have_text(str(tmp_path))
+            expect(page.locator("#create-project-btn")).to_be_disabled()
+            expect(page.locator("#ace-task-message")).to_contain_text(
+                "Use a project name without"
+            )
+
+            page.locator("#new-project-input").fill("Safe Name")
+            expect(page.locator("#ace-task-message")).to_have_text("")
+            expect(page.locator("#create-project-btn")).to_be_enabled()
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_landing_dismisses_last_recent_project(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()

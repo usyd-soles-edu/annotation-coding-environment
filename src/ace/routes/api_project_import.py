@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import html
 import platform
+import re
 import sqlite3
 from pathlib import Path
 from urllib.parse import quote
@@ -23,6 +24,22 @@ from fastapi.responses import (
 
 
 router = APIRouter(prefix="/api")
+
+_INVALID_PROJECT_NAME_RE = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_PROJECT_NAME_ERROR = (
+    'Use a project name without / \\ : * ? " < > | or control characters.'
+)
+
+
+def _validate_project_name(name: str) -> str | None:
+    cleaned = name.strip().removesuffix(".ace").strip()
+    if not cleaned or cleaned in {".", ".."}:
+        return _PROJECT_NAME_ERROR
+    if _INVALID_PROJECT_NAME_RE.search(cleaned):
+        return _PROJECT_NAME_ERROR
+    if any(part in {".", ".."} for part in Path(cleaned).parts):
+        return _PROJECT_NAME_ERROR
+    return None
 
 from ace.routes.api_support import (
     _accept_to_filetypes,
@@ -109,6 +126,10 @@ async def project_create(
     from ace.db.connection import create_project
     from ace.models.project import list_coders
 
+    name_error = _validate_project_name(name)
+    if name_error:
+        return _oob_status(name_error)
+
     file_path = _native_selection_path(path)
 
     # Ensure the path ends with .ace
@@ -155,8 +176,11 @@ async def project_create(
             status_code=200,
             headers={"HX-Redirect": "/import"},
         )
-    except Exception as e:
-        return _oob_status(f"Failed to create project: {e}")
+    except Exception:
+        logger.exception("Failed to create project at %s", file_path)
+        return _oob_status(
+            "Could not create that project. Check the name, location, and file permissions."
+        )
 
 
 @router.post("/project/open")
@@ -169,8 +193,11 @@ async def project_open(request: Request, path: str = Form(...)):
     file_path = _native_selection_path(path)
     try:
         conn = open_project(str(file_path))
-    except (ValueError, FileNotFoundError, sqlite3.DatabaseError) as e:
-        return _oob_status(str(e))
+    except (ValueError, FileNotFoundError, sqlite3.DatabaseError):
+        logger.exception("Failed to open project at %s", file_path)
+        return _oob_status(
+            "Could not open that project. Choose a valid .ace file."
+        )
 
     try:
         coders = list_coders(conn)
