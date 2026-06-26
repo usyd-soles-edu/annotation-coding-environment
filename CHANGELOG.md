@@ -8,6 +8,10 @@
 - **Codebook search** — removed the remaining internal slash-command wording so `/folder` stays ordinary search/create text while `Shift+Enter` remains the folder shortcut.
 - **Source notes** — added brief saved feedback after note autosave and labelled the note drawer with the current source.
 - **Sentence delete** — made `X` report when there is no code on the focused sentence instead of refreshing silently.
+- **Source navigation** — made `Shift` + arrow navigation say when you are already at the first or last source.
+- **Sidebar resizing** — made the main codebook splitter reachable and adjustable from the keyboard.
+- **Imports** — made codebook CSV import handle common spreadsheet encodings and replaced raw import errors with clearer guidance.
+- **Agreement exports** — replaced expired CSV export errors with a recovery screen that points back to agreement setup.
 
 ## 1.4.1
 
