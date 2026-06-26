@@ -1,12 +1,20 @@
 # Changelog
 
+## 1.4.2
+
+### Fixes
+
+- **Coding shortcuts** — made the inline legend show the core keyboard actions for applying codes, deleting, opening notes, viewing coded text, and help.
+- **Codebook search** — removed the remaining internal slash-command wording so `/folder` stays ordinary search/create text while `Shift+Enter` remains the folder shortcut.
+- **Source notes** — added brief saved feedback after note autosave and labelled the note drawer with the current source.
+- **Sentence delete** — made `X` report when there is no code on the focused sentence instead of refreshing silently.
+
 ## 1.4.1
 
 ### Fixes
 
 - **New project setup** — cleared the selected folder after a project-name conflict when choosing another folder, so the stale conflicting path cannot be submitted again.
 - **Agreement results** — made insufficient-data verdicts show the actual number of coded positions and the 50-position threshold.
-- **Release metadata** — updated the package, desktop launcher, citation, README, website citation, and changelog metadata for the 1.4.1 version bump.
 
 ## 1.4.0
 
@@ -20,7 +28,6 @@
 
 - **Landing page navigation** — restored the User guide link to the front-page arrow-key cycle.
 - **Agreement file review** — made Delete and Backspace ignore file rows without a valid row index instead of treating them as the first selected file.
-- **Release metadata** — updated the package, desktop launcher, citation, README, website citation, and changelog metadata for the 1.4.0 release.
 
 ## 1.3.0
 
@@ -33,7 +40,6 @@
 ### Fixes
 
 - **Browser history** — kept browser Back/Forward separate from ACE undo, while making source-history entries point at explicit source indexes.
-- **Release metadata** — updated version, citation, desktop packaging, and changelog metadata for the 1.3.0 release.
 
 ## 1.2.0
 
@@ -50,7 +56,6 @@
 
 - **Exports** — corrected ACE export handling so exported annotation spans and source notes better match the saved project data.
 - **Slash search** — removed the old `/folder` command behaviour so slash-prefixed text is treated as normal code search/create input.
-- **Release metadata** — updated citation and archive metadata for the 1.2.0 release.
 
 ## 1.1.3
 
@@ -68,7 +73,6 @@
 
 ### Changes
 
-- **Release metadata** — corrected the Zenodo release metadata so DOI records carry the stable ACE description and the current release version.
 - **Codebook maintenance** — removed the old headless-tree spike harness now that the production codebook tree is covered by app-level tests.
 - **Brand assets** — refreshed the packaged brand assets.
 

@@ -20,7 +20,7 @@ authors:
   - family-names: "Widjaja"
     given-names: "Michael"
     affiliation: "School of Life and Environmental Sciences, The University of Sydney"
-version: "1.4.1"
+version: "1.4.2"
 date-released: "2026-06-26"
 license: "MIT"
 repository-code: "https://github.com/usyd-soles-edu/annotation-coding-environment"
