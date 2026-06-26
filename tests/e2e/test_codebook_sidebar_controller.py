@@ -525,6 +525,39 @@ def test_audit_current_code_rename_updates_header_without_full_page_corruption(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_audit_codebook_tab_uses_native_focus_order(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--code")
+            alpha_row = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Alpha",
+            ).first
+            alpha_id = alpha_row.get_attribute("data-code-id")
+            assert alpha_id
+
+            page.goto(f"{ace_server}/code/{alpha_id}/view")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--current")
+            current_row = page.locator("#ace-headless-tree-mount .ace-ht-row--current")
+            current_row.focus()
+            assert page.evaluate(
+                "() => document.activeElement?.classList.contains('ace-ht-row--current')"
+            )
+
+            key = "Alt+Tab" if browser_name == "webkit" else "Tab"
+            page.keyboard.press(key)
+
+            page.wait_for_function(
+                "() => !document.activeElement?.classList?.contains('ace-ht-row--current')"
+            )
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_audit_keyboard_undo_redo_updates_current_code_header(
     ace_server, browser_name
 ):

@@ -3808,6 +3808,7 @@
   // Zone-level Tab cycling — captures Tab before browser default
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Tab") return;
+    if (!document.getElementById("text-panel")) return;
 
     let zone = _activeZone();
     if (!zone) return;
