@@ -88,16 +88,11 @@
 - **Codebook sidebar** — made the headless-tree sidebar the only codebook sidebar path, removing the old fallback implementation.
 - **Coding and review polish** — improved codebook navigation, shortcut feedback, undo stability, agreement summaries, and setup keyboard handling.
 
-### Fixes
-
-- **Desktop release metadata** — aligned the packaged app version metadata for the 1.1.1 installer release.
-
 ## 1.1.0
 
 ### Changes
 
 - **Applied codes display** — removed applied-code labels from the coding text itself so the reading surface stays cleaner.
-- **Citation metadata** — added Zenodo DOI citation details to the project metadata and README.
 
 ### Fixes
 
@@ -110,7 +105,7 @@
 - **Desktop app** — replaced the embedded Tauri webview shell with a browser-launcher desktop app backed by a local ACE server.
 - **Codebook folders** — added nested folders, code-to-folder conversion, clearer folder labels, and the headless-tree sidebar foundation.
 - **Desktop coding controls** — improved packaged-app coding controls and macOS picker flows.
-- **Release packaging** — added citation metadata, install documentation, licensing, and a more reliable desktop release workflow.
+- **Release packaging** — added install documentation, licensing, and a more reliable desktop release workflow.
 
 ### Fixes
 
