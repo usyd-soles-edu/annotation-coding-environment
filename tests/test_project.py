@@ -115,6 +115,37 @@ def test_create_project_accepts_file_uri(client, tmp_path):
     assert "hx-redirect" in resp.headers or "HX-Redirect" in resp.headers
 
 
+def test_create_project_rejects_path_segments_in_name(client, tmp_path):
+    """Project names must not be able to escape the chosen folder."""
+    selected_folder = tmp_path / "selected"
+    selected_folder.mkdir()
+    outside = tmp_path / "evil.ace"
+
+    resp = client.post(
+        "/api/project/create",
+        data={"name": "../evil", "path": str(selected_folder / "../evil.ace")},
+    )
+
+    assert resp.status_code == 200
+    assert not outside.exists()
+    assert "Use a project name without" in resp.text
+    assert "unable to open database file" not in resp.text
+
+
+def test_create_project_rejects_reserved_filename_chars(client, tmp_path):
+    path = tmp_path / "bad:name.ace"
+
+    resp = client.post(
+        "/api/project/create",
+        data={"name": "bad:name", "path": str(path)},
+    )
+
+    assert resp.status_code == 200
+    assert not path.exists()
+    assert "Use a project name without" in resp.text
+    assert "embedded null byte" not in resp.text
+
+
 def test_create_project_overwrite_dialog(client, tmp_project):
     """Existing file shows overwrite dialog."""
     resp = client.post(
@@ -178,6 +209,8 @@ def test_open_invalid_file(client, tmp_path):
     bad.write_text("not a database")
     resp = client.post("/api/project/open", data={"path": str(bad)})
     assert resp.status_code == 200  # toast error, not 500
+    assert "Could not open that project" in resp.text
+    assert "file is not a database" not in resp.text
 
 
 def test_create_project_with_coder_name(client, tmp_path):
@@ -203,4 +236,5 @@ def test_open_missing_file(client, tmp_path):
         "/api/project/open", data={"path": str(tmp_path / "gone.ace")}
     )
     assert resp.status_code == 200
-    assert "not found" in resp.text.lower() or "toast" in resp.text.lower()
+    assert "Could not open that project" in resp.text
+    assert "not found" not in resp.text.lower()

@@ -157,6 +157,27 @@ def test_coding_and_coded_text_views_load_headless_sidebar_controller(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_coded_text_view_distinguishes_codes_with_no_excerpts(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount [role='treeitem']")
+
+            code_id = page.locator(".ace-ht-row--code").first.get_attribute("data-code-id")
+            assert code_id
+            page.goto(f"{ace_server}/code/{code_id}/view")
+
+            expect(page.locator(".cv-empty")).to_have_text("No excerpts yet.")
+            expect(page.locator(".cv-empty")).not_to_contain_text("filter")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_main_codebook_arrow_keys_move_one_row_without_extra_outline(
     ace_server, browser_name
 ):
@@ -499,6 +520,39 @@ def test_audit_current_code_rename_updates_header_without_full_page_corruption(
             )
             expect(page.locator("#text-panel")).to_have_count(0)
             expect(page).to_have_url(f"{ace_server}/code/{alpha_id}/view")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_audit_codebook_tab_uses_native_focus_order(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--code")
+            alpha_row = page.locator(
+                "#ace-headless-tree-mount .ace-ht-row--code",
+                has_text="Alpha",
+            ).first
+            alpha_id = alpha_row.get_attribute("data-code-id")
+            assert alpha_id
+
+            page.goto(f"{ace_server}/code/{alpha_id}/view")
+            page.wait_for_selector("#ace-headless-tree-mount .ace-ht-row--current")
+            current_row = page.locator("#ace-headless-tree-mount .ace-ht-row--current")
+            current_row.focus()
+            assert page.evaluate(
+                "() => document.activeElement?.classList.contains('ace-ht-row--current')"
+            )
+
+            key = "Alt+Tab" if browser_name == "webkit" else "Tab"
+            page.keyboard.press(key)
+
+            page.wait_for_function(
+                "() => !document.activeElement?.classList?.contains('ace-ht-row--current')"
+            )
         finally:
             browser.close()
 

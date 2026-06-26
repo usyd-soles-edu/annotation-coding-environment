@@ -134,10 +134,10 @@ def _guidance_for_code(
     pairwise: bool,
 ) -> str:
     if status == "insufficient":
+        subject = "This coder pair" if pairwise else "This code"
         return (
-            "Not enough coded data to assess."
-            if pairwise
-            else "Not enough coded data to assess this code."
+            f"{subject} has {m.n_positions} coded positions; ACE needs at least "
+            f"{_MIN_POSITIONS} before the agreement verdict is meaningful."
         )
     if status == "reliable":
         if paradox:

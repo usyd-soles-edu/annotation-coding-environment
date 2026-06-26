@@ -1014,6 +1014,22 @@ def test_delete_sentence_status_removed_code(client_with_codes):
     assert 'id="ace-notification-receipt"' in resp.text
 
 
+def test_delete_sentence_status_when_nothing_to_remove(client_with_codes):
+    client, _coder_id, _code_a, _code_b, db_path = client_with_codes
+
+    resp = client.post(
+        "/api/code/delete-sentence",
+        data={"sentence_index": 0, "current_index": 0},
+    )
+
+    assert resp.status_code == 200
+    assert "No code on this sentence" in resp.text
+    assert 'id="ace-statusbar-event"' in resp.text
+    assert 'id="ace-notification-receipt"' in resp.text
+    assert "Z undo" not in resp.text
+    assert _count_active_annotations(client, db_path, 0) == 0
+
+
 def test_annotate_sentence_merge_status(client_with_two_sentences):
     """Applying a code to a sentence adjacent to an existing same-code span
     -> concise merge status."""

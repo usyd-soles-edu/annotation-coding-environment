@@ -141,6 +141,53 @@ def test_import_csv_multi_text_columns(tmp_path):
     conn.close()
 
 
+def test_import_csv_skips_blank_text_rows(tmp_path):
+    """Rows with no selected text are not imported as empty sources."""
+    csv_path = tmp_path / "blank_rows.csv"
+    csv_path.write_text("id,text\nblank,\nspaces,   \nfilled,hello\n")
+    db_path = tmp_path / "blank_rows.ace"
+    conn = create_project(db_path, "test")
+
+    try:
+        result = import_csv(conn, csv_path, id_column="id", text_columns=["text"])
+
+        created, duplicate_skipped, ids = result
+        assert (created, duplicate_skipped, result.empty_skipped) == (1, 0, 2)
+        assert len(ids) == 1
+        sources = list_sources(conn)
+        assert [s["display_id"] for s in sources] == ["filled"]
+        assert get_source_content(conn, sources[0]["id"])["content_text"] == "hello"
+    finally:
+        conn.close()
+
+
+def test_import_csv_skips_multi_column_rows_when_all_selected_text_is_blank(tmp_path):
+    """Multi-column labels must not make all-blank responses codable."""
+    csv_path = tmp_path / "blank_multi_rows.csv"
+    csv_path.write_text(
+        "id,q1,q2\n"
+        "blank,,   \n"
+        "partial,answer,   \n"
+        "filled,answer,more\n"
+    )
+    db_path = tmp_path / "blank_multi_rows.ace"
+    conn = create_project(db_path, "test")
+
+    try:
+        result = import_csv(conn, csv_path, id_column="id", text_columns=["q1", "q2"])
+
+        created, duplicate_skipped, _ids = result
+        assert (created, duplicate_skipped, result.empty_skipped) == (2, 0, 1)
+        sources = list_sources(conn)
+        assert [s["display_id"] for s in sources] == ["partial", "filled"]
+        content = get_source_content(conn, sources[0]["id"])["content_text"]
+        assert "q1" in content
+        assert "answer" in content
+        assert "q2" in content
+    finally:
+        conn.close()
+
+
 def test_import_xlsx(tmp_path):
     """Create an .xlsx with openpyxl and verify import."""
     xlsx_path = tmp_path / "data.xlsx"
@@ -317,6 +364,32 @@ def test_import_text_files_skips_duplicate_display_ids(tmp_path):
         assert set(sources) == {"one", "two"}
         assert (
             get_source_content(conn, sources["one"]["id"])["content_text"]
+            == "First document"
+        )
+    finally:
+        conn.close()
+
+
+def test_import_text_files_skips_empty_files(tmp_path):
+    """Empty and whitespace-only text files are skipped, not imported."""
+    folder = tmp_path / "docs"
+    folder.mkdir()
+    (folder / "empty.txt").write_text("")
+    (folder / "spaces.md").write_text("   \n")
+    (folder / "filled.txt").write_text("First document")
+    db_path = tmp_path / "docs.ace"
+    conn = create_project(db_path, "test")
+
+    try:
+        result = import_text_files(conn, folder)
+
+        created, duplicate_skipped, ids = result
+        assert (created, duplicate_skipped, result.empty_skipped) == (1, 0, 2)
+        assert len(ids) == 1
+        sources = list_sources(conn)
+        assert [s["display_id"] for s in sources] == ["filled"]
+        assert (
+            get_source_content(conn, sources[0]["id"])["content_text"]
             == "First document"
         )
     finally:

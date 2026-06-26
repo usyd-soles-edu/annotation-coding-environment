@@ -218,6 +218,21 @@ def test_sidebar_has_headless_tree_mount(client_with_sources):
     assert 'id="code-tree"' not in html
 
 
+def test_sidebar_resize_handle_has_separator_accessibility_contract(client_with_sources):
+    client, _ = client_with_sources
+    resp = client.get("/code")
+    assert resp.status_code == 200
+    html = resp.text
+    assert 'id="resize-handle"' in html
+    assert 'role="separator"' in html
+    assert 'aria-orientation="vertical"' in html
+    assert 'aria-label="Resize codebook sidebar"' in html
+    assert 'aria-controls="code-sidebar"' in html
+    assert 'aria-valuemin="150"' in html
+    assert 'aria-valuenow="' in html
+    assert 'tabindex="0"' in html
+
+
 # ---------------------------------------------------------------------------
 # Annotation CRUD routes
 # ---------------------------------------------------------------------------
@@ -381,6 +396,20 @@ def test_coding_page_has_collapsible_grid_header(client_with_codes):
     assert 'class="ace-grid-meta"' not in body
     # Wrapper for collapse state exists
     assert 'id="ace-grid-content"' in body
+
+
+def test_coding_sidebar_renders_visible_codebook_legend(client_with_codes):
+    client, coder_id, _, _, _ = client_with_codes
+    client.cookies.set("coder_id", coder_id)
+    resp = client.get("/code?index=0")
+
+    body = resp.text
+    assert 'class="ace-sidebar-legend"' in body
+    assert "Shift+Enter" in body
+    assert "folder" in body
+    assert "Opt" in body
+    assert "move" in body
+    assert "Cmd+X/V" in body
 
 
 def test_coding_page_has_inline_collapse_restore_script(client_with_codes):

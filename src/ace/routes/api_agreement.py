@@ -108,6 +108,27 @@ async def agreement_clear(request: Request):
     return Response(status_code=204)
 
 
+def _expired_agreement_export_response() -> HTMLResponse:
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agreement results expired</title>
+  <link rel="stylesheet" href="/static/css/ace.css">
+  <link rel="stylesheet" href="/static/css/agreement.css">
+</head>
+<body class="ace-page">
+  <main class="ace-agreement-shell" aria-labelledby="agreement-expired-title">
+    <h1 id="agreement-expired-title">Agreement results expired</h1>
+    <p>Choose the agreement files again to recompute results before exporting CSV files.</p>
+    <a href="/agreement" class="ace-btn ace-btn--primary">Choose files again</a>
+  </main>
+</body>
+</html>"""
+    return HTMLResponse(html, status_code=400)
+
+
 @router.get("/agreement/export/results")
 async def agreement_export_results(request: Request):
     """Export per-code metrics as CSV download."""
@@ -119,7 +140,7 @@ async def agreement_export_results(request: Request):
     dataset = getattr(request.app.state, "agreement_dataset", None)
     result = getattr(request.app.state, "agreement_result", None)
     if loader is None or loader.file_count < 2 or dataset is None or result is None:
-        return HTMLResponse("No agreement data available. Compute first.", status_code=400)
+        return _expired_agreement_export_response()
 
     output = io.StringIO()
 
@@ -192,7 +213,7 @@ async def agreement_export_raw(request: Request):
     loader = getattr(request.app.state, "agreement_loader", None)
     dataset = getattr(request.app.state, "agreement_dataset", None)
     if loader is None or loader.file_count < 2 or dataset is None:
-        return HTMLResponse("No agreement data available. Compute first.", status_code=400)
+        return _expired_agreement_export_response()
 
     output = io.StringIO()
     coder_labels = ", ".join(c.label for c in dataset.coders)

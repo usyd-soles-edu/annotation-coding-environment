@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.4.3
+
+### Fixes
+
+- **Coding shortcuts** — made the inline legend show the core keyboard actions for applying codes, deleting, opening notes, viewing coded text, and help.
+- **Codebook search** — removed the remaining internal slash-command wording so `/folder` stays ordinary search/create text while `Shift+Enter` remains the folder shortcut.
+- **Source notes** — added brief saved feedback after note autosave and labelled the note drawer with the current source.
+- **Sentence delete** — made `X` report when there is no code on the focused sentence instead of refreshing silently.
+- **Source navigation** — made `Shift` + arrow navigation say when you are already at the first or last source.
+- **Sidebar resizing** — made the main codebook splitter reachable and adjustable from the keyboard.
+- **Imports** — made codebook CSV import handle common spreadsheet encodings and replaced raw import errors with clearer guidance.
+- **Agreement exports** — replaced expired CSV export errors with a recovery screen that points back to agreement setup.
+
+## 1.4.1
+
+### Fixes
+
+- **New project setup** — cleared the selected folder after a project-name conflict when choosing another folder, so the stale conflicting path cannot be submitted again.
+- **Agreement results** — made insufficient-data verdicts show the actual number of coded positions and the 50-position threshold.
+
 ## 1.4.0
 
 ### Changes
@@ -12,7 +32,6 @@
 
 - **Landing page navigation** — restored the User guide link to the front-page arrow-key cycle.
 - **Agreement file review** — made Delete and Backspace ignore file rows without a valid row index instead of treating them as the first selected file.
-- **Release metadata** — updated the package, desktop launcher, citation, README, website citation, and changelog metadata for the 1.4.0 release.
 
 ## 1.3.0
 
@@ -25,7 +44,6 @@
 ### Fixes
 
 - **Browser history** — kept browser Back/Forward separate from ACE undo, while making source-history entries point at explicit source indexes.
-- **Release metadata** — updated version, citation, desktop packaging, and changelog metadata for the 1.3.0 release.
 
 ## 1.2.0
 
@@ -42,7 +60,6 @@
 
 - **Exports** — corrected ACE export handling so exported annotation spans and source notes better match the saved project data.
 - **Slash search** — removed the old `/folder` command behaviour so slash-prefixed text is treated as normal code search/create input.
-- **Release metadata** — updated citation and archive metadata for the 1.2.0 release.
 
 ## 1.1.3
 
@@ -60,7 +77,6 @@
 
 ### Changes
 
-- **Release metadata** — corrected the Zenodo release metadata so DOI records carry the stable ACE description and the current release version.
 - **Codebook maintenance** — removed the old headless-tree spike harness now that the production codebook tree is covered by app-level tests.
 - **Brand assets** — refreshed the packaged brand assets.
 
@@ -76,16 +92,11 @@
 - **Codebook sidebar** — made the headless-tree sidebar the only codebook sidebar path, removing the old fallback implementation.
 - **Coding and review polish** — improved codebook navigation, shortcut feedback, undo stability, agreement summaries, and setup keyboard handling.
 
-### Fixes
-
-- **Desktop release metadata** — aligned the packaged app version metadata for the 1.1.1 installer release.
-
 ## 1.1.0
 
 ### Changes
 
 - **Applied codes display** — removed applied-code labels from the coding text itself so the reading surface stays cleaner.
-- **Citation metadata** — added Zenodo DOI citation details to the project metadata and README.
 
 ### Fixes
 
@@ -98,7 +109,7 @@
 - **Desktop app** — replaced the embedded Tauri webview shell with a browser-launcher desktop app backed by a local ACE server.
 - **Codebook folders** — added nested folders, code-to-folder conversion, clearer folder labels, and the headless-tree sidebar foundation.
 - **Desktop coding controls** — improved packaged-app coding controls and macOS picker flows.
-- **Release packaging** — added citation metadata, install documentation, licensing, and a more reliable desktop release workflow.
+- **Release packaging** — added install documentation, licensing, and a more reliable desktop release workflow.
 
 ### Fixes
 

@@ -174,11 +174,22 @@ def _skipped_html(n: int, unit: str) -> str:
             f"already present in this project.</p>")
 
 
+def _empty_skipped_html(n: int, unit: str) -> str:
+    """Render the 'skipped empty sources' notice (empty string when n == 0)."""
+    if not n:
+        return ""
+    plural = "" if n == 1 else "s"
+    return (
+        f'<p class="ace-import-result-skipped">Skipped {n} empty {unit}{plural}.</p>'
+    )
+
+
 def _import_result_fragment(
     count_label: str,
     source_label: str | None = None,
     *,
     skipped: int = 0,
+    empty_skipped: int = 0,
 ) -> str:
     source_html = ""
     if source_label:
@@ -187,6 +198,7 @@ def _import_result_fragment(
             f'<span class="ace-import-result-meta">{html.escape(source_label)}</span>'
         )
     skipped_html = _skipped_html(skipped, "source")
+    empty_skipped_html = _empty_skipped_html(empty_skipped, "source")
     return (
         '<div class="ace-import-result">'
         '<div class="ace-import-result-top">'
@@ -195,6 +207,7 @@ def _import_result_fragment(
         f'<div class="ace-import-result-count">{html.escape(count_label)}</div>'
         f"<p>Imported successfully{source_html}</p>"
         f"{skipped_html}"
+        f"{empty_skipped_html}"
         f"{_import_done_actions()}"
         "</div>"
     )
@@ -1027,7 +1040,9 @@ def _build_undo_response(
             None,
         )
         if idx is None:
-            description += " (source no longer assigned)"
+            suffix = " (source no longer assigned)"
+            description += suffix
+            notification += suffix
         elif idx != current_index:
             target_index = idx
             headers["HX-Trigger"] = json.dumps(

@@ -86,6 +86,15 @@ window.addEventListener("keydown", function(event) {
     return nameInput.value.trim();
   }
 
+  function projectNameError() {
+    var name = projectName().replace(/\.ace$/, "").trim();
+    if (!name) return "";
+    if (name === "." || name === ".." || /[<>:"/\\|?*\x00-\x1f]/.test(name)) {
+      return 'Use a project name without / \\ : * ? " < > | or control characters.';
+    }
+    return "";
+  }
+
   function projectPath() {
     if (!selectedFolder || !projectName()) return "";
     return selectedFolder.replace(/\/$/, "") + "/" + projectName().replace(/\.ace$/, "") + ".ace";
@@ -93,10 +102,16 @@ window.addEventListener("keydown", function(event) {
 
   function updateFormState() {
     var path = projectPath();
+    var nameError = projectNameError();
     folderInput.value = selectedFolder;
     folderLabel.textContent = selectedFolder || "No folder chosen";
     pathPreview.textContent = path ? "Project file: " + path : "";
-    createBtn.disabled = !(projectName() && selectedFolder);
+    createBtn.disabled = !(projectName() && selectedFolder && !nameError);
+    if (nameError) {
+      setMessage(nameError, "err");
+    } else if (message.textContent === 'Use a project name without / \\ : * ? " < > | or control characters.') {
+      setMessage("", "");
+    }
   }
 
   function selectedPath(value) {
@@ -222,8 +237,10 @@ window.addEventListener("keydown", function(event) {
   window._aceChooseAnotherFolder = function() {
     pendingOverwrite = false;
     pendingRecentPath = "";
+    selectedFolder = "";
     modal.innerHTML = "";
-    chooseFolderBtn.focus();
+    updateFormState();
+    chooseFolderBtn.focus({ preventScroll: true });
   };
 
   document.addEventListener("htmx:afterRequest", function(evt) {

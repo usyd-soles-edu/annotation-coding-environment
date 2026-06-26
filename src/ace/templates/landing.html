@@ -69,6 +69,7 @@
   "use strict";
 
   var pendingRecentPath = "";
+  var pendingRecentFromResume = false;
 
   var openExistingBtn = document.getElementById("open-existing-btn");
   var openExistingLabel = openExistingBtn.querySelector(".ace-home-action-label");
@@ -137,8 +138,10 @@
       });
   }
 
-  function openProject(path) {
+  function openProject(path, options) {
+    options = options || {};
     pendingRecentPath = path;
+    pendingRecentFromResume = options.fromResume === true;
     htmx.ajax("POST", "/api/project/open", {
       values: { path: path },
       target: "#modal-container",
@@ -161,8 +164,14 @@
     return d.innerHTML;
   }
 
-  function clearResume() {
-    if (window.ACE_RECENTS) window.ACE_RECENTS.clear();
+  function removeRecent(path) {
+    if (!window.ACE_RECENTS) return;
+    if (window.ACE_RECENTS.remove) window.ACE_RECENTS.remove(path);
+    else window.ACE_RECENTS.clear();
+  }
+
+  function clearResume(path) {
+    removeRecent(path);
     renderResume();
   }
 
@@ -190,9 +199,11 @@
       '</span>';
     el.querySelector("#resume-project-link").addEventListener("click", function(event) {
       event.preventDefault();
-      openProject(path);
+      openProject(path, { fromResume: true });
     });
-    el.querySelector("#resume-clear-btn").addEventListener("click", clearResume);
+    el.querySelector("#resume-clear-btn").addEventListener("click", function() {
+      clearResume(path);
+    });
     el.hidden = false;
     document.getElementById("ace-home-shortcuts").innerHTML =
       '<span class="ace-home-shortcuts-title">Shortcuts</span>' +
@@ -257,7 +268,12 @@
     var is2xx = xhr && xhr.status >= 200 && xhr.status < 300;
     if (errorText !== null) {
       setMessage(errorText, "err");
+      if (pendingRecentFromResume && pendingRecentPath) {
+        removeRecent(pendingRecentPath);
+        renderResume();
+      }
       pendingRecentPath = "";
+      pendingRecentFromResume = false;
       return;
     }
     if (is2xx && redirected && pendingRecentPath) {
@@ -265,6 +281,7 @@
     }
     if (redirected) {
       pendingRecentPath = "";
+      pendingRecentFromResume = false;
       setMessage("", "");
     }
   });

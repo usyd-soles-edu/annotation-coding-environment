@@ -3,13 +3,27 @@
 import csv
 import random
 import sqlite3
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from ace.models.source import add_source
 
-_CSV_ENCODINGS = ("utf-8", "latin-1", "cp1252")
+_CSV_ENCODINGS = ("utf-8", "cp1252", "latin-1")
 _TEXT_EXTENSIONS = ("*.txt", "*.md")
+
+
+@dataclass(frozen=True)
+class ImportResult:
+    created: int
+    duplicate_skipped: int
+    empty_skipped: int
+    created_ids: list[str]
+
+    def __iter__(self):
+        yield self.created
+        yield self.duplicate_skipped
+        yield self.created_ids
 
 
 def _existing_display_ids(conn: sqlite3.Connection) -> set[str]:
@@ -28,7 +42,8 @@ def import_csv(
     path: str | Path,
     id_column: str,
     text_columns: list[str],
-) -> tuple[int, int, list[str]]:
+    tabular_data: tuple[list[dict], list[str]] | None = None,
+) -> ImportResult:
     """Import rows from a CSV or Excel file as sources.
 
     Each row becomes one source. When multiple text columns are selected,
@@ -41,18 +56,22 @@ def import_csv(
     new source ids (used by the 'Remove last import' button).
     """
     path = Path(path)
-    rows, columns = read_tabular(path)
+    rows, columns = tabular_data if tabular_data is not None else read_tabular(path)
 
     meta_columns = [c for c in columns if c != id_column and c not in text_columns]
     existing = _existing_display_ids(conn)
     created = 0
-    skipped = 0
+    duplicate_skipped = 0
+    empty_skipped = 0
     created_ids: list[str] = []
 
     for row in rows:
         display_id = str(row[id_column])
         if display_id in existing:
-            skipped += 1
+            duplicate_skipped += 1
+            continue
+        if not _row_has_selected_text(row, text_columns):
+            empty_skipped += 1
             continue
         metadata = {c: row[c] for c in meta_columns} if meta_columns else None
         content_text = _combine_text_columns(row, text_columns)
@@ -70,7 +89,14 @@ def import_csv(
         existing.add(display_id)
         created += 1
 
-    return created, skipped, created_ids
+    return ImportResult(created, duplicate_skipped, empty_skipped, created_ids)
+
+
+def _row_has_selected_text(row: dict, text_columns: list[str]) -> bool:
+    return any(
+        value is not None and str(value).strip() != ""
+        for value in (row.get(col) for col in text_columns)
+    )
 
 
 def _combine_text_columns(row: dict, text_columns: list[str]) -> str:
@@ -98,7 +124,7 @@ def _list_text_files(folder: Path) -> list[Path]:
 def import_text_files(
     conn: sqlite3.Connection,
     folder: str | Path,
-) -> tuple[int, int, list[str]]:
+) -> ImportResult:
     """Import text files (.txt, .md) from a folder as sources.
 
     Each file becomes one source with ``display_id`` = filename stem. Files
@@ -109,14 +135,18 @@ def import_text_files(
     """
     existing = _existing_display_ids(conn)
     created = 0
-    skipped = 0
+    duplicate_skipped = 0
+    empty_skipped = 0
     created_ids: list[str] = []
     for txt_path in _list_text_files(Path(folder)):
         display_id = txt_path.stem
         if display_id in existing:
-            skipped += 1
+            duplicate_skipped += 1
             continue
         content = _read_text_file(txt_path)
+        if not content.strip():
+            empty_skipped += 1
+            continue
         source_id = add_source(
             conn,
             display_id=display_id,
@@ -128,7 +158,7 @@ def import_text_files(
         existing.add(display_id)
         created += 1
 
-    return created, skipped, created_ids
+    return ImportResult(created, duplicate_skipped, empty_skipped, created_ids)
 
 
 def get_random_previews(
@@ -178,7 +208,7 @@ def read_tabular(path: Path) -> tuple[list[dict], list[str]]:
 
 
 def _read_csv(path: Path) -> tuple[list[dict], list[str]]:
-    """Read CSV with multi-encoding fallback (utf-8, latin-1, cp1252)."""
+    """Read CSV with multi-encoding fallback (utf-8, cp1252, latin-1)."""
     for encoding in _CSV_ENCODINGS:
         try:
             with open(path, newline="", encoding=encoding) as f:
@@ -193,7 +223,7 @@ def _read_csv(path: Path) -> tuple[list[dict], list[str]]:
             continue
 
     raise UnicodeDecodeError(
-        "multi", b"", 0, 1, f"Could not decode {path} with utf-8, latin-1, or cp1252"
+        "multi", b"", 0, 1, f"Could not decode {path} with utf-8, cp1252, or latin-1"
     )
 
 
@@ -231,7 +261,7 @@ def _read_text_file(path: Path) -> str:
             continue
 
     raise UnicodeDecodeError(
-        "multi", b"", 0, 1, f"Could not decode {path} with utf-8, latin-1, or cp1252"
+        "multi", b"", 0, 1, f"Could not decode {path} with utf-8, cp1252, or latin-1"
     )
 
 

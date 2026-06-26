@@ -273,6 +273,78 @@ def test_import_csv_utf8_bom(tmp_db, tmp_path):
     assert codes[0]["name"] == "Alpha"
 
 
+def test_import_csv_latin1_encoding(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "Test")
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_bytes("name,group,definition\nCafé,Theme,Définition\n".encode("latin-1"))
+
+    count = import_codebook_from_csv(conn, csv_path)
+
+    assert count == 1
+    codes = _filter_codes(list_codes(conn))
+    assert codes[0]["name"] == "Café"
+
+
+def test_import_csv_cp1252_preferred_before_latin1(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "Test")
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_bytes(
+        "name,definition\n".encode("ascii")
+        + "Smart quote,Student said \u201cyes\u201d\n".encode("cp1252")
+    )
+
+    count = import_codebook_from_csv(conn, csv_path)
+
+    assert count == 1
+    code = _filter_codes(list_codes(conn))[0]
+    assert code["definition"] == "Student said \u201cyes\u201d"
+    assert "\x93" not in code["definition"]
+    assert "\x94" not in code["definition"]
+
+
+def test_inspect_codebook_csv_latin1_encoding(tmp_db, tmp_path):
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_bytes(
+        "Nom du café,Groupe,Définition\nCafé,Thème,Texte\n".encode("latin-1")
+    )
+
+    inspected = inspect_codebook_csv(csv_path)
+
+    assert inspected["columns"] == ["Nom du café", "Groupe", "Définition"]
+    assert inspected["sample_rows"][0]["Nom du café"] == "Café"
+
+
+def test_inspect_codebook_csv_reads_only_sample_rows(monkeypatch, tmp_path):
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_text("name\nAlpha\nBeta\n", encoding="utf-8")
+
+    class FailingAfterFirstRow:
+        fieldnames = ["name"]
+
+        def __iter__(self):
+            yield {"name": "Alpha"}
+            raise AssertionError("read past requested sample")
+
+    monkeypatch.setattr(
+        "ace.models.codebook.csv.DictReader", lambda _file: FailingAfterFirstRow()
+    )
+
+    inspected = inspect_codebook_csv(csv_path, sample_limit=1)
+
+    assert inspected["sample_rows"] == [{"name": "Alpha"}]
+
+
+def test_preview_codebook_csv_ledger_latin1_encoding(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "Test")
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_bytes("name,group,definition\nCafé,Thème,Texte\n".encode("latin-1"))
+
+    ledger = preview_codebook_csv_ledger(conn, csv_path)
+
+    assert ledger["importable"][0]["name"] == "Café"
+    assert ledger["importable"][0]["group_name"] == "Thème"
+
+
 def test_preview_marks_existing_codes(tmp_db, tmp_path):
     """Preview marks codes that already exist in the project."""
     conn = create_project(tmp_db, "Test")

@@ -176,8 +176,16 @@ def test_agreement_preview_renders_review_without_computing(client_with_agreemen
     assert "data-agreement-compute" in html
     assert 'aria-label="Remove alice.ace"' in html
 
-    assert client.get("/api/agreement/export/results").status_code == 400
-    assert client.get("/api/agreement/export/raw").status_code == 400
+    _assert_expired_export_page(client.get("/api/agreement/export/results"))
+    _assert_expired_export_page(client.get("/api/agreement/export/raw"))
+
+
+def _assert_expired_export_page(resp):
+    assert resp.status_code == 400
+    assert resp.headers.get("content-type", "").startswith("text/html")
+    assert "Agreement results expired" in resp.text
+    assert 'href="/agreement"' in resp.text
+    assert "Choose files again" in resp.text
 
 
 def test_agreement_preview_clears_stale_exports(client_with_agreement_files):
@@ -190,8 +198,8 @@ def test_agreement_preview_clears_stale_exports(client_with_agreement_files):
 
     assert resp.status_code == 200
     assert "Review selected files" in resp.text
-    assert client.get("/api/agreement/export/results").status_code == 400
-    assert client.get("/api/agreement/export/raw").status_code == 400
+    _assert_expired_export_page(client.get("/api/agreement/export/results"))
+    _assert_expired_export_page(client.get("/api/agreement/export/raw"))
 
 
 def test_agreement_clear_invalidates_in_flight_compute_worker(
@@ -218,8 +226,8 @@ def test_agreement_clear_invalidates_in_flight_compute_worker(
         api_mod.asyncio.to_thread = orig_to_thread
 
     assert resp.status_code == 204
-    assert client.get("/api/agreement/export/results").status_code == 400
-    assert client.get("/api/agreement/export/raw").status_code == 400
+    _assert_expired_export_page(client.get("/api/agreement/export/results"))
+    _assert_expired_export_page(client.get("/api/agreement/export/raw"))
 
 
 def test_agreement_preview_uses_form_paths_contract(client_with_agreement_files):
@@ -554,6 +562,16 @@ def test_export_raw_data_csv(client_with_agreement_files):
         "code_name",
     ]
     assert rows
+
+
+def test_cold_agreement_exports_show_recovery_page(client):
+    _assert_expired_export_page(client.get("/api/agreement/export/results"))
+    _assert_expired_export_page(client.get("/api/agreement/export/raw"))
+
+    references = client.get("/api/agreement/export/references")
+    methodology = client.get("/api/agreement/export/methodology")
+    assert references.status_code == 200
+    assert methodology.status_code == 200
 
 
 def test_clear_agreement_cache_invalidates_cached_exports(client_with_agreement_files):

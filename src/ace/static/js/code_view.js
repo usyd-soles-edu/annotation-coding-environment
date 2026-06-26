@@ -272,7 +272,10 @@
     // child items. The header and empty-state are decorative.
     let html = `<div class="cv-table-head" role="presentation"><span>#</span><span>Excerpt</span></div>`;
     if (items.length === 0) {
-      html += `<div class="cv-empty" role="presentation">No excerpts match the filter.</div>`;
+      const emptyText = data.stats && data.stats.excerpts === 0
+        ? "No excerpts yet."
+        : "No excerpts match the filter.";
+      html += `<div class="cv-empty" role="presentation">${emptyText}</div>`;
     } else {
       items.forEach((it, i) => {
         const isSelected = (selectedExcerpt

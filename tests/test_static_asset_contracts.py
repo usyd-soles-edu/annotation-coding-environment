@@ -62,6 +62,13 @@ def test_source_horizontal_sentence_aliases_removed():
     assert "sentencesL" not in bridge
 
 
+def test_bridge_no_longer_describes_codebook_slash_commands():
+    bridge = (ROOT / "src" / "ace" / "static" / "js" / "bridge.js").read_text(
+        encoding="utf-8"
+    )
+    assert "slash commands" not in bridge.lower()
+
+
 def test_audit_codebook_mutations_send_mode_context():
     bridge = (ROOT / "src" / "ace" / "static" / "js" / "bridge.js").read_text(
         encoding="utf-8"

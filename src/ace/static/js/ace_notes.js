@@ -24,6 +24,7 @@ let _previouslyFocused = null;
 // #13: a dirty note edit captured before an inspector OOB swap so it can be
 // restored after — see the beforeSwap/afterSettle pair below.
 let _pendingNoteRestore = null;
+const LONG_NOTE_WARNING = "Long note (over 5,000 characters)";
 
 function _noteEls() {
   return {
@@ -200,6 +201,9 @@ function _doSaveNote() {
         pill.classList.remove("ace-note-pill--has-note");
       }
     }
+    if (document.getElementById("note-status")?.textContent !== LONG_NOTE_WARNING) {
+      _setNoteStatus("Saved", false);
+    }
   }).catch(function (err) {
     if (err.name === "AbortError") return;
   });
@@ -236,7 +240,9 @@ document.addEventListener("input", function (e) {
   if (e.target.id === "note-textarea") {
     _scheduleNoteSave();
     if (e.target.value.length > 5000) {
-      _setNoteStatus("Long note (over 5,000 characters)", true);
+      _setNoteStatus(LONG_NOTE_WARNING, true);
+    } else if (document.getElementById("note-status")?.textContent === LONG_NOTE_WARNING) {
+      _setNoteStatus("", false);
     }
   }
 });

@@ -35,6 +35,8 @@ CODEBOOK_COLUMN_ALIASES = {
     ),
 }
 
+_CODEBOOK_CSV_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
+
 
 # ---------------------------------------------------------------------------
 # Colour palette — curated for visible 4 px code stripes and translucent highlights
@@ -513,17 +515,43 @@ def _detect_codebook_columns(fieldnames: list[str]) -> dict[str, str | None]:
     return detected
 
 
+def _read_codebook_csv(
+    path: str | Path, row_limit: int | None = None
+) -> tuple[list[str], list[dict]]:
+    path = Path(path)
+    for encoding in _CODEBOOK_CSV_ENCODINGS:
+        try:
+            with open(path, newline="", encoding=encoding) as f:
+                reader = csv.DictReader(f)
+                fieldnames = reader.fieldnames
+                if fieldnames is None:
+                    return [], []
+                rows = []
+                if row_limit is None:
+                    rows = list(reader)
+                else:
+                    iterator = iter(reader)
+                    for _ in range(max(row_limit, 0)):
+                        try:
+                            rows.append(next(iterator))
+                        except StopIteration:
+                            break
+                return list(fieldnames), rows
+        except UnicodeDecodeError:
+            continue
+    raise UnicodeDecodeError(
+        "multi",
+        b"",
+        0,
+        1,
+        f"Could not decode {path} with utf-8, cp1252, or latin-1",
+    )
+
+
 def inspect_codebook_csv(path: str | Path, sample_limit: int = 20) -> dict:
     """Return codebook CSV headers, detected mappings, and sample rows."""
-    path = Path(path)
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames or []
-        sample_rows = []
-        for index, row in enumerate(reader):
-            if index >= sample_limit:
-                break
-            sample_rows.append({name: row.get(name, "") for name in fieldnames})
+    fieldnames, rows = _read_codebook_csv(path, row_limit=sample_limit)
+    sample_rows = [{name: row.get(name, "") for name in fieldnames} for row in rows]
     return {
         "columns": fieldnames,
         "detected": _detect_codebook_columns(fieldnames),
@@ -601,36 +629,35 @@ def _parse_codebook_csv(
     required after detection. Group/folder and definition columns are optional.
     Ignores colour columns — ACE always auto-assigns from the palette.
     """
-    path = Path(path)
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames or []
-        if reader.fieldnames is None:
-            raise ValueError("Choose a code-name column to import")
-        name_column, group_column, definition_column = _resolve_codebook_csv_columns(
-            fieldnames,
-            name_column=name_column,
-            group_column=group_column,
-            definition_column=definition_column,
-        )
+    fieldnames, csv_rows = _read_codebook_csv(path)
+    if not fieldnames:
+        raise ValueError("Choose a code-name column to import")
+    name_column, group_column, definition_column = _resolve_codebook_csv_columns(
+        fieldnames,
+        name_column=name_column,
+        group_column=group_column,
+        definition_column=definition_column,
+    )
 
-        rows: list[dict] = []
-        seen_names: set[str] = set()
-        for row in reader:
-            name = _csv_cell(row, name_column).strip()
-            name_key = name.lower()
-            if not name or name_key in seen_names:
-                continue
-            seen_names.add(name_key)
+    rows: list[dict] = []
+    seen_names: set[str] = set()
+    for row in csv_rows:
+        name = _csv_cell(row, name_column).strip()
+        name_key = name.lower()
+        if not name or name_key in seen_names:
+            continue
+        seen_names.add(name_key)
 
-            colour = next_colour(len(rows))
-            rows.append(_normalise_codebook_csv_row(
+        colour = next_colour(len(rows))
+        rows.append(
+            _normalise_codebook_csv_row(
                 row,
                 name_column=name_column,
                 group_column=group_column,
                 definition_column=definition_column,
                 colour=colour,
-            ))
+            )
+        )
     return rows
 
 
@@ -642,88 +669,85 @@ def preview_codebook_csv_ledger(
     definition_column: str | None = None,
 ) -> dict:
     """Return row-level preview metadata for the codebook import dialog."""
-    path = Path(path)
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        fieldnames = reader.fieldnames or []
-        if reader.fieldnames is None:
-            raise ValueError("Choose a code-name column to import")
-        name_column, group_column, definition_column = _resolve_codebook_csv_columns(
-            fieldnames,
+    fieldnames, csv_rows = _read_codebook_csv(path)
+    if not fieldnames:
+        raise ValueError("Choose a code-name column to import")
+    name_column, group_column, definition_column = _resolve_codebook_csv_columns(
+        fieldnames,
+        name_column=name_column,
+        group_column=group_column,
+        definition_column=definition_column,
+    )
+
+    existing = {
+        r["name"].lower()
+        for r in conn.execute(
+            "SELECT name FROM codebook_code "
+            "WHERE deleted_at IS NULL AND kind = 'code'"
+        ).fetchall()
+    }
+    seen_names: set[str] = set()
+    rows: list[dict] = []
+    importable: list[dict] = []
+    accepted_count = 0
+    row_count = 0
+
+    for csv_index, row in enumerate(csv_rows, start=2):
+        row_count += 1
+        name = _csv_cell(row, name_column).strip()
+        name_key = name.lower()
+        base = _normalise_codebook_csv_row(
+            row,
             name_column=name_column,
             group_column=group_column,
             definition_column=definition_column,
+            colour="",
         )
 
-        existing = {
-            r["name"].lower()
-            for r in conn.execute(
-                "SELECT name FROM codebook_code "
-                "WHERE deleted_at IS NULL AND kind = 'code'"
-            ).fetchall()
-        }
-        seen_names: set[str] = set()
-        rows: list[dict] = []
-        importable: list[dict] = []
-        accepted_count = 0
-        row_count = 0
+        if not name:
+            rows.append({
+                **base,
+                "row_number": csv_index,
+                "status": "skipped",
+                "reason": "missing code name",
+                "exists": False,
+            })
+            continue
 
-        for csv_index, row in enumerate(reader, start=2):
-            row_count += 1
-            name = _csv_cell(row, name_column).strip()
-            name_key = name.lower()
-            base = _normalise_codebook_csv_row(
+        if name_key in seen_names:
+            rows.append({
+                **base,
+                "row_number": csv_index,
+                "status": "skipped",
+                "reason": "duplicate in this file",
+                "exists": False,
+            })
+            continue
+        seen_names.add(name_key)
+
+        colour = next_colour(accepted_count)
+        accepted_count += 1
+        item = {
+            **_normalise_codebook_csv_row(
                 row,
                 name_column=name_column,
                 group_column=group_column,
                 definition_column=definition_column,
-                colour="",
-            )
-
-            if not name:
-                rows.append({
-                    **base,
-                    "row_number": csv_index,
-                    "status": "skipped",
-                    "reason": "missing code name",
-                    "exists": False,
-                })
-                continue
-
-            if name_key in seen_names:
-                rows.append({
-                    **base,
-                    "row_number": csv_index,
-                    "status": "skipped",
-                    "reason": "duplicate in this file",
-                    "exists": False,
-                })
-                continue
-            seen_names.add(name_key)
-
-            colour = next_colour(accepted_count)
-            accepted_count += 1
-            item = {
-                **_normalise_codebook_csv_row(
-                    row,
-                    name_column=name_column,
-                    group_column=group_column,
-                    definition_column=definition_column,
-                    colour=colour,
-                ),
-                "row_number": csv_index,
-                "status": "existing" if name_key in existing else "new",
-                "reason": "already in this project" if name_key in existing else "",
-                "exists": name_key in existing,
-            }
-            rows.append(item)
-            if not item["exists"]:
-                importable.append({
-                    "name": item["name"],
-                    "colour": item["colour"],
-                    "group_name": item.get("group_name"),
-                    "definition": item.get("definition"),
-                })
+                colour=colour,
+            ),
+            "row_number": csv_index,
+            "status": "existing" if name_key in existing else "new",
+            "reason": "already in this project" if name_key in existing else "",
+            "exists": name_key in existing,
+        }
+        rows.append(item)
+        if not item["exists"]:
+            importable.append({
+                "name": item["name"],
+                "colour": item["colour"],
+                "group_name": item.get("group_name"),
+                "definition": item.get("definition"),
+            })
 
     counts = {
         "rows": row_count,

@@ -688,12 +688,12 @@
     // Shift+← / Shift+→ — Navigate between sources
     if (key === "ArrowLeft" && shift) {
       e.preventDefault();
-      window.aceNavigate(window.__aceCurrentIndex - 1);
+      _navigateSourceFromKeyboard(window.__aceCurrentIndex - 1);
       return;
     }
     if (key === "ArrowRight" && shift) {
       e.preventDefault();
-      window.aceNavigate(window.__aceCurrentIndex + 1);
+      _navigateSourceFromKeyboard(window.__aceCurrentIndex + 1);
       return;
     }
 
@@ -806,6 +806,19 @@
     } catch (_) {}
   }
 
+  function _navigateSourceFromKeyboard(index) {
+    if (!Number.isFinite(index)) return;
+    if (index < 0) {
+      if (typeof window._setStatus === "function") window._setStatus("First source", "ok");
+      return;
+    }
+    if (index >= window.__aceTotalSources) {
+      if (typeof window._setStatus === "function") window._setStatus("Last source", "ok");
+      return;
+    }
+    window.aceNavigate(index);
+  }
+
   window.aceNavigate = async function (index) {
     if (!Number.isFinite(index) || index < 0 || index >= window.__aceTotalSources) return;
     const fromIndex = window.__aceCurrentIndex;
@@ -908,6 +921,42 @@
     if (!split) return;
 
     let dragging = false;
+    const DEFAULT_PX = 360;
+    const MIN_PX = 150;
+    const KEY_STEP_PX = 24;
+
+    function _maxPx() {
+      const vw = document.documentElement.clientWidth;
+      const splitW = split.getBoundingClientRect().width;
+      const base = Math.min(vw || splitW, splitW || vw);
+      return Math.max(MIN_PX, Math.floor((base || DEFAULT_PX) * 0.4));
+    }
+
+    function _clampPx(px) {
+      return Math.max(MIN_PX, Math.min(_maxPx(), px));
+    }
+
+    function _currentPx() {
+      return parseInt(
+        getComputedStyle(document.documentElement).getPropertyValue("--ace-sidebar-width"),
+        10,
+      ) || DEFAULT_PX;
+    }
+
+    function _syncAria(px) {
+      handle.setAttribute("aria-valuemin", String(MIN_PX));
+      handle.setAttribute("aria-valuemax", String(_maxPx()));
+      handle.setAttribute("aria-valuenow", String(Math.round(px)));
+      handle.setAttribute("aria-valuetext", Math.round(px) + " pixels");
+    }
+
+    function _setWidth(px, persist) {
+      const clamped = _clampPx(px);
+      document.documentElement.style.setProperty("--ace-sidebar-width", clamped + "px");
+      _syncAria(clamped);
+      if (persist) localStorage.setItem("ace-sidebar-width", String(Math.round(clamped)));
+      return clamped;
+    }
 
     handle.addEventListener("pointerdown", function (e) {
       e.preventDefault();
@@ -920,11 +969,7 @@
     document.addEventListener("pointermove", function (e) {
       if (!dragging) return;
       const rect = split.getBoundingClientRect();
-      let x = e.clientX - rect.left;
-      const min = 150;
-      const max = rect.width * 0.4;
-      x = Math.max(min, Math.min(max, x));
-      document.documentElement.style.setProperty("--ace-sidebar-width", `${x}px`);
+      _setWidth(e.clientX - rect.left, false);
     });
 
     document.addEventListener("pointerup", function () {
@@ -932,14 +977,18 @@
       dragging = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
-      const width = parseInt(getComputedStyle(document.documentElement).getPropertyValue("--ace-sidebar-width"), 10);
-      if (width) localStorage.setItem("ace-sidebar-width", width);
+      _setWidth(_currentPx(), true);
     });
 
     handle.addEventListener("dblclick", function () {
-      document.documentElement.style.setProperty("--ace-sidebar-width", "360px");
-      localStorage.setItem("ace-sidebar-width", 360);
-      clampToViewport(); // 360 can exceed the cap on small viewports
+      _setWidth(DEFAULT_PX, true);
+    });
+
+    handle.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const delta = e.key === "ArrowRight" ? KEY_STEP_PX : -KEY_STEP_PX;
+      _setWidth(_currentPx() + delta, true);
+      e.preventDefault();
     });
 
     // Re-clamp on viewport resize (mirrors the drag's 40% cap above) so
@@ -950,15 +999,8 @@
     // innerWidth as an approximation).
     function clampToViewport() {
       if (dragging) return;
-      // Cap against the smaller of the viewport and the grid container — the
-      // viewport (an overflowing grid can't inflate the cap) and the grid
-      // itself (if it's narrower than the viewport, match what the drag allows).
-      const vw = document.documentElement.clientWidth;
-      const splitW = split.getBoundingClientRect().width;
-      if (!vw || !splitW) return;
       const saved = parseInt(localStorage.getItem("ace-sidebar-width") || "360", 10) || 360;
-      const px = Math.max(150, Math.min(saved, Math.min(vw, splitW) * 0.4));
-      document.documentElement.style.setProperty("--ace-sidebar-width", px + "px");
+      _setWidth(saved, false);
     }
     window.addEventListener("resize", clampToViewport);
     clampToViewport();
@@ -1297,6 +1339,9 @@
       );
       _aceRenderSparkline();
       _aceRenderTiles();
+      if (typeof window.aceNavigate === "function") {
+        window.aceNavigate(idx);
+      }
     });
 
     host.replaceChildren(svg);
@@ -2815,8 +2860,7 @@
    * 15. Code search / filter / create
    * ================================================================ */
 
-  // Search, slash commands, and create-on-search are owned by
-  // codebook_headless_tree_source.js.
+  // Codebook search and create-on-search are owned by codebook_headless_tree_source.js.
 
 
   // Esc-to-source: when focus is anywhere inside the codebook sidebar that is
@@ -3806,6 +3850,7 @@
   // Zone-level Tab cycling — captures Tab before browser default
   document.addEventListener("keydown", function (e) {
     if (e.key !== "Tab") return;
+    if (!document.getElementById("text-panel")) return;
 
     let zone = _activeZone();
     if (!zone) return;

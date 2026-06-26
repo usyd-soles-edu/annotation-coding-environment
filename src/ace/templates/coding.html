@@ -147,7 +147,11 @@ rect.ace-flash-{{ code["id"] }} {
     {% endblock %}
 
     {# Resize handle #}
-    <div class="ace-resize-handle" id="resize-handle"></div>
+    <div class="ace-resize-handle" id="resize-handle"
+         role="separator" aria-orientation="vertical"
+         aria-label="Resize codebook sidebar" aria-controls="code-sidebar"
+         aria-valuemin="150" aria-valuemax="640" aria-valuenow="360"
+         aria-valuetext="360 pixels" tabindex="0"></div>
 
     {# Shared scroll container for text + margin #}
     <div id="content-scroll" class="ace-content-scroll">
@@ -209,7 +213,7 @@ rect.ace-flash-{{ code["id"] }} {
              class="ace-notification-receipt"
              role="status"
              aria-live="polite"></div>
-        <div class="ace-legend" aria-hidden="true"><span class="k">&larr;</span> codebook &middot; <span class="k">&uarr;&darr;</span> sentence &middot; <span class="k">&rarr;</span> applied &middot; <span class="k">]</span> panel &middot; <span class="k">/</span> find &middot; <span class="k">Del</span> &middot; <span class="k">Z</span> undo</div>
+        <div class="ace-legend" aria-hidden="true"><span class="k">&larr;</span> codebook &middot; <span class="k">&uarr;&darr;</span> sentence &middot; <span class="k">1&ndash;0/a&ndash;y</span> apply &middot; <span class="k">X</span> delete &middot; <span class="k">V</span> view &middot; <span class="k">N</span> note &middot; <span class="k">?</span> help</div>
         </main>
         {% endblock %}
       </div>
@@ -360,16 +364,21 @@ rect.ace-flash-{{ code["id"] }} {
         <aside id="note-drawer"
                class="ace-note-drawer"
                role="complementary"
-               aria-labelledby="note-drawer-title"
+               aria-labelledby="note-drawer-title note-source-label"
                aria-hidden="{{ 'false' if open_note_drawer|default(false) else 'true' }}">
           <header class="ace-note-drawer-header">
-            <h2 id="note-drawer-title" class="ace-panel-heading">Source note</h2>
+            <h2 id="note-drawer-title" class="ace-panel-heading">Note</h2>
+            {% if current_source %}
+            <span id="note-source-label" class="ace-note-source-label">#{{ current_index + 1 }} &middot; {{ current_source["display_id"] }}</span>
+            {% else %}
+            <span id="note-source-label" class="ace-note-source-label">No source</span>
+            {% endif %}
             <span id="note-mode" class="ace-note-mode-indicator" aria-hidden="true"></span>
             <span id="note-status" aria-live="polite" class="ace-note-drawer-status"></span>
           </header>
           <textarea id="note-textarea"
                     class="ace-note-textarea"
-                    aria-label="Source note"
+                    aria-labelledby="note-drawer-title note-source-label"
                     placeholder="Write anything about this source…"
                     data-source-id="{{ current_source['id'] if current_source else '' }}"
                     tabindex="-1"
