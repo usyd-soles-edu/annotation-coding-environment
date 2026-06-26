@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ace.models.source import add_source
 
-_CSV_ENCODINGS = ("utf-8", "latin-1", "cp1252")
+_CSV_ENCODINGS = ("utf-8", "cp1252", "latin-1")
 _TEXT_EXTENSIONS = ("*.txt", "*.md")
 
 
@@ -42,6 +42,7 @@ def import_csv(
     path: str | Path,
     id_column: str,
     text_columns: list[str],
+    tabular_data: tuple[list[dict], list[str]] | None = None,
 ) -> ImportResult:
     """Import rows from a CSV or Excel file as sources.
 
@@ -55,7 +56,7 @@ def import_csv(
     new source ids (used by the 'Remove last import' button).
     """
     path = Path(path)
-    rows, columns = read_tabular(path)
+    rows, columns = tabular_data if tabular_data is not None else read_tabular(path)
 
     meta_columns = [c for c in columns if c != id_column and c not in text_columns]
     existing = _existing_display_ids(conn)
@@ -207,7 +208,7 @@ def read_tabular(path: Path) -> tuple[list[dict], list[str]]:
 
 
 def _read_csv(path: Path) -> tuple[list[dict], list[str]]:
-    """Read CSV with multi-encoding fallback (utf-8, latin-1, cp1252)."""
+    """Read CSV with multi-encoding fallback (utf-8, cp1252, latin-1)."""
     for encoding in _CSV_ENCODINGS:
         try:
             with open(path, newline="", encoding=encoding) as f:
@@ -222,7 +223,7 @@ def _read_csv(path: Path) -> tuple[list[dict], list[str]]:
             continue
 
     raise UnicodeDecodeError(
-        "multi", b"", 0, 1, f"Could not decode {path} with utf-8, latin-1, or cp1252"
+        "multi", b"", 0, 1, f"Could not decode {path} with utf-8, cp1252, or latin-1"
     )
 
 
@@ -260,7 +261,7 @@ def _read_text_file(path: Path) -> str:
             continue
 
     raise UnicodeDecodeError(
-        "multi", b"", 0, 1, f"Could not decode {path} with utf-8, latin-1, or cp1252"
+        "multi", b"", 0, 1, f"Could not decode {path} with utf-8, cp1252, or latin-1"
     )
 
 

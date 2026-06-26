@@ -164,6 +164,35 @@ def test_import_commit_reports_missing_text_column_plainly(client_with_project):
     assert "0 sources" not in resp.text
 
 
+def test_import_commit_reuses_parsed_tabular_data(client_with_project, monkeypatch):
+    client, tmp_path = client_with_project
+
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("id,text\nA1,hello\n", encoding="utf-8")
+    client.post("/api/import/file", data={"path": str(csv_path)})
+
+    from ace.services import importer
+
+    calls = 0
+    original_read_tabular = importer.read_tabular
+
+    def counted_read_tabular(path):
+        nonlocal calls
+        calls += 1
+        return original_read_tabular(path)
+
+    monkeypatch.setattr(importer, "read_tabular", counted_read_tabular)
+
+    resp = client.post(
+        "/api/import/commit",
+        data={"id_column": "id", "text_columns": "text"},
+    )
+
+    assert resp.status_code == 200
+    assert "1 source" in resp.text
+    assert calls == 1
+
+
 def test_import_commit_multiple_text_columns_creates_one_source_per_row(client_with_project):
     client, tmp_path = client_with_project
 

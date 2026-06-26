@@ -257,7 +257,8 @@ async def import_commit(
         return _oob_status("Choose at least one text column.")
 
     try:
-        _rows, columns = read_tabular(Path(tmp_path))
+        tabular_data = read_tabular(Path(tmp_path))
+        _rows, columns = tabular_data
     except Exception:
         return _oob_status(_friendly_import_error())
 
@@ -275,7 +276,9 @@ async def import_commit(
     db_gen = get_db(request)
     conn = next(db_gen)
     try:
-        result = import_csv(conn, tmp_path, id_column, text_col_list)
+        result = import_csv(
+            conn, tmp_path, id_column, text_col_list, tabular_data=tabular_data
+        )
         count, skipped, created_ids = result
     except Exception:
         return _oob_status(_friendly_import_error())

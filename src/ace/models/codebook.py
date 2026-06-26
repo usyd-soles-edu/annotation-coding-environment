@@ -35,7 +35,7 @@ CODEBOOK_COLUMN_ALIASES = {
     ),
 }
 
-_CODEBOOK_CSV_ENCODINGS = ("utf-8-sig", "latin-1", "cp1252")
+_CODEBOOK_CSV_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
 
 
 # ---------------------------------------------------------------------------
@@ -515,7 +515,9 @@ def _detect_codebook_columns(fieldnames: list[str]) -> dict[str, str | None]:
     return detected
 
 
-def _read_codebook_csv(path: str | Path) -> tuple[list[str], list[dict]]:
+def _read_codebook_csv(
+    path: str | Path, row_limit: int | None = None
+) -> tuple[list[str], list[dict]]:
     path = Path(path)
     for encoding in _CODEBOOK_CSV_ENCODINGS:
         try:
@@ -524,7 +526,17 @@ def _read_codebook_csv(path: str | Path) -> tuple[list[str], list[dict]]:
                 fieldnames = reader.fieldnames
                 if fieldnames is None:
                     return [], []
-                return list(fieldnames), list(reader)
+                rows = []
+                if row_limit is None:
+                    rows = list(reader)
+                else:
+                    iterator = iter(reader)
+                    for _ in range(max(row_limit, 0)):
+                        try:
+                            rows.append(next(iterator))
+                        except StopIteration:
+                            break
+                return list(fieldnames), rows
         except UnicodeDecodeError:
             continue
     raise UnicodeDecodeError(
@@ -532,18 +544,14 @@ def _read_codebook_csv(path: str | Path) -> tuple[list[str], list[dict]]:
         b"",
         0,
         1,
-        f"Could not decode {path} with utf-8, latin-1, or cp1252",
+        f"Could not decode {path} with utf-8, cp1252, or latin-1",
     )
 
 
 def inspect_codebook_csv(path: str | Path, sample_limit: int = 20) -> dict:
     """Return codebook CSV headers, detected mappings, and sample rows."""
-    fieldnames, rows = _read_codebook_csv(path)
-    sample_rows = []
-    for index, row in enumerate(rows):
-        if index >= sample_limit:
-            break
-        sample_rows.append({name: row.get(name, "") for name in fieldnames})
+    fieldnames, rows = _read_codebook_csv(path, row_limit=sample_limit)
+    sample_rows = [{name: row.get(name, "") for name in fieldnames} for row in rows]
     return {
         "columns": fieldnames,
         "detected": _detect_codebook_columns(fieldnames),
@@ -641,13 +649,15 @@ def _parse_codebook_csv(
         seen_names.add(name_key)
 
         colour = next_colour(len(rows))
-        rows.append(_normalise_codebook_csv_row(
-            row,
-            name_column=name_column,
-            group_column=group_column,
-            definition_column=definition_column,
-            colour=colour,
-            ))
+        rows.append(
+            _normalise_codebook_csv_row(
+                row,
+                name_column=name_column,
+                group_column=group_column,
+                definition_column=definition_column,
+                colour=colour,
+            )
+        )
     return rows
 
 
