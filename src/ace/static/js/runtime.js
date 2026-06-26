@@ -69,6 +69,15 @@
     window.localStorage.removeItem(RECENT_FILES_KEY);
   }
 
+  function removeRecentFile(path) {
+    let list = getRecentFiles().filter(function (item) { return item.path !== path; });
+    if (list.length) {
+      window.localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(list));
+    } else {
+      clearRecentFiles();
+    }
+  }
+
   async function postRuntimeEvent(path) {
     try {
       await window.fetch(path, {
@@ -134,6 +143,7 @@
   window.ACE_RECENTS = {
     get: getRecentFiles,
     add: addRecentFile,
+    remove: removeRecentFile,
     clear: clearRecentFiles,
   };
   void init();

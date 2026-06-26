@@ -363,7 +363,10 @@ def test_landing_dismisses_last_recent_project(ace_server, browser_name):
                 """
                 localStorage.setItem(
                   "ace-recent-files",
-                  JSON.stringify([{ path: "/tmp/example.ace", openedAt: 1 }])
+                  JSON.stringify([
+                    { path: "/tmp/example.ace", openedAt: 2 },
+                    { path: "/tmp/backup.ace", openedAt: 1 }
+                  ])
                 );
                 """
             )
@@ -374,8 +377,14 @@ def test_landing_dismisses_last_recent_project(ace_server, browser_name):
 
             page.locator("#resume-clear-btn").click()
 
-            assert not resume.is_visible()
-            assert page.evaluate('localStorage.getItem("ace-recent-files")') is None
+            assert resume.is_visible()
+            expect(page.locator("#resume-project-link")).to_have_text("backup.ace")
+            assert page.evaluate(
+                """
+                () => JSON.parse(localStorage.getItem("ace-recent-files"))
+                  .map((item) => item.path)
+                """
+            ) == ["/tmp/backup.ace"]
         finally:
             browser.close()
 
@@ -393,7 +402,10 @@ def test_landing_arrow_keys_can_focus_and_enter_clear_recent(
                 """
                 localStorage.setItem(
                   "ace-recent-files",
-                  JSON.stringify([{ path: "/tmp/example.ace", openedAt: 1 }])
+                  JSON.stringify([
+                    { path: "/tmp/example.ace", openedAt: 2 },
+                    { path: "/tmp/backup.ace", openedAt: 1 }
+                  ])
                 );
                 """
             )
@@ -405,8 +417,106 @@ def test_landing_arrow_keys_can_focus_and_enter_clear_recent(
             assert page.evaluate("document.activeElement.id") == "resume-clear-btn"
             page.keyboard.press("Enter")
 
-            assert not page.locator("#resume-link").is_visible()
-            assert page.evaluate('localStorage.getItem("ace-recent-files")') is None
+            expect(page.locator("#resume-project-link")).to_have_text("backup.ace")
+            assert page.evaluate(
+                """
+                () => JSON.parse(localStorage.getItem("ace-recent-files"))
+                  .map((item) => item.path)
+                """
+            ) == ["/tmp/backup.ace"]
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_landing_failed_resume_removes_only_dead_recent(
+    ace_server, tmp_path, browser_name
+):
+    project = tmp_path / "Still here.ace"
+    conn = create_project(str(project), "Still here")
+    conn.close()
+    missing = tmp_path / "Missing.ace"
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/")
+            page.evaluate(
+                """
+                ([missingPath, projectPath]) => localStorage.setItem(
+                  "ace-recent-files",
+                  JSON.stringify([
+                    { path: missingPath, openedAt: 2 },
+                    { path: projectPath, openedAt: 1 }
+                  ])
+                )
+                """,
+                [str(missing), str(project)],
+            )
+            page.reload()
+
+            page.locator("#resume-project-link").click()
+
+            expect(page.locator("#ace-home-message")).to_contain_text(
+                "Could not open that project"
+            )
+            expect(page.locator("#resume-project-link")).to_have_text("Still here.ace")
+            assert page.evaluate(
+                """
+                () => JSON.parse(localStorage.getItem("ace-recent-files"))
+                  .map((item) => item.path)
+                """
+            ) == [str(project)]
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_landing_manual_open_failure_keeps_recents(
+    ace_server, tmp_path, browser_name
+):
+    project = tmp_path / "Recent.ace"
+    conn = create_project(str(project), "Recent")
+    conn.close()
+    missing = tmp_path / "Picked Missing.ace"
+
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.route(
+                "**/api/native/pick-file",
+                lambda route: route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body='{"path": "%s"}' % str(missing).replace('\\', '\\\\'),
+                ),
+            )
+            page.goto(f"{ace_server}/")
+            page.evaluate(
+                """
+                (projectPath) => localStorage.setItem(
+                  "ace-recent-files",
+                  JSON.stringify([{ path: projectPath, openedAt: 1 }])
+                )
+                """,
+                str(project),
+            )
+            page.reload()
+
+            page.locator("#open-existing-btn").click()
+
+            expect(page.locator("#ace-home-message")).to_contain_text(
+                "Could not open that project"
+            )
+            expect(page.locator("#resume-project-link")).to_have_text("Recent.ace")
+            assert page.evaluate(
+                """
+                () => JSON.parse(localStorage.getItem("ace-recent-files"))
+                  .map((item) => item.path)
+                """
+            ) == [str(project)]
         finally:
             browser.close()
 
