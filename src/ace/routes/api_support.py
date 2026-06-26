@@ -1027,7 +1027,9 @@ def _build_undo_response(
             None,
         )
         if idx is None:
-            description += " (source no longer assigned)"
+            suffix = " (source no longer assigned)"
+            description += suffix
+            notification += suffix
         elif idx != current_index:
             target_index = idx
             headers["HX-Trigger"] = json.dumps(
