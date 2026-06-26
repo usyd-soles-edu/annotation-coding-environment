@@ -2815,8 +2815,7 @@
    * 15. Code search / filter / create
    * ================================================================ */
 
-  // Search, slash commands, and create-on-search are owned by
-  // codebook_headless_tree_source.js.
+  // Codebook search and create-on-search are owned by codebook_headless_tree_source.js.
 
 
   // Esc-to-source: when focus is anywhere inside the codebook sidebar that is
