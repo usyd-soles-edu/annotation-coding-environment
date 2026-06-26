@@ -81,6 +81,34 @@ def test_source_grid_navigation_is_undoable(ace_server, browser_name):
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_source_grid_sparkline_click_navigates_to_source(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-grid-spark svg")
+
+            page.locator("#ace-grid-spark svg").evaluate(
+                """
+                (svg) => {
+                  const rect = svg.getBoundingClientRect();
+                  svg.dispatchEvent(new MouseEvent("click", {
+                    bubbles: true,
+                    clientX: rect.right - 2,
+                    clientY: rect.top + rect.height / 2
+                  }));
+                }
+                """
+            )
+
+            page.wait_for_url("**/code?index=1")
+            page.wait_for_function("() => window.__aceCurrentIndex === 1")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_browser_back_is_history_only_for_source_navigation(
     ace_server, browser_name
 ):

@@ -1297,6 +1297,9 @@
       );
       _aceRenderSparkline();
       _aceRenderTiles();
+      if (typeof window.aceNavigate === "function") {
+        window.aceNavigate(idx);
+      }
     });
 
     host.replaceChildren(svg);
