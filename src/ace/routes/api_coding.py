@@ -453,5 +453,9 @@ async def delete_sentence_annotations(
             delete_annotation(conn, most_recent["id"])
             undo.record_delete(source_id, most_recent["id"])
 
-        extra = _oob_status_undo("Removed code") if most_recent else ""
+        extra = (
+            _oob_status_undo("Removed code")
+            if most_recent
+            else _oob_status("No code on this sentence", "ok").body.decode()
+        )
         return _annotation_only_response(request, conn, coder_id, current_index, extra)
