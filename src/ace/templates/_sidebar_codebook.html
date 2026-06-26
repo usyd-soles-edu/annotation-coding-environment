@@ -173,3 +173,11 @@
   </div>
   {% endif %}
 </section>
+{% if not read_only %}
+<div class="ace-sidebar-legend" aria-label="Codebook shortcuts">
+  <span class="ace-legend-item"><span class="ace-legend-key">Shift+Enter</span> folder</span>
+  <span class="ace-legend-item"><span class="ace-legend-key">Opt+Left/Right</span> move</span>
+  <span class="ace-legend-item"><span class="ace-legend-key">Cmd+X/V</span> cut/paste</span>
+  <span class="ace-legend-item"><span class="ace-legend-key">;</span> chord</span>
+</div>
+{% endif %}

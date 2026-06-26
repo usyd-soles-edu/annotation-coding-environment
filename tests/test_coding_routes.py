@@ -383,6 +383,20 @@ def test_coding_page_has_collapsible_grid_header(client_with_codes):
     assert 'id="ace-grid-content"' in body
 
 
+def test_coding_sidebar_renders_visible_codebook_legend(client_with_codes):
+    client, coder_id, _, _, _ = client_with_codes
+    client.cookies.set("coder_id", coder_id)
+    resp = client.get("/code?index=0")
+
+    body = resp.text
+    assert 'class="ace-sidebar-legend"' in body
+    assert "Shift+Enter" in body
+    assert "folder" in body
+    assert "Opt" in body
+    assert "move" in body
+    assert "Cmd+X/V" in body
+
+
 def test_coding_page_has_inline_collapse_restore_script(client_with_codes):
     """Inline head script restores ace-grid-collapsed dataset before CSS loads."""
     client, coder_id, _, _, _ = client_with_codes
