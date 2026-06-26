@@ -264,6 +264,16 @@ def test_coding_page_legend_surfaces_core_shortcuts(client_with_sources):
     assert ">?</span> help" in resp.text
 
 
+def test_note_drawer_header_names_current_source(client_with_sources):
+    client, _ = client_with_sources
+    resp = client.get("/code")
+
+    assert '<h2 id="note-drawer-title" class="ace-panel-heading">Note</h2>' in resp.text
+    assert 'id="note-source-label"' in resp.text
+    assert "#1 &middot; S001" in resp.text
+    assert 'aria-labelledby="note-drawer-title note-source-label"' in resp.text
+
+
 def test_undo_cross_source_falls_back_when_source_unassigned(client_with_codes):
     """Undo where the action's source has been removed from the assignment list
     stays on the current source and notes 'no longer assigned' in the status."""

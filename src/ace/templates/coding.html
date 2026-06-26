@@ -360,16 +360,21 @@ rect.ace-flash-{{ code["id"] }} {
         <aside id="note-drawer"
                class="ace-note-drawer"
                role="complementary"
-               aria-labelledby="note-drawer-title"
+               aria-labelledby="note-drawer-title note-source-label"
                aria-hidden="{{ 'false' if open_note_drawer|default(false) else 'true' }}">
           <header class="ace-note-drawer-header">
-            <h2 id="note-drawer-title" class="ace-panel-heading">Source note</h2>
+            <h2 id="note-drawer-title" class="ace-panel-heading">Note</h2>
+            {% if current_source %}
+            <span id="note-source-label" class="ace-note-source-label">#{{ current_index + 1 }} &middot; {{ current_source["display_id"] }}</span>
+            {% else %}
+            <span id="note-source-label" class="ace-note-source-label">No source</span>
+            {% endif %}
             <span id="note-mode" class="ace-note-mode-indicator" aria-hidden="true"></span>
             <span id="note-status" aria-live="polite" class="ace-note-drawer-status"></span>
           </header>
           <textarea id="note-textarea"
                     class="ace-note-textarea"
-                    aria-label="Source note"
+                    aria-labelledby="note-drawer-title note-source-label"
                     placeholder="Write anything about this source…"
                     data-source-id="{{ current_source['id'] if current_source else '' }}"
                     tabindex="-1"
