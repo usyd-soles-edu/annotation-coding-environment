@@ -127,6 +127,43 @@ def test_import_commit_requires_text_column(client_with_project):
         conn.close()
 
 
+def test_import_commit_reports_missing_id_column_plainly(client_with_project):
+    client, tmp_path = client_with_project
+
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("id,text\nA1,hello\n", encoding="utf-8")
+    client.post("/api/import/file", data={"path": str(csv_path)})
+
+    resp = client.post(
+        "/api/import/commit",
+        data={"id_column": "missing", "text_columns": "text"},
+    )
+
+    assert resp.status_code == 200
+    assert "Selected source label column was not found" in resp.text
+    assert "Import failed" not in resp.text
+    assert "KeyError" not in resp.text
+    assert "&#x27;missing&#x27;" not in resp.text
+
+
+def test_import_commit_reports_missing_text_column_plainly(client_with_project):
+    client, tmp_path = client_with_project
+
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("id,text\nA1,hello\n", encoding="utf-8")
+    client.post("/api/import/file", data={"path": str(csv_path)})
+
+    resp = client.post(
+        "/api/import/commit",
+        data={"id_column": "id", "text_columns": "missing"},
+    )
+
+    assert resp.status_code == 200
+    assert "Selected text column &quot;missing&quot; was not found" in resp.text
+    assert "Import failed" not in resp.text
+    assert "0 sources" not in resp.text
+
+
 def test_import_commit_multiple_text_columns_creates_one_source_per_row(client_with_project):
     client, tmp_path = client_with_project
 

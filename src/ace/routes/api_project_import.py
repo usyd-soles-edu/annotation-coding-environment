@@ -41,6 +41,11 @@ def _validate_project_name(name: str) -> str | None:
         return _PROJECT_NAME_ERROR
     return None
 
+
+def _friendly_import_error() -> str:
+    return "Import failed. Check the selected file and try again."
+
+
 from ace.routes.api_support import (
     _accept_to_filetypes,
     _accept_to_types,
@@ -238,25 +243,42 @@ async def import_commit(
 ):
     """Commit the uploaded file: import selected columns as sources."""
     from ace.app import get_db
-    from ace.services.importer import import_csv
+    from ace.services.importer import import_csv, read_tabular
 
     tmp_path = getattr(request.app.state, "import_tmp_path", None)
     if tmp_path is None or not Path(tmp_path).exists():
         return _oob_status("No uploaded file found. Please upload again.")
 
+    text_col_list = [c.strip() for c in text_columns.split(",") if c.strip()]
+    id_column = id_column.strip()
+    if not id_column:
+        return _oob_status("Choose a source label column.")
+    if not text_col_list:
+        return _oob_status("Choose at least one text column.")
+
+    try:
+        _rows, columns = read_tabular(Path(tmp_path))
+    except Exception:
+        return _oob_status(_friendly_import_error())
+
+    if id_column not in columns:
+        return _oob_status(
+            "Selected source label column was not found. Choose a column from the file."
+        )
+    for column in text_col_list:
+        if column not in columns:
+            return _oob_status(
+                f'Selected text column "{column}" was not found. '
+                "Choose text columns from the file."
+            )
+
     db_gen = get_db(request)
     conn = next(db_gen)
     try:
-        text_col_list = [c.strip() for c in text_columns.split(",") if c.strip()]
-        if not id_column.strip():
-            return _oob_status("Choose a source label column.")
-        if not text_col_list:
-            return _oob_status("Choose at least one text column.")
         result = import_csv(conn, tmp_path, id_column, text_col_list)
         count, skipped, created_ids = result
-    except Exception as e:
-        db_gen.close()
-        return _oob_status(f"Import failed: {e}")
+    except Exception:
+        return _oob_status(_friendly_import_error())
     finally:
         db_gen.close()
 
@@ -303,9 +325,8 @@ async def import_folder(
     try:
         result = import_text_files(conn, folder)
         count, skipped, created_ids = result
-    except Exception as e:
-        db_gen.close()
-        return _oob_status(f"Import failed: {e}")
+    except Exception:
+        return _oob_status(_friendly_import_error())
     finally:
         db_gen.close()
 
@@ -452,8 +473,8 @@ async def import_codebook_preview_path(
                 detected.get("group"),
                 detected.get("definition"),
             )
-    except Exception as e:
-        return _oob_status(f"Could not parse CSV: {e}")
+    except Exception:
+        return _oob_status("Could not parse that codebook CSV. Check the columns and try again.")
 
     filename = html.escape(file_path.name)
     safe_path = html.escape(str(file_path))
@@ -546,20 +567,20 @@ async def import_codebook_preview_map(
                 group_column,
                 definition_column,
             )
-    except Exception as e:
+    except Exception:
         return JSONResponse(
             {
                 "preview_html": (
                     '<div class="ace-codebook-import-empty">'
-                    f'Could not preview CSV: {html.escape(str(e))}</div>'
+                    'Could not preview CSV. Check the columns and try again.</div>'
                 ),
                 "review_html": (
                     '<div class="ace-codebook-import-empty">'
-                    f'Could not preview CSV: {html.escape(str(e))}</div>'
+                    'Could not preview CSV. Check the columns and try again.</div>'
                 ),
                 "skipped_html": (
                     '<div class="ace-codebook-import-empty">'
-                    f'Could not preview CSV: {html.escape(str(e))}</div>'
+                    'Could not preview CSV. Check the columns and try again.</div>'
                 ),
                 "codes_json": "[]",
                 "new_count": 0,
