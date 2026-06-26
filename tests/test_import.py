@@ -160,6 +160,36 @@ def test_import_commit_multiple_text_columns_creates_one_source_per_row(client_w
         conn.close()
 
 
+def test_import_commit_reports_empty_rows_separately(client_with_project):
+    client, tmp_path = client_with_project
+
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text(
+        "id,reflection,feedback\n"
+        "A1,,   \n"
+        "A2,Reflection two,\n",
+        encoding="utf-8",
+    )
+
+    client.post("/api/import/file", data={"path": str(csv_path)})
+
+    resp = client.post(
+        "/api/import/commit",
+        data={"id_column": "id", "text_columns": "reflection,feedback"},
+    )
+
+    assert resp.status_code == 200
+    assert "1 source" in resp.text
+    assert "Skipped 1 empty source." in resp.text
+    assert "already present" not in resp.text
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        sources = list_sources(conn)
+        assert [source["display_id"] for source in sources] == ["A2"]
+    finally:
+        conn.close()
+
+
 def test_import_commit_keeps_native_file_path(client_with_project):
     client, tmp_path = client_with_project
 
@@ -281,6 +311,27 @@ def test_import_folder_accepts_file_uri(client_with_project):
     assert resp.status_code == 200
     assert "1 file" in resp.text
     assert "Check imported text files" in resp.text
+
+
+def test_import_folder_reports_empty_files_separately(client_with_project):
+    client, tmp_path = client_with_project
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "empty.txt").write_text("", encoding="utf-8")
+    (folder / "filled.txt").write_text("Some text", encoding="utf-8")
+
+    resp = client.post("/api/import/folder", data={"path": str(folder)})
+
+    assert resp.status_code == 200
+    assert "1 file" in resp.text
+    assert "Skipped 1 empty source." in resp.text
+    assert "already present" not in resp.text
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        sources = list_sources(conn)
+        assert [source["display_id"] for source in sources] == ["filled"]
+    finally:
+        conn.close()
 
 
 def test_import_remove_last_deletes_stored_sources(client_with_project):

@@ -47,6 +47,7 @@ from ace.routes.api_support import (
     _codebook_import_payload,
     _codebook_mapping_select,
     _csv_download,
+    _empty_skipped_html,
     _folder_import_preview_fragment,
     _import_done_actions,
     _import_result_fragment,
@@ -251,7 +252,8 @@ async def import_commit(
             return _oob_status("Choose a source label column.")
         if not text_col_list:
             return _oob_status("Choose at least one text column.")
-        count, skipped, created_ids = import_csv(conn, tmp_path, id_column, text_col_list)
+        result = import_csv(conn, tmp_path, id_column, text_col_list)
+        count, skipped, created_ids = result
     except Exception as e:
         db_gen.close()
         return _oob_status(f"Import failed: {e}")
@@ -274,7 +276,12 @@ async def import_commit(
 
     count_label = f'{count} source{"s" if count != 1 else ""}'
     return HTMLResponse(
-        _import_result_fragment(count_label, source_name, skipped=skipped)
+        _import_result_fragment(
+            count_label,
+            source_name,
+            skipped=skipped,
+            empty_skipped=result.empty_skipped,
+        )
     )
 
 
@@ -294,7 +301,8 @@ async def import_folder(
     db_gen = get_db(request)
     conn = next(db_gen)
     try:
-        count, skipped, created_ids = import_text_files(conn, folder)
+        result = import_text_files(conn, folder)
+        count, skipped, created_ids = result
     except Exception as e:
         db_gen.close()
         return _oob_status(f"Import failed: {e}")
@@ -318,6 +326,7 @@ async def import_folder(
     )
 
     skipped_html = _skipped_html(skipped, "file")
+    empty_skipped_html = _empty_skipped_html(result.empty_skipped, "source")
 
     return HTMLResponse(
         '<div class="ace-import-result ace-import-result--folder">'
@@ -331,6 +340,7 @@ async def import_folder(
         "Scan a random sample before coding."
         "</p>"
         f"{skipped_html}"
+        f"{empty_skipped_html}"
         f"{preview_html}"
         f"{_import_done_actions(include_back=True)}"
         "</div>"
