@@ -31,7 +31,7 @@
     if (!el || !el.closest) return false;
     return !!el.closest(
       "dialog, [role='menu'], .ace-context-menu, .ace-colour-popover, " +
-      "#note-drawer, .ace-ht-rename, [contenteditable='true']"
+      "#note-drawer, .ace-ht-rename, [role='separator'], [contenteditable='true']"
     );
   }
 

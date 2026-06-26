@@ -218,6 +218,21 @@ def test_sidebar_has_headless_tree_mount(client_with_sources):
     assert 'id="code-tree"' not in html
 
 
+def test_sidebar_resize_handle_has_separator_accessibility_contract(client_with_sources):
+    client, _ = client_with_sources
+    resp = client.get("/code")
+    assert resp.status_code == 200
+    html = resp.text
+    assert 'id="resize-handle"' in html
+    assert 'role="separator"' in html
+    assert 'aria-orientation="vertical"' in html
+    assert 'aria-label="Resize codebook sidebar"' in html
+    assert 'aria-controls="code-sidebar"' in html
+    assert 'aria-valuemin="150"' in html
+    assert 'aria-valuenow="' in html
+    assert 'tabindex="0"' in html
+
+
 # ---------------------------------------------------------------------------
 # Annotation CRUD routes
 # ---------------------------------------------------------------------------

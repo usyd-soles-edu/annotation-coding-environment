@@ -81,6 +81,72 @@ def test_source_grid_navigation_is_undoable(ace_server, browser_name):
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_shift_arrow_reports_source_navigation_boundaries(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+
+            _click_source_sentence(page)
+            page.keyboard.press("Shift+ArrowLeft")
+            page.wait_for_function("() => window.__aceCurrentIndex === 0")
+            expect(page.locator("#ace-statusbar-event")).to_have_text("First source")
+            assert "index=1" not in page.url
+
+            page.keyboard.press("Shift+ArrowRight")
+            page.wait_for_url("**/code?index=1")
+            page.wait_for_function("() => window.__aceCurrentIndex === 1")
+
+            _click_source_sentence(page)
+            page.keyboard.press("Shift+ArrowRight")
+            page.wait_for_function("() => window.__aceCurrentIndex === 1")
+            expect(page.locator("#ace-statusbar-event")).to_have_text("Last source")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_sidebar_resize_handle_supports_keyboard_resizing(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#resize-handle")
+
+            handle = page.locator("#resize-handle")
+            handle.focus()
+            expect(handle).to_be_focused()
+            initial_width = page.evaluate(
+                "() => parseInt(getComputedStyle(document.documentElement)"
+                ".getPropertyValue('--ace-sidebar-width'), 10)"
+            )
+
+            page.keyboard.press("ArrowLeft")
+            shrunk_width = page.evaluate(
+                "() => parseInt(getComputedStyle(document.documentElement)"
+                ".getPropertyValue('--ace-sidebar-width'), 10)"
+            )
+            assert shrunk_width < initial_width
+            expect(handle).to_have_attribute("aria-valuenow", str(shrunk_width))
+            assert page.evaluate("() => localStorage.getItem('ace-sidebar-width')") == str(
+                shrunk_width
+            )
+
+            page.keyboard.press("ArrowRight")
+            grown_width = page.evaluate(
+                "() => parseInt(getComputedStyle(document.documentElement)"
+                ".getPropertyValue('--ace-sidebar-width'), 10)"
+            )
+            assert grown_width == initial_width
+            expect(handle).to_have_attribute("aria-valuenow", str(grown_width))
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_source_grid_sparkline_click_navigates_to_source(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()

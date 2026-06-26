@@ -1110,6 +1110,16 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
   background: var(--ace-focus);
 }
 
+.ace-resize-handle:focus-visible {
+  outline: 2px solid var(--ace-focus);
+  outline-offset: 2px;
+}
+
+.ace-resize-handle:focus-visible::after {
+  width: 3px;
+  background: var(--ace-focus);
+}
+
 /* ---- Text panel ---- */
 
 .ace-text-panel {
