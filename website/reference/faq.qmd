@@ -6,6 +6,10 @@ title: "FAQ"
 
 No. ACE works with local `.ace` project files.
 
+## Do wording cues use AI or upload my text?
+
+No. Wording cues run locally in ACE. They use SQLite full-text search to compare the focused sentence with code names and definitions in the open project. They do not use an AI model, cloud service, or external search package.
+
 ## Can I use ACE with sensitive data?
 
 ACE does not upload project data automatically, but you still need to follow your ethics approval, data management plan, and institutional storage requirements. Be careful where you save and back up `.ace` files.

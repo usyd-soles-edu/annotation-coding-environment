@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changes
+
+- **Wording cues** — added an optional local text-matching aid that can lightly mark codebook rows whose names or definitions overlap with the focused sentence. Cues use SQLite FTS5/BM25 ranking locally and do not apply codes or use an AI/cloud service.
+
 ## 1.4.3
 
 ### Fixes
