@@ -222,6 +222,45 @@ async def navigation_route(
     return Response(status_code=204)
 
 
+@router.post("/code-cues")
+async def code_cues_route(request: Request):
+    """Return ranked codebook cues for the focused sentence."""
+    from ace.services.code_cues import suggest_code_cues
+
+    _require_coder(request)
+    if not getattr(request.app.state, "project_path", None):
+        raise HTTPException(status_code=400, detail="No project is open.")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid code-cue request")
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=400, detail="Invalid code-cue request")
+
+    try:
+        request_id = int(payload.get("request_id", 0))
+        current_index = int(payload.get("current_index", 0))
+        sentence_index = int(payload.get("sentence_index", -1))
+        start = int(payload.get("start", -1))
+        end = int(payload.get("end", -1))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid code-cue identity")
+    text = str(payload.get("text", ""))
+
+    with _project_db(request) as conn:
+        cues = suggest_code_cues(conn, text, limit=3)
+
+    return JSONResponse({
+        "request_id": request_id,
+        "current_index": current_index,
+        "sentence_index": sentence_index,
+        "start": start,
+        "end": end,
+        "cues": cues,
+    })
+
+
 @router.post("/code/flag")
 async def flag_route(
     request: Request,
