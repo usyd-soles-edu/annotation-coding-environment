@@ -18,8 +18,6 @@ Good code names are short and specific:
 
 Each code has a colour. ACE uses that colour for highlights and chips.
 
-Code definitions help coders apply the code consistently. They also contribute to [wording cues](coding.qmd#wording-cues) when that optional feature is enabled, so use plain wording that reflects how the idea may appear in the source text.
-
 ## Folders
 
 Use folders to group related codes.
