@@ -650,16 +650,34 @@
     if (_isTyping()) return;
     if (_menuOpen) return;
 
-    // Only handle keys when text panel (or nothing specific) is focused
-    let zone = _activeZone();
-    if (zone === "search" || zone === "tree") return;
     // Skip entirely on pages without the coding surface (e.g. /code/{id}/view
     // shares bridge.js but has no #text-panel; its shortcuts live in code_view.js).
     if (!document.getElementById("text-panel")) return;
 
+    let zone = _activeZone();
     const key = e.key;
     const ctrl = e.ctrlKey || e.metaKey;
     const shift = e.shiftKey;
+
+    if (zone === "tree") {
+      if (!ctrl && !e.altKey && key === "/" && !shift) {
+        e.preventDefault();
+        _focusSearchBar();
+        return;
+      }
+      if (!ctrl && !e.altKey && key === "ArrowLeft" && shift) {
+        e.preventDefault();
+        _navigateSourceFromKeyboard(window.__aceCurrentIndex - 1);
+        return;
+      }
+      if (!ctrl && !e.altKey && key === "ArrowRight" && shift) {
+        e.preventDefault();
+        _navigateSourceFromKeyboard(window.__aceCurrentIndex + 1);
+        return;
+      }
+      return;
+    }
+    if (zone === "search") return;
 
     // Z / Shift+Z / Cmd-Z / Cmd+Shift+Z — global undo / redo
     // Focus passthrough is handled above by _isTyping() so text inputs keep
