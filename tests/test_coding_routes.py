@@ -167,7 +167,7 @@ def test_coding_page_uses_file_stem_in_title(client_with_sources):
     client, _ = client_with_sources
     resp = client.get("/code")
     assert resp.status_code == 200
-    assert "<title>Code — test — ACE</title>" in resp.text
+    assert "<title>ACE - test</title>" in resp.text
 
 
 def test_coding_page_title_uses_opened_file_stem_after_rename(tmp_path):
@@ -187,7 +187,7 @@ def test_coding_page_title_uses_opened_file_stem_after_rename(tmp_path):
         resp = client.get("/code")
 
     assert resp.status_code == 200
-    assert "<title>Code — workshop-template — ACE</title>" in resp.text
+    assert "<title>ACE - workshop-template</title>" in resp.text
     assert "<title>Code — Starter Project — ACE</title>" not in resp.text
 
 
