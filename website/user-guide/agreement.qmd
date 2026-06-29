@@ -10,9 +10,11 @@ Use agreement after coders have independently coded the same sources.
 
 Before comparing files, check that:
 
-- each coder used the same source set
+- each coder has coded the sources you want to compare
 - each coder used the same or comparable codebook
 - each coder has finished the coding round
+
+ACE only computes agreement on source texts that appear in every selected project file and have at least one annotation from every coder. If a source appears in every file but one coder did not code it, ACE leaves that source out of the agreement calculation.
 
 Agreement is a diagnostic tool. Use it to find codes that need discussion or clearer definitions.
 

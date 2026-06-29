@@ -168,12 +168,9 @@ class AgreementLoader:
                 "warnings": warnings,
             }
 
-        # Match sources by content_hash
-        hash_sets = [
-            {s["content_hash"] for s in fd["sources"].values()}
-            for fd in self._file_data
-        ]
-        common_hashes = hash_sets[0].intersection(*hash_sets[1:])
+        # Match sources by content_hash, then keep only sources coded in every file.
+        hash_sets = self._source_hash_sets()
+        common_hashes = self._common_source_hashes(hash_sets)
 
         all_hashes = set()
         for hs in hash_sets:
@@ -186,11 +183,28 @@ class AgreementLoader:
                 "warnings": warnings,
             }
 
-        partial = len(all_hashes) - len(common_hashes)
-        if partial > 0:
+        unmatched_source_texts = len(all_hashes) - len(common_hashes)
+        if unmatched_source_texts > 0:
             warnings.append(
-                f"{len(common_hashes)} of {len(all_hashes)} sources match. "
-                "Agreement will be computed on matched sources only."
+                f"{len(common_hashes)} of {len(all_hashes)} source texts match across all files. "
+                "Agreement can only use matched source texts."
+            )
+
+        eligible_source_hashes = self._source_hashes_coded_by_every_coder(common_hashes)
+        uncoded_matched_sources = len(common_hashes) - len(eligible_source_hashes)
+        if not eligible_source_hashes:
+            return {
+                "valid": False,
+                "error": (
+                    "These files share no source texts that are coded by every coder. "
+                    "Agreement cannot be computed."
+                ),
+                "warnings": warnings,
+            }
+        if uncoded_matched_sources > 0:
+            warnings.append(
+                f"{len(eligible_source_hashes)} of {len(common_hashes)} matched sources "
+                "are coded by every coder. Agreement will be computed on those sources only."
             )
 
         # Match codes by name (or fast-path via codebook_hash)
@@ -228,11 +242,52 @@ class AgreementLoader:
         return {
             "valid": True,
             "error": None,
-            "matched_sources": len(common_hashes),
+            "matched_sources": len(eligible_source_hashes),
             "matched_codes": len(common_code_names),
             "coders": [c.label for c in coder_labels],
             "n_coders": len(coder_labels),
             "warnings": warnings,
+        }
+
+    def _source_hash_sets(self) -> list[set[str]]:
+        return [
+            {s["content_hash"] for s in fd["sources"].values()}
+            for fd in self._file_data
+        ]
+
+    @staticmethod
+    def _common_source_hashes(hash_sets: list[set[str]]) -> set[str]:
+        if not hash_sets:
+            return set()
+        return hash_sets[0].intersection(*hash_sets[1:])
+
+    def _source_hashes_coded_by_every_coder(self, common_hashes: set[str]) -> set[str]:
+        eligible = set(common_hashes)
+        for fd in self._file_data:
+            file_coder_ids = self._active_coder_ids(fd)
+            source_id_to_hash = {
+                sid: s["content_hash"] for sid, s in fd["sources"].items()
+            }
+            coded_by_hash: dict[str, set[str]] = {h: set() for h in common_hashes}
+            for ann in fd["annotations"]:
+                source_hash = source_id_to_hash.get(ann["source_id"])
+                if source_hash in common_hashes:
+                    coded_by_hash[source_hash].add(ann["coder_id"])
+
+            eligible &= {
+                source_hash
+                for source_hash, coder_ids in coded_by_hash.items()
+                if file_coder_ids <= coder_ids
+            }
+        return eligible
+
+    @staticmethod
+    def _active_coder_ids(fd: dict) -> set[str]:
+        known_coder_ids = set(fd["coders"])
+        return {
+            ann["coder_id"]
+            for ann in fd["annotations"]
+            if ann["coder_id"] in known_coder_ids
         }
 
     def _resolve_coder_labels(self) -> list[CoderInfo]:
@@ -241,7 +296,10 @@ class AgreementLoader:
         raw: list[tuple[str, int, str, str]] = []
         name_counts: dict[str, int] = {}
         for i, fd in enumerate(self._file_data):
+            active_coder_ids = self._active_coder_ids(fd)
             for coder_id, coder_name in fd["coders"].items():
+                if coder_id not in active_coder_ids:
+                    continue
                 raw.append((coder_name, i, coder_id, fd["path"]))
                 name_counts[coder_name] = name_counts.get(coder_name, 0) + 1
 
@@ -269,12 +327,9 @@ class AgreementLoader:
         coders = self._resolve_coder_labels()
 
         # Build source lookup: content_hash -> MatchedSource
-        # Use intersection of content_hashes across all files
-        hash_sets = [
-            {s["content_hash"] for s in fd["sources"].values()}
-            for fd in self._file_data
-        ]
-        common_hashes = hash_sets[0].intersection(*hash_sets[1:])
+        # Use sources that are present and coded in every file.
+        common_hashes = self._common_source_hashes(self._source_hash_sets())
+        eligible_source_hashes = self._source_hashes_coded_by_every_coder(common_hashes)
 
         # Pick display_id and content_text from the first file that has each hash
         sources: list[MatchedSource] = []
@@ -282,7 +337,7 @@ class AgreementLoader:
         for fd in self._file_data:
             for src in fd["sources"].values():
                 h = src["content_hash"]
-                if h in common_hashes and h not in hash_to_source:
+                if h in eligible_source_hashes and h not in hash_to_source:
                     ms = MatchedSource(
                         content_hash=h,
                         display_id=src["display_id"],
@@ -335,7 +390,7 @@ class AgreementLoader:
                 code_name = code_info["name"] if code_info is not None else None
 
                 # Skip if source not in common set or code not matched
-                if source_hash not in common_hashes:
+                if source_hash not in eligible_source_hashes:
                     continue
                 if code_name not in code_name_set:
                     continue
