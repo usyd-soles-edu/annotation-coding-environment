@@ -28,6 +28,18 @@ Within a source:
 - press `Shift+Left` or `Shift+Right` to move between sources
 - click text when you want to select manually
 
+## Wording cues
+
+Wording cues are an optional aid for noticing possible connections between the sentence you are reading and the codes in your current codebook. Turn them on from the codebook menu by choosing **Show wording cues**.
+
+When wording cues are shown, ACE compares the focused sentence with the names and definitions of codes in the open project. If it finds wording that overlaps, it lightly marks up to three matching code rows that are currently visible in the sidebar. Code-name matches count more strongly than definition matches, and very short or common words are ignored.
+
+For transparency, wording cues run entirely on your computer. ACE uses SQLite full-text search, specifically [FTS5](https://www.sqlite.org/fts5.html) with SQLite's [BM25 ranking function](https://www.sqlite.org/fts5.html#the_bm25_function), through Python's standard [`sqlite3`](https://docs.python.org/3/library/sqlite3.html) interface. No AI model, cloud service, vector database, or separate search package is used.
+
+Wording cues are prompts for attention. They do not apply codes, create or change annotations, affect exports, change agreement results, or modify the project file. The temporary search index is built from the current codebook only, not from your previous coding decisions, so the feature does not learn from your work over time.
+
+Because wording cues match words rather than meaning, they can miss a relevant code or point to one that is not useful in context. Treat them as a quiet reminder to check your codebook, not as a recommendation about how the sentence should be coded. Folders are not suggested, and cues are hidden while the codebook search filter is active.
+
 ## Apply codes
 
 Steps:
@@ -37,6 +49,8 @@ Steps:
 3. Check the highlight and applied-code summary.
 
 You can apply visible codes with keyboard shortcuts. The codebook shows the available shortcut beside each code.
+
+If wording cues are turned on, use them as prompts to check the codebook. Apply a code only when it fits your interpretation of the passage.
 
 If the same code is applied to overlapping text, ACE merges the overlapping spans into a single annotation for that code.
 
