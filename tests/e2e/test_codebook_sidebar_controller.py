@@ -69,10 +69,20 @@ def _apply_annotation(page, code_id: str, start: int, end: int, text: str) -> No
               current_index: window.__aceCurrentIndex || 0,
             },
           });
+          await new Promise((resolve) => {
+            requestAnimationFrame(() => requestAnimationFrame(resolve));
+          });
         }
         """,
         {"codeId": code_id, "start": start, "end": end, "text": text},
     )
+
+
+def _code_row(page, label: str):
+    return page.locator(
+        "#ace-headless-tree-mount .ace-ht-row--code",
+        has_text=label,
+    ).first
 
 
 def _coded_text_row_style(page, selector: str) -> dict[str, str]:
@@ -351,6 +361,40 @@ def test_coded_text_view_arrow_navigation_does_not_crossfade_codebook(
                 """
             )
             assert page.evaluate("window.__aceViewTransitionCount") == 0
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_sidebar_counts_stay_global_after_annotation_only_update(
+    ace_server, browser_name
+):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount [role='treeitem']")
+            alpha_id = _code_row(page, "Alpha").get_attribute("data-code-id")
+            bravo_id = _code_row(page, "Bravo").get_attribute("data-code-id")
+            assert alpha_id
+            assert bravo_id
+
+            _apply_annotation(page, alpha_id, 0, 15, "First sentence.")
+            page.goto(f"{ace_server}/code?index=1")
+            page.wait_for_selector("#ace-headless-tree-mount [role='treeitem']")
+            _apply_annotation(page, alpha_id, 0, 15, "Third sentence.")
+            _apply_annotation(page, bravo_id, 16, 32, "Fourth sentence.")
+
+            page.goto(f"{ace_server}/code?index=0")
+            page.wait_for_selector("#ace-headless-tree-mount [role='treeitem']")
+            expect(_code_row(page, "Alpha").locator(".ace-ht-count")).to_have_text("2")
+            expect(_code_row(page, "Bravo").locator(".ace-ht-count")).to_have_text("1")
+
+            _apply_annotation(page, alpha_id, 16, 32, "Second sentence.")
+
+            expect(_code_row(page, "Alpha").locator(".ace-ht-count")).to_have_text("3")
+            expect(_code_row(page, "Bravo").locator(".ace-ht-count")).to_have_text("1")
         finally:
             browser.close()
 

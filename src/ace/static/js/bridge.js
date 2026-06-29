@@ -1811,26 +1811,47 @@
       ? document.getElementById("code-sidebar")
       : null;
 
-  // Patch per-row code-count chips from #ace-ann-data so the sidebar's
-  // visible state matches the swapped-in annotation list without needing
-  // the server to re-render the aside. Short-circuits when the raw
-  // annotations payload is byte-for-byte identical to the last call.
-  let _lastAnnDataPayload = "";
+  // Patch per-row code-count chips from #ace-ann-data so annotation-only
+  // updates don't need to re-render the full sidebar.
+  let _lastCodeCountPayload = "";
   function _syncCodeCounts() {
     const dataEl = document.getElementById("ace-ann-data");
     if (!dataEl) return;
-    const payload = dataEl.dataset.annotations || "[]";
-    if (payload === _lastAnnDataPayload) return;
-    _lastAnnDataPayload = payload;
-    let annotations;
-    try {
-      annotations = JSON.parse(payload);
-    } catch (_) {
-      return;
-    }
+    const annPayload = dataEl.dataset.annotations || "[]";
+    const countPayload = dataEl.dataset.codeCounts || "";
+    const payloadKey = `${annPayload}\n${countPayload}`;
+    if (payloadKey === _lastCodeCountPayload) return;
+    _lastCodeCountPayload = payloadKey;
     const counts = new Map();
-    for (const a of annotations) {
-      counts.set(a.code_id, (counts.get(a.code_id) || 0) + 1);
+    let usedGlobalCounts = false;
+    if (countPayload) {
+      try {
+        const parsedCounts = JSON.parse(countPayload);
+        if (
+          parsedCounts &&
+          typeof parsedCounts === "object" &&
+          !Array.isArray(parsedCounts)
+        ) {
+          Object.entries(parsedCounts).forEach(function ([codeId, value]) {
+            const n = Number(value);
+            counts.set(String(codeId), Number.isFinite(n) ? n : 0);
+          });
+          usedGlobalCounts = true;
+        }
+      } catch (_) {
+        usedGlobalCounts = false;
+      }
+    }
+    if (!usedGlobalCounts) {
+      let annotations;
+      try {
+        annotations = JSON.parse(annPayload);
+      } catch (_) {
+        return;
+      }
+      for (const a of annotations) {
+        counts.set(a.code_id, (counts.get(a.code_id) || 0) + 1);
+      }
     }
     document
       .querySelectorAll("#ace-headless-tree-mount .ace-ht-row--code[data-code-id]")
