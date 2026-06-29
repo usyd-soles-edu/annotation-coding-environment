@@ -4680,7 +4680,10 @@
         signal: controller.signal,
       })
         .then(function (response) {
-          if (!response.ok) return null;
+          if (!response.ok) {
+            _clearCodeCueRows();
+            return null;
+          }
           return response.json();
         })
         .then(function (data) {
@@ -4713,6 +4716,15 @@
       _clearCodeCues();
     }
   }
+
+  document.addEventListener("input", function (e) {
+    if (!e.target || e.target.id !== "code-search-input") return;
+    if (_codebookFilterActive()) {
+      _clearCodeCues();
+    } else if (_codeCuesEnabled()) {
+      _scheduleCodeCues();
+    }
+  }, true);
 
   function _setCodebookMenuOpen(open, opts) {
     const btn = document.getElementById("codebook-menu-btn");

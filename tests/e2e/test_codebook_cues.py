@@ -19,8 +19,8 @@ def _install_code_cue_fetch_spy(page):
                 const record = {
                   body,
                   aborted: false,
-                  resolve: (payload) => resolve(new Response(JSON.stringify(payload), {
-                    status: 200,
+                  resolve: (payload, status = 200) => resolve(new Response(JSON.stringify(payload || {}), {
+                    status,
                     headers: { "Content-Type": "application/json" },
                   })),
                 };
@@ -214,6 +214,28 @@ def test_wording_cues_clear_and_stop_while_codebook_filter_is_active(ace_server,
             page.wait_for_timeout(250)
 
             assert page.evaluate("window.__aceCueFetches.length") == 1
+
+            search.fill("")
+            page.wait_for_function("window.__aceCueFetches.length === 2")
+            page.evaluate(
+                """
+                (codeId) => {
+                  const request = window.__aceCueFetches[1].body;
+                  window.__aceCueFetches[1].resolve({
+                    request_id: request.request_id,
+                    current_index: request.current_index,
+                    sentence_index: request.sentence_index,
+                    start: request.start,
+                    end: request.end,
+                    cues: [{ code_id: codeId, rank: 0.5, matched_terms: ["second"] }],
+                  });
+                }
+                """,
+                alpha_id,
+            )
+            page.wait_for_selector(
+                f'#ace-headless-tree-mount .ace-ht-row--code[data-code-id="{alpha_id}"].ace-code-row--cue'
+            )
         finally:
             browser.close()
 
@@ -376,6 +398,53 @@ def test_wording_cues_discard_response_after_focus_changes_before_next_request(
                 alpha_id,
             )
             page.wait_for_timeout(80)
+
+            expect(
+                page.locator(
+                    f'#ace-headless-tree-mount .ace-ht-row--code[data-code-id="{alpha_id}"].ace-code-row--cue'
+                )
+            ).to_have_count(0)
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_wording_cues_clear_on_failed_response(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            _install_code_cue_fetch_spy(page)
+            page.evaluate("localStorage.setItem('ace-codebook-cues-enabled', '1')")
+
+            alpha_id = page.locator("#ace-headless-tree-mount .ace-ht-row--code").nth(0).get_attribute("data-code-id")
+
+            page.locator(".ace-sentence").nth(0).click()
+            page.wait_for_function("window.__aceCueFetches.length === 1")
+            page.evaluate(
+                """
+                (codeId) => {
+                  const request = window.__aceCueFetches[0].body;
+                  window.__aceCueFetches[0].resolve({
+                    request_id: request.request_id,
+                    current_index: request.current_index,
+                    sentence_index: request.sentence_index,
+                    start: request.start,
+                    end: request.end,
+                    cues: [{ code_id: codeId, rank: 0.5, matched_terms: ["first"] }],
+                  });
+                }
+                """,
+                alpha_id,
+            )
+            page.wait_for_selector(
+                f'#ace-headless-tree-mount .ace-ht-row--code[data-code-id="{alpha_id}"].ace-code-row--cue'
+            )
+
+            page.locator(".ace-sentence").nth(1).click()
+            page.wait_for_function("window.__aceCueFetches.length === 2")
+            page.evaluate("window.__aceCueFetches[1].resolve({}, 500)")
 
             expect(
                 page.locator(

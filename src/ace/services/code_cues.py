@@ -24,6 +24,8 @@ _STOP_WORDS = {
     "your", "yours", "yourself", "yourselves",
 }
 
+_FTS_TOKENIZERS = ("porter unicode61", "unicode61")
+
 
 def _tokens(text: str) -> list[str]:
     seen: set[str] = set()
@@ -41,22 +43,27 @@ def _query_from_tokens(tokens: list[str]) -> str:
 
 
 def _create_temp_index(conn: sqlite3.Connection) -> bool:
-    try:
-        conn.execute("DROP TABLE IF EXISTS temp.code_cue_fts")
-        conn.execute(
-            """
+    for tokenizer in _FTS_TOKENIZERS:
+        try:
+            conn.execute("DROP TABLE IF EXISTS temp.code_cue_fts")
+            conn.execute(
+                f"""
             CREATE VIRTUAL TABLE temp.code_cue_fts USING fts5(
               name,
               definition,
               cue_text,
               code_id UNINDEXED,
-              tokenize = 'porter unicode61'
+              tokenize = '{tokenizer}'
             )
             """
-        )
-    except sqlite3.OperationalError:
-        return False
-    return True
+            )
+            return True
+        except sqlite3.OperationalError:
+            try:
+                conn.execute("DROP TABLE IF EXISTS temp.code_cue_fts")
+            except sqlite3.OperationalError:
+                pass
+    return False
 
 
 def _index_codes(conn: sqlite3.Connection) -> None:

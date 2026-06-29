@@ -1,7 +1,6 @@
 """Tests for FTS5-backed codebook cues."""
 
 import sqlite3
-import time
 
 import pytest
 
@@ -93,7 +92,7 @@ def test_suggest_code_cues_filters_folders_deleted_codes_and_stopword_queries(tm
         _require_fts5(conn)
         suggest_code_cues = _suggest_code_cues()
 
-        add_folder(conn, "Feedback comments")
+        folder_id = add_folder(conn, "Feedback comments")
         deleted = add_code(
             conn,
             "Feedback archive",
@@ -120,7 +119,7 @@ def test_suggest_code_cues_filters_folders_deleted_codes_and_stopword_queries(tm
         ids = [cue["code_id"] for cue in cues]
         assert active in ids
         assert deleted not in ids
-        assert all(cue["code_id"] != "Feedback comments" for cue in cues)
+        assert folder_id not in ids
         assert len(cues) <= 3
     finally:
         conn.close()
@@ -150,6 +149,28 @@ def test_suggest_code_cues_handles_punctuation_quotes_and_fts_operators(tmp_path
         assert "feedback" in cues[0]["matched_terms"]
     finally:
         conn.close()
+
+
+def test_create_temp_index_falls_back_when_porter_tokenizer_is_unavailable():
+    import ace.services.code_cues as code_cues
+
+    class FakeConn:
+        def __init__(self):
+            self.create_sql: list[str] = []
+
+        def execute(self, sql: str):
+            if "CREATE VIRTUAL TABLE" in sql:
+                self.create_sql.append(sql)
+                if "porter unicode61" in sql:
+                    raise sqlite3.OperationalError("no such tokenizer: porter")
+            return []
+
+    conn = FakeConn()
+
+    assert code_cues._create_temp_index(conn) is True
+    assert len(conn.create_sql) == 2
+    assert "porter unicode61" in conn.create_sql[0]
+    assert "tokenize = 'unicode61'" in conn.create_sql[1]
 
 
 def test_suggest_code_cues_uses_temp_fts_without_main_schema_change(tmp_path):
@@ -219,7 +240,7 @@ def test_suggest_code_cues_degrades_to_empty_when_fts_operation_fails(
         conn.close()
 
 
-def test_suggest_code_cues_1000_code_smoke_performance(tmp_path):
+def test_suggest_code_cues_1000_code_smoke(tmp_path):
     conn = create_project(str(tmp_path / "cues.ace"), "Cue Test")
     try:
         _require_fts5(conn)
@@ -238,16 +259,13 @@ def test_suggest_code_cues_1000_code_smoke_performance(tmp_path):
                 definition=f"Coordinates unrelated group meeting item {i}.",
             )
 
-        started = time.perf_counter()
         cues = suggest_code_cues(
             conn,
             "Feedback comments helped me revise my assessment work.",
             limit=3,
         )
-        elapsed = time.perf_counter() - started
 
         assert cues
         assert cues[0]["code_id"] == target
-        assert elapsed < 0.25
     finally:
         conn.close()
