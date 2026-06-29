@@ -28,6 +28,24 @@ Within a source:
 - press `Shift+Left` or `Shift+Right` to move between sources
 - click text when you want to select manually
 
+## Wording cues
+
+Wording cues are an optional reading aid for the codebook.
+
+When wording cues are on, ACE checks the focused sentence against the project's codebook. It compares the sentence with code names and code definitions, then lightly marks up to three matching code rows that are visible in the sidebar.
+
+To turn them on, open the codebook menu and choose **Show wording cues**. The setting stays on until you turn it off.
+
+Wording cues use text matching, not artificial intelligence. ACE ignores very short words and common words such as **`the`**, **`and`**, and **`because`**. It then ranks the remaining word matches. A match in a code name counts more strongly than a match in a definition.
+
+Wording cues do not understand meaning beyond the words provided. They do not detect every synonym, judge whether a code is correct, or learn from your coding decisions. If the sentence uses different language from the codebook, ACE may show no cue even when a code would still be appropriate.
+
+A wording cue does not apply a code. It does not change annotations, exports, agreement results, or the project file. It only changes how the codebook rows are displayed while you are coding.
+
+ACE does not send source text to an external service for wording cues. Matching is done by the local ACE app against the open project's codebook.
+
+Wording cues are hidden while the codebook search filter is active, so search results are not mixed with cue highlights.
+
 ## Apply codes
 
 Steps:
@@ -37,6 +55,8 @@ Steps:
 3. Check the highlight and applied-code summary.
 
 You can apply visible codes with keyboard shortcuts. The codebook shows the available shortcut beside each code.
+
+If you use [wording cues](#wording-cues), treat them as prompts to look at a code row, not as recommendations to code the text.
 
 If the same code is applied to overlapping text, ACE merges the overlapping spans into a single annotation for that code.
 
