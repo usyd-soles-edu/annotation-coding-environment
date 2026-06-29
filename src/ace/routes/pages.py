@@ -213,6 +213,7 @@ def _coding_context(
         for ann in annotations_list
         if ann["code_id"] in codes_by_id
     ])))
+    code_counts_json = Markup(html.escape(json.dumps(code_counts_by_id)))
 
     # Coder name
     coder_row = conn.execute(
@@ -259,6 +260,7 @@ def _coding_context(
         "margin_codes": margin_codes,
         "applied_code_rows": applied_code_rows,
         "annotation_highlights_json": annotation_highlights_json,
+        "code_counts_json": code_counts_json,
         "show_coding_text_controls": True,
         "version": __version__,
     }

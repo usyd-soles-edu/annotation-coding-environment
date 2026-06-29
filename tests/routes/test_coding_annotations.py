@@ -659,6 +659,7 @@ def test_counter_chip_is_static(client_with_codes):
 
 def test_annotate_refreshes_grid(client_with_codes):
     """POST /api/code/apply returns OOB sources blob with incremented count."""
+    import html
     import json
     import re
     client, coder_id, code_a, _, _ = client_with_codes
@@ -675,7 +676,8 @@ def test_annotate_refreshes_grid(client_with_codes):
         },
     )
     assert resp.status_code == 200
-    # Annotation apply omits the sidebar OOB — counts are patched client-side.
+    # Annotation apply omits the sidebar OOB — counts are patched client-side
+    # from the OOB count payload.
     assert 'id="code-sidebar"' not in resp.text
     assert 'id="ace-sources-data"' in resp.text
 
@@ -690,9 +692,15 @@ def test_annotate_refreshes_grid(client_with_codes):
     payload = json.loads(m.group(1))
     assert payload[0]["count"] == 1
 
+    m = re.search(r'data-code-counts="([^"]*)"', resp.text)
+    assert m, "code-count payload missing from response"
+    counts = json.loads(html.unescape(m.group(1)))
+    assert counts[code_a] == 1
+
 
 def test_delete_refreshes_grid(client_with_codes):
     """Deleting an annotation returns OOB sources blob with decremented count."""
+    import html
     import json
     import re
     client, coder_id, code_a, _, _ = client_with_codes
@@ -730,7 +738,8 @@ def test_delete_refreshes_grid(client_with_codes):
     assert resp.status_code == 200, (
         f"delete returned {resp.status_code}: {resp.text[:200]}"
     )
-    # Annotation delete omits the sidebar OOB — counts are patched client-side.
+    # Annotation delete omits the sidebar OOB — counts are patched client-side
+    # from the OOB count payload.
     assert 'id="code-sidebar"' not in resp.text
     assert 'id="ace-sources-data"' in resp.text
 
@@ -742,6 +751,11 @@ def test_delete_refreshes_grid(client_with_codes):
     assert m, "ace-sources-data OOB fragment missing after delete"
     sources = json.loads(m.group(1))
     assert sources[0]["count"] == 0
+
+    m = re.search(r'data-code-counts="([^"]*)"', resp.text)
+    assert m, "code-count payload missing after delete"
+    counts = json.loads(html.unescape(m.group(1)))
+    assert counts.get(code_a, 0) == 0
 
 
 def test_coding_page_has_notification_receipt_host(client_with_sources):

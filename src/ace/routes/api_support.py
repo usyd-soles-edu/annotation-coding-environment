@@ -736,7 +736,15 @@ def _render_colour_style_oob(codes: list[dict]) -> str:
 def _render_ann_data_oob(ctx: dict) -> str:
     """Generate OOB div with annotation data for the SVG highlight overlay."""
     ann_json = ctx.get("annotation_highlights_json", "[]")
-    return f'<div id="ace-ann-data" class="ace-hidden" data-annotations="{ann_json}" hx-swap-oob="outerHTML"></div>'
+    code_counts_json = ctx.get("code_counts_json")
+    if code_counts_json is None:
+        code_counts_json = html.escape(json.dumps(ctx.get("code_counts_by_id", {})))
+    return (
+        '<div id="ace-ann-data" class="ace-hidden" '
+        f'data-annotations="{ann_json}" '
+        f'data-code-counts="{code_counts_json}" '
+        'hx-swap-oob="outerHTML"></div>'
+    )
 
 
 def _render_sources_data_oob(ctx: dict) -> str:
@@ -769,8 +777,8 @@ def _render_full_coding_oob(
 
     `include_sidebar=False` is for navigate/flag/undo paths where the
     sidebar's structure is unchanged — bridge.js's _syncCodeCounts patches
-    the per-row count chips from the swapped-in #ace-ann-data so the aside
-    doesn't need to be torn down and rebuilt on every action.
+    the per-row count chips from the global count payload in #ace-ann-data so
+    the aside doesn't need to be torn down and rebuilt on every action.
     """
     from ace.routes.pages import _coding_context
     from jinja2_fragments import render_block
@@ -964,8 +972,8 @@ def _annotation_only_response(
 
     Returns applied-codes panel + data blobs only; bridge.js refreshes SVG
     highlights inside the existing #ace-hl-overlay and patches count chips
-    from the swapped-in ann-data. HX-Reswap: none tells HTMX to leave #text-panel
-    alone (otherwise the empty primary body would wipe it).
+    from the swapped-in global count payload. HX-Reswap: none tells HTMX to
+    leave #text-panel alone (otherwise the empty primary body would wipe it).
     """
     from ace.routes.pages import _coding_context
     from jinja2_fragments import render_block
