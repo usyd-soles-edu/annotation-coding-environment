@@ -706,6 +706,53 @@
   background: var(--ace-bg-muted);
 }
 
+.ace-code-row--cue,
+.ace-ht-row--cue {
+  background: rgba(0, 0, 0, 0.035);
+}
+
+.ace-code-row--cue::after,
+.ace-ht-row--cue::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 2px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: 1px;
+  background: rgba(0, 0, 0, 0.34);
+  pointer-events: none;
+}
+
+.ace-code-row--cue:hover,
+.ace-ht-row--cue:hover,
+.ace-code-row--flash.ace-code-row--cue,
+.ace-ht-row.ace-code-row--flash.ace-ht-row--cue,
+.ace-code-row--search-target.ace-code-row--cue,
+.ace-ht-row--search-target.ace-ht-row--cue {
+  background: var(--ace-bg-muted);
+}
+
+.ace-code-row--reordering.ace-code-row--cue,
+.ace-ht-row.ace-code-row--reordering.ace-ht-row--cue {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+body[data-active-zone="codebook"] .ace-code-row[tabindex="0"].ace-code-row--cue::after,
+body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"].ace-ht-row--cue::after,
+.ace-code-row--cue:hover::after,
+.ace-ht-row--cue:hover::after,
+.ace-code-row--ghost.ace-code-row--cue::after,
+.ace-ht-row--ghost.ace-ht-row--cue::after,
+.ace-code-row--reordering.ace-code-row--cue::after,
+.ace-ht-row.ace-code-row--reordering.ace-ht-row--cue::after,
+.ace-code-row--flash.ace-code-row--cue::after,
+.ace-ht-row.ace-code-row--flash.ace-ht-row--cue::after,
+.ace-code-row--search-target.ace-code-row--cue::after,
+.ace-ht-row--search-target.ace-ht-row--cue::after {
+  opacity: 0;
+}
+
 .ace-ht-row--path-parent {
   background: #f4f4f0;
   box-shadow: inset 3px 0 0 #8d8d86;
@@ -1968,6 +2015,40 @@ body[data-platform="other"] .ace-hint-meta::before { content: "Ctrl"; }
 }
 
 .ace-codebook-dropdown-item:hover { background: var(--ace-bg-muted); }
+
+.ace-codebook-dropdown-item--check {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: 8px;
+  align-items: start;
+  line-height: 1.2;
+}
+
+.ace-codebook-dropdown-check {
+  visibility: hidden;
+  font-size: var(--ace-font-size-xs);
+  line-height: 1.2;
+  padding-top: 1px;
+}
+
+.ace-codebook-dropdown-item--check[aria-checked="true"] .ace-codebook-dropdown-check {
+  visibility: visible;
+}
+
+.ace-codebook-dropdown-copy {
+  min-width: 0;
+}
+
+.ace-codebook-dropdown-label,
+.ace-codebook-dropdown-help {
+  display: block;
+}
+
+.ace-codebook-dropdown-help {
+  margin-top: 2px;
+  font-size: var(--ace-font-size-2xs);
+  line-height: 1.25;
+}
 
 .ace-codebook-dropdown-sep {
   border: none;

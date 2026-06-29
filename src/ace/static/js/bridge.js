@@ -166,6 +166,7 @@
     let el = sentences[idx];
     el.classList.add("ace-sentence--focused");
     el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    _scheduleCodeCues();
   }
 
   function _restoreFocus() {
@@ -1856,6 +1857,11 @@
     if (tree && _sidebarFocusState.scrollTop) {
       tree.scrollTop = _sidebarFocusState.scrollTop;
     }
+    if (_codeCuesEnabled()) {
+      _scheduleCodeCues();
+    } else {
+      _clearCodeCues();
+    }
   }
 
   // Re-render the source grid if its data blob is present in the swapped
@@ -2012,6 +2018,7 @@
     if (typeof _setCut === "function") {
       _setCut(null);
     }
+    _clearCodeCues();
     const detail = e.detail || {};
     if (detail.index !== undefined) {
       window.__aceCurrentIndex = parseInt(detail.index, 10);
@@ -4552,6 +4559,173 @@
    * 18. Codebook menu
    * ================================================================ */
 
+  const CODE_CUES_ENABLED_KEY = "ace-codebook-cues-enabled";
+  const CODE_CUES_DELAY_MS = 150;
+  const CODE_CUES_MAX = 3;
+  let _codeCueTimer = null;
+  let _codeCueController = null;
+  let _codeCueRequestId = 0;
+
+  function _codeCuesEnabled() {
+    return window.localStorage.getItem(CODE_CUES_ENABLED_KEY) === "1";
+  }
+
+  function _syncCodeCuesMenuItem() {
+    const btn = document.getElementById("codebook-cues-toggle-btn");
+    if (!btn) return;
+    btn.setAttribute("aria-checked", _codeCuesEnabled() ? "true" : "false");
+  }
+
+  function _codeCueSelector(codeId) {
+    const raw = String(codeId);
+    const escaped = window.CSS && typeof window.CSS.escape === "function"
+      ? window.CSS.escape(raw)
+      : raw.replace(/["\\]/g, "\\$&");
+    return `.ace-code-row[data-code-id="${escaped}"], .ace-ht-row--code[data-code-id="${escaped}"]`;
+  }
+
+  function _clearCodeCueRows() {
+    document.querySelectorAll(".ace-code-row--cue, .ace-ht-row--cue").forEach(function (row) {
+      row.classList.remove("ace-code-row--cue");
+      row.classList.remove("ace-ht-row--cue");
+    });
+  }
+
+  function _clearCodeCues() {
+    _codeCueRequestId += 1;
+    if (_codeCueTimer !== null) {
+      clearTimeout(_codeCueTimer);
+      _codeCueTimer = null;
+    }
+    if (_codeCueController) {
+      _codeCueController.abort();
+      _codeCueController = null;
+    }
+    _clearCodeCueRows();
+  }
+
+  function _codebookFilterActive() {
+    const input = document.getElementById("code-search-input");
+    return !!(input && input.value.trim());
+  }
+
+  function _focusedSentenceCuePayload(requestId) {
+    const sentence = document.querySelector(".ace-sentence--focused");
+    if (!sentence) return null;
+    const sentences = Array.from(_getSentences());
+    const sentenceIndex = sentences.indexOf(sentence);
+    if (sentenceIndex < 0) return null;
+    const start = Number.parseInt(sentence.dataset.start || "-1", 10);
+    const end = Number.parseInt(sentence.dataset.end || "-1", 10);
+    return {
+      request_id: requestId,
+      current_index: Number.isFinite(window.__aceCurrentIndex) ? window.__aceCurrentIndex : 0,
+      sentence_index: sentenceIndex,
+      start: Number.isFinite(start) ? start : -1,
+      end: Number.isFinite(end) ? end : -1,
+      text: sentence.textContent || "",
+    };
+  }
+
+  function _rowIsCueVisible(row) {
+    if (!row || row.hidden) return false;
+    const style = window.getComputedStyle(row);
+    return style.display !== "none" && style.visibility !== "hidden";
+  }
+
+  function _applyCodeCues(cues) {
+    _clearCodeCueRows();
+    if (!_codeCuesEnabled() || _codebookFilterActive()) return;
+    (cues || []).slice(0, CODE_CUES_MAX).forEach(function (cue) {
+      document.querySelectorAll(_codeCueSelector(cue.code_id)).forEach(function (row) {
+        if (!_rowIsCueVisible(row)) return;
+        row.classList.add("ace-code-row--cue");
+        row.classList.add("ace-ht-row--cue");
+      });
+    });
+  }
+
+  function _scheduleCodeCues() {
+    const requestId = _codeCueRequestId + 1;
+    _codeCueRequestId = requestId;
+    if (_codeCueTimer !== null) {
+      clearTimeout(_codeCueTimer);
+      _codeCueTimer = null;
+    }
+    if (_codeCueController) {
+      _codeCueController.abort();
+      _codeCueController = null;
+    }
+    if (!_codeCuesEnabled() || _codebookFilterActive()) {
+      _clearCodeCues();
+      return;
+    }
+    _codeCueTimer = setTimeout(function () {
+      _codeCueTimer = null;
+      if (!_codeCuesEnabled() || _codebookFilterActive()) {
+        _clearCodeCues();
+        return;
+      }
+      const payload = _focusedSentenceCuePayload(requestId);
+      if (!payload) {
+        _clearCodeCues();
+        return;
+      }
+      const controller = new AbortController();
+      _codeCueController = controller;
+      fetch("/api/code-cues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      })
+        .then(function (response) {
+          if (!response.ok) {
+            _clearCodeCueRows();
+            return null;
+          }
+          return response.json();
+        })
+        .then(function (data) {
+          if (!data) return;
+          if (data.request_id !== payload.request_id) return;
+          if (data.current_index !== payload.current_index) return;
+          if (data.sentence_index !== payload.sentence_index) return;
+          if (data.start !== payload.start || data.end !== payload.end) return;
+          if (payload.request_id !== _codeCueRequestId) return;
+          _applyCodeCues(data.cues || []);
+        })
+        .catch(function (err) {
+          if (err && err.name === "AbortError") return;
+          _clearCodeCueRows();
+        })
+        .finally(function () {
+          if (_codeCueController === controller) {
+            _codeCueController = null;
+          }
+        });
+    }, CODE_CUES_DELAY_MS);
+  }
+
+  function _setCodeCuesEnabled(enabled) {
+    window.localStorage.setItem(CODE_CUES_ENABLED_KEY, enabled ? "1" : "0");
+    _syncCodeCuesMenuItem();
+    if (enabled) {
+      _scheduleCodeCues();
+    } else {
+      _clearCodeCues();
+    }
+  }
+
+  document.addEventListener("input", function (e) {
+    if (!e.target || e.target.id !== "code-search-input") return;
+    if (_codebookFilterActive()) {
+      _clearCodeCues();
+    } else if (_codeCuesEnabled()) {
+      _scheduleCodeCues();
+    }
+  }, true);
+
   function _setCodebookMenuOpen(open, opts) {
     const btn = document.getElementById("codebook-menu-btn");
     const dropdown = document.getElementById("codebook-dropdown");
@@ -4560,6 +4734,7 @@
     btn.setAttribute("aria-expanded", open ? "true" : "false");
     dropdown.hidden = !open;
     if (open) {
+      _syncCodeCuesMenuItem();
       const firstItem = dropdown.querySelector("button:not([disabled])");
       if (firstItem) firstItem.focus();
     } else if (options.restoreFocus) {
@@ -4570,7 +4745,7 @@
   function _codebookMenuItems() {
     const dropdown = document.getElementById("codebook-dropdown");
     if (!dropdown) return [];
-    return Array.from(dropdown.querySelectorAll('[role="menuitem"]:not([disabled])'));
+    return Array.from(dropdown.querySelectorAll('[role="menuitem"]:not([disabled]), [role="menuitemcheckbox"]:not([disabled])'));
   }
 
   function _focusCodebookMenuItem(delta) {
@@ -4589,6 +4764,11 @@
     if (e.target.closest("#codebook-menu-shortcuts-btn")) {
       _setCodebookMenuOpen(false);
       _toggleCheatSheet();
+      return;
+    }
+
+    if (e.target.closest("#codebook-cues-toggle-btn")) {
+      _setCodeCuesEnabled(!_codeCuesEnabled());
       return;
     }
 
