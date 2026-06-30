@@ -901,13 +901,14 @@
       _shortcutRow("Ctrl/⌘ + Z", "Undo") +
       _shortcutRow("Ctrl/⌘ + Shift + Z", "Redo") +
       _shortcutRow("Shift + F", "Flag/unflag source") +
-      _shortcutRow("N", "Open / close note panel") +
+      _shortcutRow("N", "Open note · press N again to edit · Esc to close") +
       _shortcutRow("V", "View coded text") +
       _shortcutRow("Applied ↑ / ↓", "Move through applied codes") +
       _shortcutRow("Applied ← / Esc", "Return to source") +
       _shortcutRow("]", "Open / collapse applied codes") +
       _shortcutRow("Applied Delete", "Delete the focused annotation") +
       _shortcutRow("Tab", "Cycle source → search → tree → source") +
+      _shortcutRow("/", "Focus codebook search") +
       _shortcutRow("⌥ + →", "Move item into the folder above") +
       _shortcutRow("⌥ + ⇧ + →", "Wrap two sibling codes into a new folder") +
       _shortcutRow("⌥ + ←", "Move item out one folder level") +
