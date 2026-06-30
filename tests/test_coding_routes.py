@@ -209,6 +209,29 @@ def test_coding_page_auto_creates_assignments(client_with_sources):
     assert 'id="ace-sources-data"' in resp.text
 
 
+def test_source_map_hidden_for_single_source(tmp_path):
+    """The source-map panel is dead weight for <= 1 source -- hide it (#75)."""
+    app = create_app()
+    db_path = tmp_path / "single.ace"
+    conn = create_project(str(db_path), "Single")
+    coders = list_coders(conn)
+    coder_id = coders[0]["id"]
+    add_source(conn, "S001", "The only document in this project.", "row")
+    add_code(conn, "Theme A", "#BF6030")
+    conn.close()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        app.state.project_path = str(db_path)
+        app.state.coder_id = coder_id
+        resp = client.get("/code")
+
+    assert resp.status_code == 200
+    assert 'id="ace-sidebar-grid"' not in resp.text
+    assert 'id="ace-grid-tiles"' not in resp.text
+    assert 'id="ace-sources-data"' not in resp.text
+    assert 'class="ace-sidebar-vsplit"' not in resp.text
+    # The codebook tree must still render.
+    assert 'id="code-sidebar"' in resp.text
 
 
 def test_sidebar_strip_wordmark_links_home(client_with_sources):

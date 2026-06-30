@@ -103,6 +103,7 @@ rect.ace-flash-{{ code["id"] }} {
     <aside id="code-sidebar" class="ace-sidebar" aria-label="Codebook">
       {% set codebook_mode = codebook_mode|default("coding") %}
       {% include "_sidebar_codebook.html" %}
+      {% if total_sources > 1 %}
       <div class="ace-sidebar-vsplit"
            role="separator"
            aria-orientation="horizontal"
@@ -141,6 +142,7 @@ rect.ace-flash-{{ code["id"] }} {
           <div id="ace-grid-live" class="ace-sr-only" aria-live="polite"></div>
         </div>
       </section>
+      {% endif %}
       {# OOB swap target for one-shot flash-on-undo/redo scripts (see _build_undo_response) #}
       <script id="ace-undo-flash"></script>
     </aside>
