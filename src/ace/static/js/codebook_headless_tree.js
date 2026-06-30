@@ -2032,7 +2032,12 @@
     }
     function flashStatus(text, ms) {
       setStatus(text);
-      setTimeout(function () { setStatus(""); }, ms || 1500);
+      setTimeout(function () {
+        // Only clear if this message is still showing — don't clobber a newer
+        // status (e.g. a later "Move failed" / "Creating") set in the window.
+        const el = document.querySelector("[data-headless-tree-status]");
+        if (el && el.textContent === text) el.textContent = "";
+      }, ms || 1500);
     }
     function currentIndex() {
       return window.__aceCurrentIndex || 0;
