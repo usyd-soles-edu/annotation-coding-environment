@@ -650,16 +650,34 @@
     if (_isTyping()) return;
     if (_menuOpen) return;
 
-    // Only handle keys when text panel (or nothing specific) is focused
-    let zone = _activeZone();
-    if (zone === "search" || zone === "tree") return;
     // Skip entirely on pages without the coding surface (e.g. /code/{id}/view
     // shares bridge.js but has no #text-panel; its shortcuts live in code_view.js).
     if (!document.getElementById("text-panel")) return;
 
+    let zone = _activeZone();
     const key = e.key;
     const ctrl = e.ctrlKey || e.metaKey;
     const shift = e.shiftKey;
+
+    if (zone === "tree") {
+      if (!ctrl && !e.altKey && key === "/" && !shift) {
+        e.preventDefault();
+        _focusSearchBar();
+        return;
+      }
+      if (!ctrl && !e.altKey && key === "ArrowLeft" && shift) {
+        e.preventDefault();
+        _navigateSourceFromKeyboard(window.__aceCurrentIndex - 1);
+        return;
+      }
+      if (!ctrl && !e.altKey && key === "ArrowRight" && shift) {
+        e.preventDefault();
+        _navigateSourceFromKeyboard(window.__aceCurrentIndex + 1);
+        return;
+      }
+      return;
+    }
+    if (zone === "search") return;
 
     // Z / Shift+Z / Cmd-Z / Cmd+Shift+Z — global undo / redo
     // Focus passthrough is handled above by _isTyping() so text inputs keep
@@ -780,6 +798,8 @@
           _focusSentence(0);
         }
         _applyCode(codeId);
+      } else if (pos >= 0 && _currentKeyMap.length === 0) {
+        _maybeNoCodeHint();
       }
     }
   });
@@ -881,13 +901,14 @@
       _shortcutRow("Ctrl/⌘ + Z", "Undo") +
       _shortcutRow("Ctrl/⌘ + Shift + Z", "Redo") +
       _shortcutRow("Shift + F", "Flag/unflag source") +
-      _shortcutRow("N", "Open / close note panel") +
+      _shortcutRow("N", "Open note · press N again to edit · Esc to close") +
       _shortcutRow("V", "View coded text") +
       _shortcutRow("Applied ↑ / ↓", "Move through applied codes") +
       _shortcutRow("Applied ← / Esc", "Return to source") +
       _shortcutRow("]", "Open / collapse applied codes") +
       _shortcutRow("Applied Delete", "Delete the focused annotation") +
       _shortcutRow("Tab", "Cycle source → search → tree → source") +
+      _shortcutRow("/", "Focus codebook search") +
       _shortcutRow("⌥ + →", "Move item into the folder above") +
       _shortcutRow("⌥ + ⇧ + →", "Wrap two sibling codes into a new folder") +
       _shortcutRow("⌥ + ←", "Move item out one folder level") +
@@ -1109,6 +1130,7 @@
     windowStart: 0,
     visibleCount: 0,
     resizeObs: null,
+    tilesEl: null,
     hoveredIndex: -1, // -1 means "no hover; show active"
     lastActive: -1,   // last rendered active index; used to decide whether to
                       // auto-centre the viewport (only on active-source change,
@@ -1144,6 +1166,42 @@
       src = st.sources[window.__aceCurrentIndex];
     }
     el.textContent = _aceInspectorLine(src);
+    el.title = el.textContent;
+  }
+
+  // One-shot status hint when a code hotkey is pressed but the codebook has
+  // no codes yet. Gated by localStorage so it never nags. See issue #75.
+  function _maybeNoCodeHint() {
+    try {
+      if (localStorage.getItem("ace-no-code-hint-seen") === "1") return;
+      localStorage.setItem("ace-no-code-hint-seen", "1");
+    } catch (_) {}
+    if (typeof window._setStatus === "function") {
+      window._setStatus("No codes yet \u2014 add one in the codebook", "ok");
+    }
+  }
+
+  let _lastAnnouncedSourceIndex = -1;
+
+  // Announce the loaded source to screen readers via #ace-grid-live. Called
+  // once per page load (source navigation is a full reload). Deferred via
+  // setTimeout because aria-live updates during page load are dropped by
+  // VoiceOver/NVDA. See issue #75.
+  function _aceAnnounceCurrentSource() {
+    const live = document.getElementById("ace-grid-live");
+    if (!live) return;
+    const idx = (typeof window.__aceCurrentIndex === "number")
+      ? window.__aceCurrentIndex : -1;
+    if (idx < 0 || idx === _lastAnnouncedSourceIndex) return;
+    const st = _aceSourceGridState;
+    const src = (idx >= 0 && idx < st.sources.length) ? st.sources[idx] : null;
+    if (!src) return;
+    const msg = _aceInspectorLine(src);
+    _lastAnnouncedSourceIndex = idx;
+    setTimeout(function () {
+      const el = document.getElementById("ace-grid-live");
+      if (el) el.textContent = msg;
+    }, 120);
   }
 
   function _aceRenderTiles() {
@@ -1502,23 +1560,28 @@
     } catch (e) {
       _aceSourceGridState.sources = [];
     }
-    // HTMX sidebar swaps (e.g. after code CRUD) detach the old tile host,
-    // so the existing observer would point at a dead node. Re-observe the
-    // current host on every call to stay pointed at live DOM.
     const tiles = document.getElementById("ace-grid-tiles");
-    if (_aceSourceGridState.resizeObs) {
-      _aceSourceGridState.resizeObs.disconnect();
-    }
-    if (tiles) {
-      _aceSourceGridState.resizeObs = new ResizeObserver(function () {
-        _aceRenderTiles();
-        _aceRenderSparkline();
-      });
-      _aceSourceGridState.resizeObs.observe(tiles);
+    // Only tear down + recreate the observer when the tile host node changed
+    // identity (HTMX OOB swap replaced it). On same-host calls (every
+    // annotation swap) the live observer is reused — avoids observer churn
+    // and the initial-fire double render it triggers. See issue #75.
+    if (tiles !== _aceSourceGridState.tilesEl) {
+      if (_aceSourceGridState.resizeObs) {
+        _aceSourceGridState.resizeObs.disconnect();
+      }
+      if (tiles) {
+        _aceSourceGridState.resizeObs = new ResizeObserver(function () {
+          _aceRenderTiles();
+          _aceRenderSparkline();
+        });
+        _aceSourceGridState.resizeObs.observe(tiles);
+      }
+      _aceSourceGridState.tilesEl = tiles;
     }
     _aceRenderTiles();
     _aceRenderSparkline();
     _aceInitTileKeyboard();
+    _aceAnnounceCurrentSource();
   };
 
   /* ================================================================

@@ -1294,6 +1294,11 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
   display: flex;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  /* Keep keyboard-focused sentences clear of the sticky .ace-legend. The legend
+     wraps to 1–3 lines depending on panel width, so size for the tall case:
+     24px sticky offset + up to ~72px legend = 96px. scrollIntoView({block:...})
+     honours this on .ace-text-scroll (the scrollport). See issue #111. */
+  scroll-padding-bottom: 96px;
 }
 
 /* ---- SVG highlight overlay ---- */

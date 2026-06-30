@@ -162,12 +162,33 @@ def test_coding_page_shows_codes(client_with_sources):
 
 
 
-def test_coding_page_shows_project_name(client_with_sources):
-    """Project name appears in the header."""
+def test_coding_page_uses_file_stem_in_title(client_with_sources):
+    """The browser title uses the opened project filename."""
     client, _ = client_with_sources
     resp = client.get("/code")
     assert resp.status_code == 200
-    assert "Test Project" in resp.text
+    assert "<title>ACE - test</title>" in resp.text
+
+
+def test_coding_page_title_uses_opened_file_stem_after_rename(tmp_path):
+    """The browser title should follow the opened .ace filename."""
+    app = create_app()
+    original_path = tmp_path / "starter-project.ace"
+    opened_path = tmp_path / "workshop-template.ace"
+    conn = create_project(str(original_path), "Starter Project")
+    coder_id = list_coders(conn)[0]["id"]
+    add_source(conn, "S001", "Text for coding.", "row")
+    conn.close()
+    original_path.rename(opened_path)
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        app.state.project_path = str(opened_path)
+        app.state.coder_id = coder_id
+        resp = client.get("/code")
+
+    assert resp.status_code == 200
+    assert "<title>ACE - workshop-template</title>" in resp.text
+    assert "<title>Code — Starter Project — ACE</title>" not in resp.text
 
 
 def test_coding_page_index_param(client_with_sources):
@@ -188,6 +209,29 @@ def test_coding_page_auto_creates_assignments(client_with_sources):
     assert 'id="ace-sources-data"' in resp.text
 
 
+def test_source_map_hidden_for_single_source(tmp_path):
+    """The source-map panel is dead weight for <= 1 source -- hide it (#75)."""
+    app = create_app()
+    db_path = tmp_path / "single.ace"
+    conn = create_project(str(db_path), "Single")
+    coders = list_coders(conn)
+    coder_id = coders[0]["id"]
+    add_source(conn, "S001", "The only document in this project.", "row")
+    add_code(conn, "Theme A", "#BF6030")
+    conn.close()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        app.state.project_path = str(db_path)
+        app.state.coder_id = coder_id
+        resp = client.get("/code")
+
+    assert resp.status_code == 200
+    assert 'id="ace-sidebar-grid"' not in resp.text
+    assert 'id="ace-grid-tiles"' not in resp.text
+    assert 'id="ace-sources-data"' not in resp.text
+    assert 'class="ace-sidebar-vsplit"' not in resp.text
+    # The codebook tree must still render.
+    assert 'id="code-sidebar"' in resp.text
 
 
 def test_sidebar_strip_wordmark_links_home(client_with_sources):

@@ -479,6 +479,61 @@ def test_codebook_right_returns_to_source_without_applying(ace_server, browser_n
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_slash_focuses_codebook_search_from_codebook_row(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+
+            _click_source_sentence(page)
+            page.keyboard.press("ArrowLeft")
+            page.wait_for_function(
+                "() => document.activeElement?.matches("
+                "\"#ace-headless-tree-mount .ace-ht-row--code\")"
+            )
+
+            page.keyboard.press("/")
+            expect(page.locator("#code-search-input")).to_be_focused()
+            expect(page.locator("#code-search-input")).to_have_value("")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_shift_arrow_navigates_sources_from_codebook_row(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page()
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector(".ace-sentence")
+
+            _click_source_sentence(page)
+            page.keyboard.press("ArrowLeft")
+            page.wait_for_function(
+                "() => document.activeElement?.matches("
+                "\"#ace-headless-tree-mount .ace-ht-row--code\")"
+            )
+            page.keyboard.press("Shift+ArrowRight")
+            page.wait_for_url("**/code?index=1")
+            page.wait_for_function("() => window.__aceCurrentIndex === 1")
+
+            _click_source_sentence(page)
+            page.keyboard.press("ArrowLeft")
+            page.wait_for_function(
+                "() => document.activeElement?.matches("
+                "\"#ace-headless-tree-mount .ace-ht-row--code\")"
+            )
+            page.keyboard.press("Shift+ArrowLeft")
+            page.wait_for_url("**/code?index=0")
+            page.wait_for_function("() => window.__aceCurrentIndex === 0")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_codebook_left_restores_single_previous_code_focus(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
