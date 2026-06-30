@@ -2010,7 +2010,7 @@
             current_index: currentIndex()
           });
         }
-        setStatus("");
+        flashStatus("Saved");
       } catch (error) {
         setStatus("Move failed");
         restoreChildrenByParent(restoreSnapshot);
@@ -2029,6 +2029,10 @@
     function setStatus(text) {
       const el = document.querySelector("[data-headless-tree-status]");
       if (el) el.textContent = text;
+    }
+    function flashStatus(text, ms) {
+      setStatus(text);
+      setTimeout(function () { setStatus(""); }, ms || 1500);
     }
     function currentIndex() {
       return window.__aceCurrentIndex || 0;
@@ -2831,7 +2835,7 @@
           parent_id: formParentId(parentId),
           current_index: currentIndex()
         }).then(function() {
-          setStatus("");
+          flashStatus("Saved");
         }).catch(function(error) {
           setStatus("Move failed");
           window.__aceHeadlessTreePreviewError = String(error && error.message || error);
