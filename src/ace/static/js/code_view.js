@@ -82,6 +82,15 @@
     return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
   }
 
+  const compactMediaQuery = window.matchMedia("(max-width: 900px)");
+
+  function isVisible(el) {
+    if (!el || !el.isConnected) return false;
+    if (el.hidden || el.getAttribute("aria-hidden") === "true") return false;
+    const style = window.getComputedStyle(el);
+    return style.display !== "none" && style.visibility !== "hidden" && el.getClientRects().length > 0;
+  }
+
   // Mark an event as fully handled — preventDefault + stopImmediatePropagation
   // so bridge.js's document-level handlers (which share keys like F2, Enter,
   // V, Escape, Arrows on tree rows) never also fire. Used pervasively in this
@@ -265,6 +274,8 @@
     }
 
     codeViewMode = nextMode;
+    const shell = document.getElementById("code-view");
+    if (shell) shell.dataset.cvMode = nextMode;
     if (reviewPanelEl) reviewPanelEl.hidden = nextMode !== "review";
     if (editPanelEl) editPanelEl.hidden = nextMode !== "edit";
     if (modeHeadingEl) {
@@ -565,7 +576,12 @@
   function highlightSource(idx) {
     tracksEl.querySelectorAll(".cv-track-row.hovered").forEach((r) => r.classList.remove("hovered"));
     const row = tracksEl.querySelector(`.cv-track-row[data-src-idx="${idx}"]`);
-    if (row) row.classList.add("hovered");
+    if (row) {
+      row.classList.add("hovered");
+      if (compactMediaQuery.matches && codeViewMode === "review") {
+        row.scrollIntoView({ block: "nearest" });
+      }
+    }
   }
   function clearHighlight() {
     tracksEl.querySelectorAll(".cv-track-row.hovered").forEach((r) => r.classList.remove("hovered"));
@@ -1133,12 +1149,13 @@
   let previousFocusBeforeSearch = null;
 
   function visibleCodeRows() {
-    if (!treeEl) return [];
+    if (!treeEl || !isVisible(treeEl)) return [];
     const all = Array.from(treeEl.querySelectorAll(CODEBOOK_CODE_ROW_SELECTOR));
     return all.filter((row) => {
       if (row.hidden || row.style.display === "none" || row.getAttribute("aria-hidden") === "true") {
         return false;
       }
+      if (!isVisible(row)) return false;
       return true;
     });
   }
@@ -1332,14 +1349,21 @@
     if (evt.key === "/") {
       if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
       if (isEditableElement(document.activeElement)) return;
-      if (!codeSearchInput) return;
-      evt.preventDefault();
-      previousFocusBeforeSearch =
-        document.activeElement && document.activeElement.isConnected
-          ? document.activeElement
-          : null;
-      codeSearchInput.focus();
-      codeSearchInput.select();
+      if (codeSearchInput && isVisible(codeSearchInput)) {
+        claim(evt);
+        previousFocusBeforeSearch =
+          document.activeElement && document.activeElement.isConnected
+            ? document.activeElement
+            : null;
+        codeSearchInput.focus();
+        codeSearchInput.select();
+        return;
+      }
+      const cvSearch = document.getElementById("cv-search");
+      if (!cvSearch || !isVisible(cvSearch) || codeViewMode !== "review") return;
+      claim(evt);
+      cvSearch.focus();
+      cvSearch.select();
       return;
     }
 
@@ -1363,6 +1387,7 @@
     if (evt.shiftKey && !evt.ctrlKey && !evt.metaKey && !evt.altKey
         && (evt.key === "ArrowLeft" || evt.key === "ArrowRight")) {
       if (isEditableElement(document.activeElement)) return;
+      if (!isVisible(tracksEl)) return;
       const rows = trackRowEls();
       if (rows.length === 0) return;
       const dir = (evt.key === "ArrowRight") ? 1 : -1;
@@ -1381,14 +1406,15 @@
         && (evt.key === "ArrowLeft" || evt.key === "ArrowRight")) {
       if (isEditableElement(document.activeElement)) return;
       const zone = currentZone();
-      const ZONES_LR = ["codebook", "tracks", "excerpts"];
+      const ZONES_LR = activeZoneOrder();
       const idx = ZONES_LR.indexOf(zone);
       if (idx < 0) {
         // Fresh page entry — no zone has focus yet. Treat the arrow as the
         // entry direction: ← lands in the codebook (leftmost), → lands in
         // the tracks list (natural starting point for browsing sources).
+        if (ZONES_LR.length === 0) return;
         claim(evt);
-        focusZone(evt.key === "ArrowLeft" ? "codebook" : "tracks");
+        focusZone(evt.key === "ArrowLeft" ? ZONES_LR[0] : (ZONES_LR.includes("tracks") ? "tracks" : ZONES_LR[0]));
         return;
       }
       const nextIdx = idx + (evt.key === "ArrowRight" ? 1 : -1);
@@ -1451,6 +1477,7 @@
         && !evt.ctrlKey && !evt.metaKey && !evt.altKey && !evt.shiftKey) {
       if (isEditableElement(document.activeElement)) return;
       if (currentZone() !== null) return;
+      if (!isVisible(tracksEl)) return;
       evt.preventDefault();
       focusTracksZone();
       return;
@@ -1495,14 +1522,27 @@
     const a = document.activeElement;
     if (!a || a === document.body || a === document.documentElement) return null;
     if (a.classList && a.classList.contains("cv-back")) return "back";
-    if (a.id === "code-search-input") return "codebook"; // search is "in" codebook
-    if (a.closest && a.closest("#cv-tracks")) return "tracks";
-    if (a.closest && a.closest("#cv-table")) return "excerpts";
-    if (a.closest && a.closest("#code-sidebar")) return "codebook";
+    if (a.id === "code-search-input" && isVisible(a)) return "codebook"; // search is "in" codebook
+    if (a.closest && a.closest("#cv-code-editor") && isVisible(editPanelEl)) return "editor";
+    if (a.closest && a.closest("#cv-tracks") && isVisible(tracksEl)) return "tracks";
+    if (a.closest && a.closest("#cv-table") && isVisible(tableEl)) return "excerpts";
+    const sidebar = document.getElementById("code-sidebar");
+    if (a.closest && a.closest("#code-sidebar") && isVisible(sidebar)) return "codebook";
     return null;
   }
 
+  function activeZoneOrder() {
+    const zones = [];
+    const sidebar = document.getElementById("code-sidebar");
+    if (isVisible(sidebar) && visibleCodeRows().length > 0) zones.push("codebook");
+    if (isVisible(editPanelEl)) zones.push("editor");
+    else if (isVisible(tracksEl) && trackRowEls().length > 0) zones.push("tracks");
+    if (isVisible(tableEl) && excerptRows().length > 0) zones.push("excerpts");
+    return zones;
+  }
+
   function focusTracksZone() {
+    if (!isVisible(tracksEl)) return;
     const rows = trackRowEls();
     if (rows.length === 0) return;
     let targetIdx = 0;
@@ -1517,6 +1557,7 @@
   }
 
   function focusExcerptsZone() {
+    if (!isVisible(tableEl)) return;
     const rows = excerptRows();
     if (rows.length === 0) return;
     let target = null;
@@ -1530,6 +1571,8 @@
   }
 
   function focusCodebookZone() {
+    const sidebar = document.getElementById("code-sidebar");
+    if (!isVisible(sidebar)) return;
     const rows = visibleCodeRows();
     if (rows.length === 0) return;
     let target = null;
@@ -1542,6 +1585,14 @@
     }
     moveCodebookCursor(target);
     updateUI({ announce: false });
+  }
+
+  function focusEditorZone() {
+    if (!isVisible(editPanelEl)) return;
+    const target = editPanelEl.querySelector(
+      "input, select, textarea, button, [tabindex]:not([tabindex='-1'])",
+    );
+    if (target) target.focus({ preventScroll: true });
   }
 
   function focusBackLink() {
@@ -1557,6 +1608,7 @@
     if (name === "tracks")   return focusTracksZone();
     if (name === "excerpts") return focusExcerptsZone();
     if (name === "codebook") return focusCodebookZone();
+    if (name === "editor")   return focusEditorZone();
     if (name === "back")     return focusBackLink();
   }
 

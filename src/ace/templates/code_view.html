@@ -28,7 +28,7 @@
 {% endblock %}
 
 {% block content %}
-<div id="code-view" data-code-id="{{ code_view_data.code.id }}">
+<div id="code-view" data-code-id="{{ code_view_data.code.id }}" data-cv-mode="review">
   {% block code_sidebar %}
   <aside id="code-sidebar" class="ace-sidebar" aria-label="Codebook">
     {% set codebook_mode = codebook_mode|default("audit") %}
