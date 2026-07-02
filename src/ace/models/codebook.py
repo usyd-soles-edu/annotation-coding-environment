@@ -36,6 +36,7 @@ CODEBOOK_COLUMN_ALIASES = {
 }
 
 _CODEBOOK_CSV_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
+_DEFINITION_UNSET = object()
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +242,7 @@ def update_code(
     code_id: str,
     name: str | None = None,
     colour: str | None = None,
+    definition: str | None | object = _DEFINITION_UNSET,
 ) -> None:
     updates = []
     params = []
@@ -250,6 +252,9 @@ def update_code(
     if colour is not None:
         updates.append("colour = ?")
         params.append(colour)
+    if definition is not _DEFINITION_UNSET:
+        updates.append("definition = ?")
+        params.append(definition)
     if not updates:
         return
     params.append(code_id)
@@ -320,7 +325,7 @@ def convert_code_to_folder(conn: sqlite3.Connection, code_id: str) -> dict:
     Returns metadata needed for undo.
     """
     row = conn.execute(
-        "SELECT id, name, colour, sort_order, kind, parent_id, chord "
+        "SELECT id, name, colour, sort_order, kind, parent_id, chord, definition "
         "FROM codebook_code WHERE id = ? AND deleted_at IS NULL",
         (code_id,),
     ).fetchone()
@@ -341,15 +346,15 @@ def convert_code_to_folder(conn: sqlite3.Connection, code_id: str) -> dict:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(
             "UPDATE codebook_code "
-            "SET kind = 'folder', colour = '', chord = NULL "
+            "SET kind = 'folder', colour = '', chord = NULL, definition = NULL "
             "WHERE id = ?",
             (code_id,),
         )
         if child_code_id is not None:
             conn.execute(
                 "INSERT INTO codebook_code "
-                "(id, name, colour, sort_order, kind, parent_id, chord, created_at) "
-                "VALUES (?, ?, ?, ?, 'code', ?, ?, ?)",
+                "(id, name, colour, sort_order, kind, parent_id, chord, definition, created_at) "
+                "VALUES (?, ?, ?, ?, 'code', ?, ?, ?, ?)",
                 (
                     child_code_id,
                     row["name"],
@@ -357,6 +362,7 @@ def convert_code_to_folder(conn: sqlite3.Connection, code_id: str) -> dict:
                     row["sort_order"] + 1,
                     code_id,
                     row["chord"],
+                    row["definition"],
                     now,
                 ),
             )
@@ -375,6 +381,7 @@ def convert_code_to_folder(conn: sqlite3.Connection, code_id: str) -> dict:
         "name": row["name"],
         "prev_colour": row["colour"],
         "prev_chord": row["chord"],
+        "prev_definition": row["definition"],
         "child_code_id": child_code_id,
         "annotation_ids": annotation_ids,
     }

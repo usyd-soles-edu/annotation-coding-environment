@@ -827,6 +827,7 @@ def _audit_codebook_mutation_detail(
     current_code_id: str | None = None,
     fallback_code_id: str | None = None,
     audit_reload: bool | None = None,
+    folder_list_changed: bool = False,
 ) -> dict[str, object]:
     operation = _codebook_mutation_operation(request)
     if affected_code_ids is None:
@@ -848,6 +849,7 @@ def _audit_codebook_mutation_detail(
         "currentCodeId": current_code_id,
         "auditReload": should_reload_current,
         "fallbackCodeId": fallback_code_id,
+        "folderListChanged": folder_list_changed,
     }
 
 
@@ -928,6 +930,7 @@ def _render_codebook_mutation_response(
     affected_code_ids: list[str] | None = None,
     fallback_code_id: str | None = None,
     audit_reload: bool | None = None,
+    folder_list_changed: bool = False,
     status_html: str = "",
     headers: dict[str, str] | None = None,
 ) -> HTMLResponse:
@@ -951,6 +954,7 @@ def _render_codebook_mutation_response(
                 current_code_id=current_code_id,
                 fallback_code_id=fallback_code_id,
                 audit_reload=audit_reload,
+                folder_list_changed=folder_list_changed,
             ),
             header_name="HX-Trigger-After-Settle",
         )
@@ -1003,6 +1007,69 @@ def _resolve_source_id(conn, coder_id: str, current_index: int) -> str | None:
     if not assignments or current_index < 0 or current_index >= len(assignments):
         return None
     return assignments[current_index]["source_id"]
+
+
+def _audit_undo_codebook_mutation_kwargs(
+    conn,
+    result: dict,
+    current_code_id: str | None,
+) -> dict[str, object]:
+    op = result.get("codebook_op")
+    payload = result.get("codebook_payload") or {}
+    direction = result.get("undo_direction")
+    affected_code_ids: list[str] | None = [current_code_id] if current_code_id else None
+    fallback_code_id: str | None = None
+    audit_reload: bool | None = None
+    folder_list_changed = False
+
+    if op == "code_convert_to_folder":
+        code_id = payload.get("code_id")
+        child_code_id = payload.get("child_code_id")
+        affected_code_ids = [cid for cid in [code_id, child_code_id] if cid]
+        folder_list_changed = True
+        if current_code_id == child_code_id and direction == 0:
+            fallback_code_id = code_id
+            audit_reload = False
+        elif current_code_id == code_id and direction == 1:
+            fallback_code_id = child_code_id or _fallback_code_after_delete(conn, code_id)
+            audit_reload = False
+        elif current_code_id:
+            audit_reload = True
+    elif op == "code_create_folder":
+        folder_id = payload.get("folder_id")
+        affected_code_ids = [folder_id] if folder_id else affected_code_ids
+        folder_list_changed = True
+        audit_reload = bool(current_code_id)
+    elif op == "code_delete_folder_cascade":
+        folder_id = payload.get("folder_id")
+        child_ids = list(payload.get("child_ids") or [])
+        affected_code_ids = [cid for cid in [folder_id, *child_ids] if cid]
+        folder_list_changed = True
+        audit_reload = bool(current_code_id)
+    elif op == "code_indent_promote_to_folder":
+        folder_id = payload.get("folder_id")
+        code_ids = list(payload.get("code_ids") or [])
+        affected_code_ids = [cid for cid in [folder_id, *code_ids] if cid]
+        folder_list_changed = True
+        audit_reload = bool(current_code_id)
+    elif op == "code_rename":
+        code_id = payload.get("code_id")
+        if code_id:
+            affected_code_ids = [code_id]
+            row = conn.execute(
+                "SELECT kind FROM codebook_code WHERE id = ?",
+                (code_id,),
+            ).fetchone()
+            if row is not None and row["kind"] == "folder":
+                folder_list_changed = True
+                audit_reload = bool(current_code_id)
+
+    return {
+        "affected_code_ids": affected_code_ids,
+        "fallback_code_id": fallback_code_id,
+        "audit_reload": audit_reload,
+        "folder_list_changed": folder_list_changed,
+    }
 
 
 def _build_undo_response(
@@ -1059,6 +1126,11 @@ def _build_undo_response(
 
     if mode == "audit" and result.get("codebook_changed", True):
         status_html = _oob_status(notification, "ok").body.decode()
+        mutation_kwargs = _audit_undo_codebook_mutation_kwargs(
+            conn,
+            result,
+            current_code_id,
+        )
         return _render_codebook_mutation_response(
             request,
             conn,
@@ -1066,7 +1138,10 @@ def _build_undo_response(
             coding_content="",
             mode=mode,
             current_code_id=current_code_id,
-            affected_code_ids=[current_code_id] if current_code_id else None,
+            affected_code_ids=mutation_kwargs["affected_code_ids"],
+            fallback_code_id=mutation_kwargs["fallback_code_id"],
+            audit_reload=mutation_kwargs["audit_reload"],
+            folder_list_changed=mutation_kwargs["folder_list_changed"],
             status_html=status_html,
             headers=headers,
         )

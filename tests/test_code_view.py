@@ -126,7 +126,7 @@ def test_code_view_has_column_headings(client_with_annotations):
     body = resp.text
 
     # Visible column headings
-    assert '<h2 id="cv-tracks-heading" class="ace-panel-heading">Source tracks</h2>' in body
+    assert '<h2 id="cv-tracks-heading" class="ace-panel-heading">Sources</h2>' in body
     assert '<h2 id="cv-excerpts-heading" class="ace-panel-heading">Excerpts</h2>' in body
 
     # Sections point at the visible headings rather than carrying redundant aria-label
@@ -135,10 +135,32 @@ def test_code_view_has_column_headings(client_with_annotations):
 
     # Document order: tracks heading inside tracks column; excerpts heading inside excerpts column
     tracks_col_pos = body.index('class="cv-tracks-col"')
-    tracks_h2_pos = body.index('Source tracks</h2>')
+    tracks_h2_pos = body.index('Sources</h2>')
     excerpts_col_pos = body.index('class="cv-excerpts-col"')
     excerpts_h2_pos = body.index('Excerpts</h2>')
     assert tracks_col_pos < tracks_h2_pos < excerpts_col_pos < excerpts_h2_pos
+
+
+def test_code_view_has_desktop_review_edit_editor_shell(client_with_annotations):
+    client, _, code_id, _ = client_with_annotations
+    resp = client.get(f"/code/{code_id}/view")
+    assert resp.status_code == 200
+    body = resp.text
+
+    assert 'id="ace-notification-receipt"' in body
+    assert 'class="ace-notification-receipt cv-notification-receipt"' in body
+    assert 'aria-label="Review/Edit mode"' in body
+    assert 'id="cv-mode-review"' in body
+    assert 'id="cv-mode-edit"' in body
+    assert 'id="cv-source-review"' in body
+    assert "data-cv-review-panel" in body
+    assert 'id="cv-code-editor"' in body
+    assert "data-cv-edit-panel" in body
+    assert 'id="cv-code-name"' in body
+    assert 'id="cv-code-folder"' in body
+    assert 'id="cv-code-definition"' in body
+    assert 'aria-keyshortcuts="Enter Meta+Enter Control+Enter"' in body
+    assert 'aria-keyshortcuts="Meta+Enter Control+Enter"' in body
 
 
 def test_cv_table_has_listbox_role(client_with_annotations):

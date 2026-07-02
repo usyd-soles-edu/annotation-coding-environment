@@ -224,6 +224,32 @@ def _code_colours(db_path: str, code_ids: list[str]) -> dict[str, str]:
     return {r["id"]: r["colour"] for r in rows}
 
 
+def _codebook_row(db_path: str, code_id: str) -> sqlite3.Row:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT id, name, colour, kind, parent_id, definition, deleted_at "
+        "FROM codebook_code WHERE id = ?",
+        (code_id,),
+    ).fetchone()
+    conn.close()
+    assert row is not None, f"codebook row {code_id!r} not found"
+    return row
+
+
+def _child_code_for_folder(db_path: str, folder_id: str) -> sqlite3.Row:
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT id, name, colour, kind, parent_id, definition, deleted_at "
+        "FROM codebook_code WHERE parent_id = ? AND kind = 'code'",
+        (folder_id,),
+    ).fetchone()
+    conn.close()
+    assert row is not None, f"folder {folder_id!r} has no child code"
+    return row
+
+
 def assert_audit_codebook_response(resp):
     assert resp.status_code == 200
     assert resp.headers.get("HX-Reswap") == "none"
@@ -561,6 +587,90 @@ def test_audit_mode_codebook_import_returns_audit_safe_response(client_with_code
     assert detail["currentCodeId"] == code_id
     assert detail["auditReload"] is True
     assert len(detail["affectedCodeIds"]) == 1
+    assert detail["folderListChanged"] is True
+
+
+def test_audit_import_marks_folder_list_changed_when_new_folder_created(
+    client_with_codes,
+):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    codes_json = json.dumps([
+        {
+            "name": "Imported with new folder",
+            "colour": "#123456",
+            "group_name": "New imported folder",
+        }
+    ])
+
+    resp = client.post(
+        "/api/codes/import",
+        data={
+            "codes_json": codes_json,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["folderListChanged"] is True
+    assert detail["auditReload"] is True
+
+
+def test_audit_import_keeps_folder_list_clean_for_existing_folder_case_insensitive(
+    client_with_codes,
+):
+    client, _coder_id, code_id, _other_code_id, db_path = client_with_codes
+    _create_folder(client, "Existing Folder", db_path)
+    codes_json = json.dumps([
+        {
+            "name": "Imported with existing folder",
+            "colour": "#123456",
+            "group_name": "existing folder",
+        }
+    ])
+
+    resp = client.post(
+        "/api/codes/import",
+        data={
+            "codes_json": codes_json,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["folderListChanged"] is False
+    assert detail["auditReload"] is True
+
+
+def test_audit_import_skipped_duplicate_does_not_mark_new_group_folder_changed(
+    client_with_codes,
+):
+    client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
+    codes_json = json.dumps([
+        {
+            "name": "Theme A",
+            "colour": "#123456",
+            "group_name": "Would be new if imported",
+        }
+    ])
+
+    resp = client.post(
+        "/api/codes/import",
+        data={
+            "codes_json": codes_json,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["affectedCodeIds"] == []
+    assert detail["folderListChanged"] is False
+    assert detail["auditReload"] is False
 
 
 def test_codebook_tree_route_returns_headless_tree_item_map(client_with_codes):
@@ -691,6 +801,168 @@ def test_code_rename_records_undo_entry(client_with_codes):
     ).fetchone()
     conn.close()
     assert row["name"] == "Theme A"
+
+
+def test_code_view_data_exposes_edit_metadata(client_with_codes):
+    from ace.db.connection import open_project
+    from ace.models.annotation import get_code_view_data
+    from ace.models.codebook import add_folder
+
+    _client, coder_id, _code_a, _code_b, db_path = client_with_codes
+    conn = open_project(db_path)
+    try:
+        folder_a = add_folder(conn, "Methods")
+        folder_b = add_folder(conn, "Outcomes")
+        code_id = add_code(
+            conn,
+            "Defined code",
+            "#123456",
+            parent_id=folder_a,
+            definition="Working definition",
+        )
+
+        data = get_code_view_data(conn, code_id, coder_id)
+    finally:
+        conn.close()
+
+    assert data is not None
+    assert data["code"] == {
+        "id": code_id,
+        "name": "Defined code",
+        "colour": "#123456",
+        "parent_id": folder_a,
+        "definition": "Working definition",
+    }
+    assert data["folders"] == [
+        {"id": folder_a, "name": "Methods"},
+        {"id": folder_b, "name": "Outcomes"},
+    ]
+
+
+def test_code_view_data_route_exposes_edit_metadata(client_with_codes):
+    from ace.db.connection import open_project
+    from ace.models.codebook import add_folder
+
+    client, _coder_id, _code_a, _code_b, db_path = client_with_codes
+    conn = open_project(db_path)
+    try:
+        folder_id = add_folder(conn, "Audit folder")
+        code_id = add_code(
+            conn,
+            "Route metadata",
+            "#654321",
+            parent_id=folder_id,
+            definition="Definition via JSON route",
+        )
+    finally:
+        conn.close()
+
+    resp = client.get(f"/api/code/{code_id}/view-data")
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert payload["code"]["parent_id"] == folder_id
+    assert payload["code"]["definition"] == "Definition via JSON route"
+    assert payload["folders"] == [{"id": folder_id, "name": "Audit folder"}]
+
+
+def test_audit_mode_definition_update_records_undo_entry(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, db_path = client_with_codes
+
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "definition": "  Updated definition  ",
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    assert "Saved code details." in resp.text
+    detail = _audit_mutation_detail(resp)
+    assert detail["affectedCodeIds"] == [code_id]
+    assert detail["auditReload"] is True
+    assert _codebook_row(db_path, code_id)["definition"] == "Updated definition"
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={"codebook_mode": "audit", "current_code_id": code_id},
+    )
+
+    assert_audit_codebook_response(undo_resp)
+    assert "Undid edit definition" in undo_resp.text
+    assert _codebook_row(db_path, code_id)["definition"] is None
+
+    redo_resp = client.post(
+        "/api/redo",
+        data={"codebook_mode": "audit", "current_code_id": code_id},
+    )
+
+    assert_audit_codebook_response(redo_resp)
+    assert "Redid edit definition" in redo_resp.text
+    assert _codebook_row(db_path, code_id)["definition"] == "Updated definition"
+
+
+def test_audit_mode_definition_empty_string_stores_null(client_with_codes):
+    from ace.db.connection import open_project
+    from ace.models.codebook import update_code
+
+    client, _coder_id, code_id, _other_code_id, db_path = client_with_codes
+    conn = open_project(db_path)
+    try:
+        update_code(conn, code_id, definition="Original definition")
+    finally:
+        conn.close()
+
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "definition": "   ",
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    assert _codebook_row(db_path, code_id)["definition"] is None
+
+    conn = open_project(db_path)
+    try:
+        update_code(conn, code_id, definition="Original definition")
+    finally:
+        conn.close()
+
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "definition": "",
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    assert _codebook_row(db_path, code_id)["definition"] is None
+
+
+def test_definition_update_rejects_folder_rows(client_with_codes):
+    client, _coder_id, current_code_id, _other_code_id, db_path = client_with_codes
+    folder_id = _create_folder(client, "Folder without definition", db_path)
+
+    resp = client.put(
+        f"/api/codes/{folder_id}",
+        data={
+            "definition": "Folders should reject this",
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert resp.status_code == 200
+    assert "Folders do not have definitions." in resp.text
+    assert "ace-statusbar-event--err" in resp.text
+    assert _codebook_row(db_path, folder_id)["definition"] is None
 
 
 def test_audit_mode_create_code_returns_audit_sidebar_only(client_with_codes):
@@ -900,6 +1172,49 @@ def test_audit_mode_set_parent_returns_audit_sidebar_only(client_with_codes):
     assert detail["auditReload"] is False
 
 
+def test_audit_parent_update_undo_redo_reloads_current_code(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, db_path = client_with_codes
+    folder_id = _create_folder(client, "Audit current parent", db_path)
+
+    resp = client.put(
+        f"/api/codes/{code_id}/parent",
+        data={
+            "parent_id": folder_id,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    assert "Saved code folder." in resp.text
+    detail = _audit_mutation_detail(resp)
+    assert detail["affectedCodeIds"] == [code_id]
+    assert detail["auditReload"] is True
+    assert _codebook_row(db_path, code_id)["parent_id"] == folder_id
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={"codebook_mode": "audit", "current_code_id": code_id},
+    )
+
+    assert_audit_codebook_response(undo_resp)
+    undo_detail = _audit_mutation_detail(undo_resp)
+    assert undo_detail["affectedCodeIds"] == [code_id]
+    assert undo_detail["auditReload"] is True
+    assert _codebook_row(db_path, code_id)["parent_id"] is None
+
+    redo_resp = client.post(
+        "/api/redo",
+        data={"codebook_mode": "audit", "current_code_id": code_id},
+    )
+
+    assert_audit_codebook_response(redo_resp)
+    redo_detail = _audit_mutation_detail(redo_resp)
+    assert redo_detail["affectedCodeIds"] == [code_id]
+    assert redo_detail["auditReload"] is True
+    assert _codebook_row(db_path, code_id)["parent_id"] == folder_id
+
+
 def test_audit_mode_cut_paste_returns_audit_sidebar_only(client_with_codes):
     client, _coder_id, current_code_id, code_id, db_path = client_with_codes
     folder_id = _create_folder(client, "Audit paste", db_path)
@@ -944,7 +1259,8 @@ def test_audit_mode_indent_promote_returns_audit_sidebar_only(client_with_codes)
     assert detail["operation"] == "post"
     assert detail["affectedCodeIds"] == [above_code_id, code_id]
     assert detail["currentCodeId"] == current_code_id
-    assert detail["auditReload"] is False
+    assert detail["auditReload"] is True
+    assert detail["folderListChanged"] is True
 
 
 def test_audit_mode_reorder_returns_audit_sidebar_only(client_with_codes):
@@ -1757,6 +2073,324 @@ def test_convert_annotated_code_to_folder_route_preserves_annotations(client_wit
     assert parent["kind"] == "folder"
     assert child_after_redo["deleted_at"] is None
     assert ann_after_redo["code_id"] == child["id"]
+
+
+def test_convert_annotated_defined_code_to_folder_moves_definition_to_child_and_undo_restores(
+    client_with_codes,
+):
+    from ace.db.connection import open_project
+    from ace.models.annotation import add_annotation
+
+    client, coder_id, code_a, _b, db_path = client_with_codes
+    conn = open_project(db_path)
+    try:
+        conn.execute(
+            "UPDATE codebook_code SET definition = ? WHERE id = ?",
+            ("Original definition", code_a),
+        )
+        conn.commit()
+        source_id = conn.execute(
+            "SELECT id FROM source ORDER BY display_id LIMIT 1"
+        ).fetchone()["id"]
+        ann_id = add_annotation(conn, source_id, coder_id, code_a, 0, 5, "First")
+    finally:
+        conn.close()
+
+    resp = client.post(
+        f"/api/codes/{code_a}/convert-to-folder",
+        data={"current_index": 0},
+    )
+
+    assert resp.status_code == 200, resp.text
+    parent = _codebook_row(db_path, code_a)
+    child = _child_code_for_folder(db_path, code_a)
+    assert parent["kind"] == "folder"
+    assert parent["definition"] is None
+    assert child["definition"] == "Original definition"
+
+    undo_resp = client.post("/api/undo", data={"current_index": 0})
+
+    assert undo_resp.status_code == 200
+    parent_after_undo = _codebook_row(db_path, code_a)
+    child_after_undo = _codebook_row(db_path, child["id"])
+    assert parent_after_undo["kind"] == "code"
+    assert parent_after_undo["definition"] == "Original definition"
+    assert child_after_undo["deleted_at"] is not None
+
+    redo_resp = client.post("/api/redo", data={"current_index": 0})
+
+    assert redo_resp.status_code == 200
+    parent_after_redo = _codebook_row(db_path, code_a)
+    child_after_redo = _codebook_row(db_path, child["id"])
+    assert parent_after_redo["kind"] == "folder"
+    assert parent_after_redo["definition"] is None
+    assert child_after_redo["deleted_at"] is None
+    assert child_after_redo["definition"] == "Original definition"
+
+    conn = open_project(db_path)
+    try:
+        ann = conn.execute(
+            "SELECT code_id FROM annotation WHERE id = ?",
+            (ann_id,),
+        ).fetchone()
+    finally:
+        conn.close()
+    assert ann["code_id"] == child["id"]
+
+
+def test_convert_unannotated_defined_code_to_folder_clears_definition_and_undo_restores(
+    client_with_codes,
+):
+    from ace.db.connection import open_project
+
+    client, _coder_id, code_a, _b, db_path = client_with_codes
+    conn = open_project(db_path)
+    try:
+        conn.execute(
+            "UPDATE codebook_code SET definition = ? WHERE id = ?",
+            ("Original definition", code_a),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    resp = client.post(
+        f"/api/codes/{code_a}/convert-to-folder",
+        data={"current_index": 0},
+    )
+
+    assert resp.status_code == 200, resp.text
+    parent = _codebook_row(db_path, code_a)
+    assert parent["kind"] == "folder"
+    assert parent["definition"] is None
+
+    undo_resp = client.post("/api/undo", data={"current_index": 0})
+
+    assert undo_resp.status_code == 200
+    parent_after_undo = _codebook_row(db_path, code_a)
+    assert parent_after_undo["kind"] == "code"
+    assert parent_after_undo["definition"] == "Original definition"
+
+    redo_resp = client.post("/api/redo", data={"current_index": 0})
+
+    assert redo_resp.status_code == 200
+    parent_after_redo = _codebook_row(db_path, code_a)
+    assert parent_after_redo["kind"] == "folder"
+    assert parent_after_redo["definition"] is None
+
+
+def test_audit_convert_code_to_folder_emits_audit_reload_for_folder_list(
+    client_with_codes,
+):
+    from ace.db.connection import open_project
+    from ace.models.annotation import add_annotation
+
+    client, coder_id, code_a, code_b, db_path = client_with_codes
+    conn = open_project(db_path)
+    try:
+        source_id = conn.execute(
+            "SELECT id FROM source ORDER BY display_id LIMIT 1"
+        ).fetchone()["id"]
+        add_annotation(conn, source_id, coder_id, code_a, 0, 5, "First")
+    finally:
+        conn.close()
+
+    resp = client.post(
+        f"/api/codes/{code_a}/convert-to-folder",
+        data={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_b,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    child = _child_code_for_folder(db_path, code_a)
+    detail = _audit_mutation_detail(resp)
+    assert detail["operation"] == "post"
+    assert detail["currentCodeId"] == code_b
+    assert detail["affectedCodeIds"] == [code_a, child["id"]]
+    assert detail["auditReload"] is True
+    assert detail["folderListChanged"] is True
+    assert detail["fallbackCodeId"] is None
+
+
+def test_audit_convert_current_unannotated_only_code_has_no_reload_or_fallback(
+    client_with_sources_no_codes,
+):
+    from ace.db.connection import open_project
+
+    client = client_with_sources_no_codes
+    db_path = client.app.state.project_path
+    conn = open_project(db_path)
+    try:
+        code_id = add_code(conn, "Only code", "#123456")
+    finally:
+        conn.close()
+
+    resp = client.post(
+        f"/api/codes/{code_id}/convert-to-folder",
+        data={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["affectedCodeIds"] == [code_id]
+    assert detail["currentCodeId"] == code_id
+    assert detail["fallbackCodeId"] is None
+    assert detail["auditReload"] is False
+    assert detail["folderListChanged"] is True
+
+
+def test_audit_convert_undo_redo_reports_folder_list_and_fallbacks(
+    client_with_codes,
+):
+    from ace.db.connection import open_project
+    from ace.models.annotation import add_annotation
+
+    client, coder_id, code_a, _code_b, db_path = client_with_codes
+    conn = open_project(db_path)
+    try:
+        source_id = conn.execute(
+            "SELECT id FROM source ORDER BY display_id LIMIT 1"
+        ).fetchone()["id"]
+        add_annotation(conn, source_id, coder_id, code_a, 0, 5, "First")
+    finally:
+        conn.close()
+
+    convert_resp = client.post(
+        f"/api/codes/{code_a}/convert-to-folder",
+        data={
+            "current_index": 0,
+            "codebook_mode": "audit",
+            "current_code_id": code_a,
+        },
+    )
+    assert_audit_codebook_response(convert_resp)
+    child = _child_code_for_folder(db_path, code_a)
+    convert_detail = _audit_mutation_detail(convert_resp)
+    assert convert_detail["fallbackCodeId"] == child["id"]
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={
+            "codebook_mode": "audit",
+            "current_code_id": child["id"],
+        },
+    )
+
+    assert_audit_codebook_response(undo_resp)
+    undo_detail = _audit_mutation_detail(undo_resp)
+    assert undo_detail["affectedCodeIds"] == [code_a, child["id"]]
+    assert undo_detail["fallbackCodeId"] == code_a
+    assert undo_detail["auditReload"] is False
+    assert undo_detail["folderListChanged"] is True
+
+    redo_resp = client.post(
+        "/api/redo",
+        data={
+            "codebook_mode": "audit",
+            "current_code_id": code_a,
+        },
+    )
+
+    assert_audit_codebook_response(redo_resp)
+    redo_detail = _audit_mutation_detail(redo_resp)
+    assert redo_detail["affectedCodeIds"] == [code_a, child["id"]]
+    assert redo_detail["fallbackCodeId"] == child["id"]
+    assert redo_detail["auditReload"] is False
+    assert redo_detail["folderListChanged"] is True
+
+
+def test_audit_create_folder_undo_redo_marks_folder_list_changed(client_with_codes):
+    client, _coder_id, current_code_id, _other_code_id, db_path = client_with_codes
+
+    create_resp = client.post(
+        "/api/codes/folder",
+        data={
+            "name": "Undoable audit folder",
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+    assert_audit_codebook_response(create_resp)
+    folder_id = _latest_id_by_name(db_path, "Undoable audit folder", "folder")
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(undo_resp)
+    undo_detail = _audit_mutation_detail(undo_resp)
+    assert undo_detail["affectedCodeIds"] == [folder_id]
+    assert undo_detail["auditReload"] is True
+    assert undo_detail["folderListChanged"] is True
+
+    redo_resp = client.post(
+        "/api/redo",
+        data={
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(redo_resp)
+    redo_detail = _audit_mutation_detail(redo_resp)
+    assert redo_detail["affectedCodeIds"] == [folder_id]
+    assert redo_detail["auditReload"] is True
+    assert redo_detail["folderListChanged"] is True
+
+
+def test_audit_delete_folder_undo_redo_marks_folder_list_changed(client_with_codes):
+    client, _coder_id, current_code_id, _other_code_id, db_path = client_with_codes
+    folder_id = _create_folder(client, "Deleted audit folder", db_path)
+
+    delete_resp = client.delete(
+        f"/api/codes/{folder_id}",
+        params={
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+    assert_audit_codebook_response(delete_resp)
+    delete_detail = _audit_mutation_detail(delete_resp)
+    assert delete_detail["folderListChanged"] is True
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(undo_resp)
+    undo_detail = _audit_mutation_detail(undo_resp)
+    assert undo_detail["affectedCodeIds"] == [folder_id]
+    assert undo_detail["auditReload"] is True
+    assert undo_detail["folderListChanged"] is True
+
+    redo_resp = client.post(
+        "/api/redo",
+        data={
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(redo_resp)
+    redo_detail = _audit_mutation_detail(redo_resp)
+    assert redo_detail["affectedCodeIds"] == [folder_id]
+    assert redo_detail["auditReload"] is True
+    assert redo_detail["folderListChanged"] is True
 
 
 def test_reorder_in_scope_accepts_folder_rows(client_with_codes):

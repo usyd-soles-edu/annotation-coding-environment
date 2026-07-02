@@ -53,19 +53,49 @@
         <b>{{ code_view_data.stats.excerpts }}</b> excerpts across
         <b>{{ code_view_data.stats.sources_with_hits }} of {{ code_view_data.stats.total_sources }}</b> sources
       </div>
+      <div id="ace-notification-receipt" class="ace-notification-receipt cv-notification-receipt" role="status" aria-live="polite"></div>
       <div class="ace-sr-only" aria-live="polite" aria-atomic="true" id="cv-live"></div>
     </header>
 
     <div class="cv-body">
       <section class="cv-tracks-col" aria-labelledby="cv-tracks-heading">
-        <div class="ace-panel-heading-bar">
-          <h2 id="cv-tracks-heading" class="ace-panel-heading">Source tracks</h2>
+        <div class="ace-panel-heading-bar cv-mode-head">
+          <h2 id="cv-tracks-heading" class="ace-panel-heading">Sources</h2>
+          <div class="cv-mode-toggle" role="group" aria-label="Review/Edit mode">
+            <button type="button" id="cv-mode-review" aria-pressed="true" aria-controls="cv-source-review">Review</button>
+            <button type="button" id="cv-mode-edit" aria-pressed="false" aria-controls="cv-code-editor">Edit</button>
+          </div>
         </div>
-        <div class="cv-tracks" id="cv-tracks" role="listbox"
-             aria-multiselectable="true"
-             aria-label="Sources with '{{ code_view_data.code.name }}' excerpts">
-          <!-- populated by code_view.js -->
+        <div id="cv-source-review" class="cv-source-review" data-cv-review-panel>
+          <div class="cv-tracks" id="cv-tracks" role="listbox"
+               aria-multiselectable="true"
+               aria-label="Sources with '{{ code_view_data.code.name }}' excerpts">
+            <!-- populated by code_view.js -->
+          </div>
         </div>
+        <form id="cv-code-editor" class="cv-code-editor" data-cv-edit-panel hidden>
+          <div class="cv-edit-section">
+            <label for="cv-code-name">Name</label>
+            <input id="cv-code-name" name="name" type="text"
+                   value="{{ code_view_data.code.name }}"
+                   aria-describedby="cv-code-name-hint"
+                   aria-keyshortcuts="Enter Meta+Enter Control+Enter">
+            <div id="cv-code-name-hint" class="cv-field-hint">Enter to save</div>
+          </div>
+          <div class="cv-edit-section">
+            <label for="cv-code-folder">Folder</label>
+            <select id="cv-code-folder" name="parent_id"
+                    aria-describedby="cv-code-folder-hint"></select>
+            <div id="cv-code-folder-hint" class="cv-field-hint">Saves when changed</div>
+          </div>
+          <div class="cv-edit-section">
+            <label for="cv-code-definition">Definition</label>
+            <textarea id="cv-code-definition" name="definition" rows="8"
+                      aria-describedby="cv-code-definition-hint"
+                      aria-keyshortcuts="Meta+Enter Control+Enter">{{ code_view_data.code.definition or "" }}</textarea>
+            <div id="cv-code-definition-hint" class="cv-field-hint">Cmd/Ctrl+Enter to save</div>
+          </div>
+        </form>
       </section>
 
       <section class="cv-excerpts-col" aria-labelledby="cv-excerpts-heading">

@@ -139,6 +139,22 @@
 }
 .cv-summary b { color: var(--ace-text); }
 
+.cv-notification-receipt {
+  position: static;
+  grid-column: 1 / -1;
+  justify-self: center;
+  min-width: 260px;
+  min-height: 0;
+  margin-top: -4px;
+  padding: 6px 12px;
+  border-radius: 3px;
+  box-shadow: none;
+  font-family: var(--ace-font-mono);
+  transform: none;
+}
+.cv-notification-receipt:not(:empty) {
+  transform: none;
+}
 
 .cv-body {
   display: grid;
@@ -154,6 +170,45 @@
   flex-direction: column;
   background: var(--ace-bg-tint);
   overflow: hidden;
+}
+.cv-mode-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.cv-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border: 1px solid var(--ace-border-light);
+  border-radius: 3px;
+  background: var(--ace-bg);
+  overflow: hidden;
+}
+.cv-mode-toggle button {
+  border: 0;
+  border-right: 1px solid var(--ace-border-light);
+  background: transparent;
+  color: var(--ace-text-muted);
+  cursor: pointer;
+  font-family: var(--ace-font-mono);
+  font-size: 11px;
+  padding: 4px 10px;
+}
+.cv-mode-toggle button:last-child { border-right: 0; }
+.cv-mode-toggle button:hover {
+  background: var(--ace-bg-muted);
+  color: var(--ace-text);
+}
+.cv-mode-toggle button[aria-pressed="true"] {
+  background: var(--ace-text);
+  color: #fff;
+}
+.cv-source-review {
+  display: flex;
+  flex: 1;
+  min-height: 0;
 }
 .cv-tracks {
   flex: 1;
@@ -256,6 +311,55 @@
   outline: 2px solid var(--cv-state-ring);
   outline-offset: 0;
   z-index: 3;
+}
+
+.cv-code-editor {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 18px 24px;
+}
+.cv-edit-section + .cv-edit-section {
+  margin-top: 16px;
+}
+.cv-edit-section label {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--ace-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--ace-text-muted);
+}
+.cv-edit-section input,
+.cv-edit-section select,
+.cv-edit-section textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--ace-border-light);
+  border-radius: 3px;
+  background: var(--ace-bg);
+  color: var(--ace-text);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+}
+.cv-edit-section textarea {
+  min-height: 160px;
+  resize: vertical;
+  line-height: 1.5;
+}
+.cv-edit-section input:focus-visible,
+.cv-edit-section select:focus-visible,
+.cv-edit-section textarea:focus-visible {
+  outline: 2px solid var(--ace-focus);
+  outline-offset: -1px;
+}
+.cv-field-hint {
+  margin-top: 5px;
+  font-family: var(--ace-font-mono);
+  font-size: 10px;
+  color: var(--ace-text-muted);
 }
 
 /* Excerpts column */

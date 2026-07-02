@@ -33,6 +33,7 @@ OpType = Literal[
     "code_delete",
     "code_rename",
     "code_recolour",
+    "code_definition_update",
     "code_reorder",
     "flag_toggle",
     "codebook_import",
@@ -50,6 +51,7 @@ CODEBOOK_OPS = frozenset({
     "code_delete",
     "code_rename",
     "code_recolour",
+    "code_definition_update",
     "code_reorder",
     "codebook_import",
     "code_create_folder",
@@ -140,11 +142,27 @@ class UndoManager:
             payload={"code_id": code_id, "prev_colour": prev_colour, "new_colour": new_colour},
         ))
 
+    def record_code_definition_update(
+        self,
+        code_id: str,
+        prev_definition: str | None,
+        new_definition: str | None,
+    ) -> None:
+        self._push(UndoEntry(
+            op="code_definition_update",
+            payload={
+                "code_id": code_id,
+                "prev_definition": prev_definition,
+                "new_definition": new_definition,
+            },
+        ))
+
     def record_code_convert_to_folder(
         self,
         code_id: str,
         prev_colour: str,
         prev_chord: str | None,
+        prev_definition: str | None,
         child_code_id: str | None,
         annotation_ids: list[str],
     ) -> None:
@@ -154,6 +172,7 @@ class UndoManager:
                 "code_id": code_id,
                 "prev_colour": prev_colour,
                 "prev_chord": prev_chord,
+                "prev_definition": prev_definition,
                 "child_code_id": child_code_id,
                 "annotation_ids": list(annotation_ids),
             },
@@ -282,6 +301,9 @@ class UndoManager:
             "source_id": entry.source_id,
             "flash_annotation_id": flash_id,
             "codebook_changed": entry.op in CODEBOOK_OPS,
+            "codebook_op": entry.op if entry.op in CODEBOOK_OPS else None,
+            "codebook_payload": dict(entry.payload) if entry.op in CODEBOOK_OPS else {},
+            "undo_direction": direction,
         }
 
     def undo(self, conn) -> dict | None:
@@ -450,6 +472,26 @@ def _redo_code_recolour(conn, entry):
     return f"code '{_code_name(conn, entry.payload['code_id'])}' recoloured", None
 
 
+def _undo_code_definition_update(conn, entry):
+    _set_code_field(
+        conn,
+        entry.payload["code_id"],
+        "definition",
+        entry.payload.get("prev_definition"),
+    )
+    return f"definition for '{_code_name(conn, entry.payload['code_id'])}'", None
+
+
+def _redo_code_definition_update(conn, entry):
+    _set_code_field(
+        conn,
+        entry.payload["code_id"],
+        "definition",
+        entry.payload.get("new_definition"),
+    )
+    return f"definition for '{_code_name(conn, entry.payload['code_id'])}'", None
+
+
 def _move_annotations_to_code(
     conn,
     annotation_ids: list[str],
@@ -475,9 +517,14 @@ def _undo_code_convert_to_folder(conn, entry):
             )
         conn.execute(
             "UPDATE codebook_code "
-            "SET kind = 'code', colour = ?, chord = ? "
+            "SET kind = 'code', colour = ?, chord = ?, definition = ? "
             "WHERE id = ?",
-            (p["prev_colour"], p.get("prev_chord"), p["code_id"]),
+            (
+                p["prev_colour"],
+                p.get("prev_chord"),
+                p.get("prev_definition"),
+                p["code_id"],
+            ),
         )
         _move_annotations_to_code(conn, p["annotation_ids"], p["code_id"])
         conn.commit()
@@ -492,14 +539,14 @@ def _redo_code_convert_to_folder(conn, entry):
     try:
         conn.execute(
             "UPDATE codebook_code "
-            "SET kind = 'folder', colour = '', chord = NULL "
+            "SET kind = 'folder', colour = '', chord = NULL, definition = NULL "
             "WHERE id = ?",
             (p["code_id"],),
         )
         if p["child_code_id"] is not None:
             conn.execute(
-                "UPDATE codebook_code SET deleted_at = NULL WHERE id = ?",
-                (p["child_code_id"],),
+                "UPDATE codebook_code SET deleted_at = NULL, definition = ? WHERE id = ?",
+                (p.get("prev_definition"), p["child_code_id"]),
             )
             _move_annotations_to_code(conn, p["annotation_ids"], p["child_code_id"])
         conn.commit()
@@ -740,6 +787,7 @@ _NOTIFICATION_LABELS: dict[OpType, str] = {
     "code_delete": "delete code",
     "code_rename": "rename code",
     "code_recolour": "change colour",
+    "code_definition_update": "edit definition",
     "code_convert_to_folder": "convert code",
     "code_reorder": "reorder codes",
     "flag_toggle": "toggle flag",
@@ -767,6 +815,7 @@ _HANDLERS: dict[OpType, tuple[Handler, Handler]] = {
     "code_delete":                   (_undo_code_delete,                 _redo_code_delete),
     "code_rename":                   (_undo_code_rename,                 _redo_code_rename),
     "code_recolour":                 (_undo_code_recolour,               _redo_code_recolour),
+    "code_definition_update":        (_undo_code_definition_update,      _redo_code_definition_update),
     "code_convert_to_folder":        (_undo_code_convert_to_folder,      _redo_code_convert_to_folder),
     "code_reorder":                  (_undo_code_reorder,                _redo_code_reorder),
     "flag_toggle":                   (_undo_flag_toggle,                 _redo_flag_toggle),

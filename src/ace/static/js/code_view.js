@@ -14,7 +14,18 @@
   const tableEl = document.getElementById("cv-table");
   const ctxEl = document.getElementById("cv-ctx");
   const clearBtn = document.getElementById("cv-clear");
+  const modeHeadingEl = document.getElementById("cv-tracks-heading");
+  const reviewPanelEl = document.querySelector("[data-cv-review-panel]");
+  const editPanelEl = document.querySelector("[data-cv-edit-panel]");
+  const reviewModeBtn = document.getElementById("cv-mode-review");
+  const editModeBtn = document.getElementById("cv-mode-edit");
+  const codeNameInput = document.getElementById("cv-code-name");
+  const codeFolderSelect = document.getElementById("cv-code-folder");
+  const codeDefinitionTextarea = document.getElementById("cv-code-definition");
   const CODEBOOK_CODE_ROW_SELECTOR = ".ace-ht-row--code[data-code-id]";
+  let lastReviewFocus = null;
+  let pendingMetadataSave = null;
+  let codeViewMode = "review";
 
   function codebookTreeElement() {
     return document.getElementById("ace-headless-tree-mount");
@@ -68,7 +79,7 @@
   function isEditableElement(el) {
     if (!el) return false;
     const tag = (el.tagName || "").toLowerCase();
-    return tag === "input" || tag === "textarea" || el.isContentEditable;
+    return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
   }
 
   // Mark an event as fully handled — preventDefault + stopImmediatePropagation
@@ -114,6 +125,226 @@
     excerpts: null,  // annotation id string, or null
     codebook: null,  // code id string, or null
   };
+
+  function renderFolderOptions() {
+    if (!codeFolderSelect) return;
+    const currentParent = data?.code?.parent_id || "";
+    const options = [new Option("None", "")];
+    (data.folders || []).forEach((folder) => {
+      options.push(new Option(folder.name || "", folder.id || ""));
+    });
+    codeFolderSelect.replaceChildren(...options);
+    codeFolderSelect.value = currentParent;
+  }
+
+  function editorHasDirtyValues() {
+    if (!codeNameInput || !codeFolderSelect || !codeDefinitionTextarea || !data?.code) {
+      return false;
+    }
+    function isDirtyField(key, currentValue, savedValue) {
+      if (
+        pendingMetadataSave
+        && pendingMetadataSave.codeId === data.code.id
+        && pendingMetadataSave.savedKeys.has(key)
+        && currentValue === pendingMetadataSave.drafts[key]
+      ) {
+        return false;
+      }
+      return currentValue !== savedValue;
+    }
+    return (
+      isDirtyField("name", codeNameInput.value, data.code.name || "")
+      || isDirtyField("parentId", codeFolderSelect.value, data.code.parent_id || "")
+      || isDirtyField("definition", codeDefinitionTextarea.value, data.code.definition || "")
+    );
+  }
+
+  function confirmDiscardMetadataEdits() {
+    return !editorHasDirtyValues() || window.confirm("Discard unsaved code edits?");
+  }
+
+  function confirmAndDiscardMetadataEdits() {
+    if (!editorHasDirtyValues()) return true;
+    if (!confirmDiscardMetadataEdits()) return false;
+    populateCodeEditor();
+    return true;
+  }
+
+  function preserveDirtyMetadataDraftForReload() {
+    if (pendingMetadataSave && pendingMetadataSave.codeId === data?.code?.id) {
+      if (!pendingMetadataSave.savedKeys.has("name")) {
+        pendingMetadataSave.drafts.name = codeNameInput.value;
+      }
+      if (!pendingMetadataSave.savedKeys.has("parentId")) {
+        pendingMetadataSave.drafts.parentId = codeFolderSelect.value;
+      }
+      if (!pendingMetadataSave.savedKeys.has("definition")) {
+        pendingMetadataSave.drafts.definition = codeDefinitionTextarea.value;
+      }
+      pendingMetadataSave.restoreFocusId =
+        document.activeElement?.id || pendingMetadataSave.restoreFocusId;
+      return;
+    }
+    if (!editorHasDirtyValues()) return;
+    const cleanKeys = [];
+    const currentName = data.code.name || "";
+    const currentParent = data.code.parent_id || "";
+    const currentDefinition = data.code.definition || "";
+    if (codeNameInput.value === currentName) cleanKeys.push("name");
+    if (codeFolderSelect.value === currentParent) cleanKeys.push("parentId");
+    if (codeDefinitionTextarea.value === currentDefinition) cleanKeys.push("definition");
+    captureMetadataDraft(cleanKeys);
+  }
+
+  function captureMetadataDraft(savedKeys) {
+    if (!codeNameInput || !codeFolderSelect || !codeDefinitionTextarea || !data?.code) {
+      pendingMetadataSave = null;
+      return null;
+    }
+    pendingMetadataSave = {
+      codeId: data.code.id,
+      savedKeys: new Set(savedKeys || []),
+      restoreFocusId: document.activeElement?.id || null,
+      drafts: {
+        name: codeNameInput.value,
+        parentId: codeFolderSelect.value,
+        definition: codeDefinitionTextarea.value,
+      },
+    };
+    return pendingMetadataSave;
+  }
+
+  function populateCodeEditor() {
+    renderFolderOptions();
+    if (!codeNameInput || !codeFolderSelect || !codeDefinitionTextarea || !data?.code) {
+      pendingMetadataSave = null;
+      return null;
+    }
+
+    codeNameInput.value = data.code.name || "";
+    codeFolderSelect.value = data.code.parent_id || "";
+    codeDefinitionTextarea.value = data.code.definition || "";
+
+    const pending = pendingMetadataSave;
+    let restoreFocusId = null;
+    if (pending && pending.codeId === data.code.id) {
+      if (!pending.savedKeys.has("name")) {
+        codeNameInput.value = pending.drafts.name;
+      }
+      if (!pending.savedKeys.has("parentId")) {
+        codeFolderSelect.value = pending.drafts.parentId;
+      }
+      if (!pending.savedKeys.has("definition")) {
+        codeDefinitionTextarea.value = pending.drafts.definition;
+      }
+      restoreFocusId = pending.restoreFocusId;
+    }
+    pendingMetadataSave = null;
+    return restoreFocusId;
+  }
+
+  function setCodeViewMode(mode, opts) {
+    opts = opts || {};
+    const nextMode = mode === "edit" ? "edit" : "review";
+    const prevMode = codeViewMode;
+    const leavingDirtyEdit =
+      prevMode === "edit"
+      && nextMode !== "edit"
+      && opts.skipDirtyCheck !== true
+      && editorHasDirtyValues();
+
+    if (leavingDirtyEdit && !confirmAndDiscardMetadataEdits()) {
+      return false;
+    }
+
+    if (nextMode === "edit" && prevMode !== "edit") {
+      const active = document.activeElement;
+      if (reviewPanelEl && active && reviewPanelEl.contains(active)) {
+        lastReviewFocus = active;
+      }
+    }
+
+    codeViewMode = nextMode;
+    if (reviewPanelEl) reviewPanelEl.hidden = nextMode !== "review";
+    if (editPanelEl) editPanelEl.hidden = nextMode !== "edit";
+    if (modeHeadingEl) {
+      modeHeadingEl.textContent = nextMode === "edit" ? "Edit selected code" : "Sources";
+    }
+    if (reviewModeBtn) reviewModeBtn.setAttribute("aria-pressed", nextMode === "review" ? "true" : "false");
+    if (editModeBtn) editModeBtn.setAttribute("aria-pressed", nextMode === "edit" ? "true" : "false");
+
+    if (opts.restoreFocusId) {
+      const focusTarget = document.getElementById(opts.restoreFocusId);
+      if (focusTarget && typeof focusTarget.focus === "function") {
+        focusTarget.focus({ preventScroll: true });
+        return true;
+      }
+    }
+
+    if (nextMode === "edit") {
+      if (prevMode !== "edit" && opts.focusName !== false && codeNameInput) {
+        codeNameInput.focus({ preventScroll: true });
+        codeNameInput.select();
+      }
+      return true;
+    }
+
+    if (
+      prevMode === "edit"
+      && lastReviewFocus
+      && lastReviewFocus.isConnected
+      && typeof lastReviewFocus.focus === "function"
+    ) {
+      lastReviewFocus.focus({ preventScroll: true });
+    }
+    return true;
+  }
+
+  function submitCodeUpdate(values, savedKeys) {
+    if (!data?.code?.id) return;
+    captureMetadataDraft(savedKeys);
+    const requestValues = {
+      codebook_mode: "audit",
+      current_code_id: data.code.id,
+      ...values,
+    };
+    if (window.htmx?.ajax) {
+      window.htmx.ajax("PUT", `/api/codes/${data.code.id}`, {
+        target: "#code-sidebar",
+        swap: "none",
+        values: requestValues,
+      });
+      return;
+    }
+    fetch(`/api/codes/${data.code.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(requestValues),
+    }).catch(() => {});
+  }
+
+  function submitFolderUpdate(parentId) {
+    if (!data?.code?.id) return;
+    captureMetadataDraft(["parentId"]);
+    const requestValues = {
+      codebook_mode: "audit",
+      current_code_id: data.code.id,
+      parent_id: parentId,
+    };
+    if (window.htmx?.ajax) {
+      window.htmx.ajax("PUT", `/api/codes/${data.code.id}/parent`, {
+        target: "#code-sidebar",
+        swap: "none",
+        values: requestValues,
+      });
+      return;
+    }
+    fetch(`/api/codes/${data.code.id}/parent`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(requestValues),
+    }).catch(() => {});
+  }
 
   // --- Static render: tracks ---
   function renderTracksFresh() {
@@ -187,8 +418,17 @@
     }
     document.documentElement.style.setProperty("--code-colour", data.code.colour);
     document.documentElement.style.setProperty("--code-bg", data.code.colour + "22");
+    if (tracksEl) {
+      tracksEl.setAttribute("aria-label", `Sources with '${data.code.name}' excerpts`);
+    }
 
+    const restoreFocusId = populateCodeEditor();
     setCurrentSidebarCode(data.code.id);
+    setCodeViewMode(codeViewMode, {
+      focusName: false,
+      restoreFocusId,
+      skipDirtyCheck: true,
+    });
   }
 
   // Returns the set of source idx values currently visible in the excerpts
@@ -650,7 +890,7 @@
     const searchEl = document.getElementById("cv-search");
     const tag = (evt.target.tagName || "").toLowerCase();
     const inFormControl =
-      tag === "input" || tag === "textarea" || evt.target.isContentEditable;
+      tag === "input" || tag === "textarea" || tag === "select" || evt.target.isContentEditable;
     if (inFormControl) {
       if (evt.target === searchEl && evt.key === "Escape") {
         evt.target.value = "";
@@ -673,6 +913,10 @@
         if (searchEl) searchEl.value = "";
         updateUI(); // announce — all state cleared, back to overview
       } else {
+        if (!confirmDiscardMetadataEdits()) {
+          claim(evt);
+          return;
+        }
         window.location.href = "/code";
       }
       claim(evt);
@@ -680,6 +924,10 @@
     }
 
     if (evt.key === "n" || evt.key === "N") {
+      if (!confirmDiscardMetadataEdits()) {
+        claim(evt);
+        return;
+      }
       window.location.href = "/code?note=1";
       claim(evt);
       return;
@@ -711,6 +959,53 @@
     });
   }
 
+  // --- Code metadata editor ---
+  populateCodeEditor();
+  setCodeViewMode("review", { focusName: false, skipDirtyCheck: true });
+
+  if (reviewModeBtn) {
+    reviewModeBtn.addEventListener("click", () => {
+      setCodeViewMode("review");
+    });
+  }
+  if (editModeBtn) {
+    editModeBtn.addEventListener("click", () => {
+      setCodeViewMode("edit");
+    });
+  }
+  if (editPanelEl) {
+    editPanelEl.addEventListener("submit", (evt) => {
+      evt.preventDefault();
+    });
+  }
+  if (codeNameInput) {
+    codeNameInput.addEventListener("keydown", (evt) => {
+      if (evt.key !== "Enter") return;
+      claim(evt);
+      submitCodeUpdate({ name: codeNameInput.value }, ["name"]);
+    });
+  }
+  if (codeFolderSelect) {
+    codeFolderSelect.addEventListener("change", () => {
+      submitFolderUpdate(codeFolderSelect.value);
+    });
+  }
+  if (codeDefinitionTextarea) {
+    codeDefinitionTextarea.addEventListener("keydown", (evt) => {
+      if (evt.key !== "Enter" || (!evt.metaKey && !evt.ctrlKey)) return;
+      claim(evt);
+      submitCodeUpdate({ definition: codeDefinitionTextarea.value }, ["definition"]);
+    });
+  }
+
+  document.addEventListener("click", (evt) => {
+    const backLink = evt.target?.closest?.(".cv-back");
+    if (!backLink) return;
+    if (!confirmDiscardMetadataEdits()) {
+      claim(evt);
+    }
+  }, true);
+
   // --- Codebook sidebar wiring ---
   // The shared codebook partial is rendered here as well. Mark the currently-
   // viewed code; activation loads excerpts while editing stays shared with /code.
@@ -727,10 +1022,11 @@
       const row = codebookCodeRowFromTarget(evt.target);
       if (!row) return;
       if (evt.target.closest(
-        ".ace-context-menu, .ace-codebook-dropdown, .ace-ht-rename, .ace-ht-toggle, .ace-ht-chip, input, textarea, button, a"
+        ".ace-context-menu, .ace-codebook-dropdown, .ace-ht-rename, .ace-ht-toggle, .ace-ht-chip, input, textarea, select, button, a"
       )) return;
       const id = codeIdFromCodebookRow(row);
       if (!id) return;
+      if (id !== data.code.id && !confirmAndDiscardMetadataEdits()) return;
       selectCodebookRowById(id);
       if (id === data.code.id) return;   // already here, no-op
       loadCode(id, { pushHistory: true });
@@ -739,6 +1035,7 @@
     document.addEventListener("ace:view-code", (evt) => {
       const codeId = evt.detail && evt.detail.codeId;
       if (!codeId) return;
+      if (codeId !== data.code.id && !confirmAndDiscardMetadataEdits()) return;
       selectCodebookRowById(codeId);
       if (codeId !== data.code.id) {
         loadCode(codeId, {
@@ -868,7 +1165,8 @@
     opts = opts || {};
     const pushHistory = opts.pushHistory !== false;
     const forceReload = opts.forceReload === true;
-    if (!codeId || (!forceReload && codeId === data.code.id)) return;
+    if (!codeId || (!forceReload && codeId === data.code.id)) return { cancelled: false };
+    if (!forceReload && !confirmAndDiscardMetadataEdits()) return { cancelled: true };
     if (navAbort.ctl) navAbort.ctl.abort();
     navAbort.ctl = new AbortController();
     let json;
@@ -891,10 +1189,10 @@
         _cacheEvictIfFull();
       }
     } catch (e) {
-      if (e && e.name === "AbortError") return;
+      if (e && e.name === "AbortError") return { cancelled: false };
       // Fallback: full navigate so something still works on fetch failure.
       window.location.href = `/code/${codeId}/view`;
-      return;
+      return { cancelled: false };
     }
     const useViewTransition = opts.viewTransition !== false;
     if (useViewTransition && typeof document.startViewTransition === "function") {
@@ -907,6 +1205,7 @@
     } else {
       history.replaceState({ codeId }, "", `/code/${codeId}/view`);
     }
+    return { cancelled: false };
   }
 
   const dataCache = new Map(); // codeId -> Promise<data | null>
@@ -962,7 +1261,9 @@
     const affectedCodeIds = Array.isArray(detail.affectedCodeIds)
       ? detail.affectedCodeIds.filter(Boolean)
       : [];
-    if (affectedCodeIds.length > 0) {
+    if (detail.folderListChanged === true) {
+      dataCache.clear();
+    } else if (affectedCodeIds.length > 0) {
       affectedCodeIds.forEach((codeId) => dataCache.delete(codeId));
     } else {
       dataCache.clear();
@@ -974,9 +1275,17 @@
     }
 
     const currentCodeId = data && data.code ? data.code.id : null;
+    const hasExplicitAuditReload = Object.prototype.hasOwnProperty.call(detail, "auditReload");
     const currentWasDeleted =
       !!currentCodeId
-      && detail.operation === "delete"
+      && (
+        detail.operation === "delete"
+        || (
+          detail.auditReload === false
+          && detail.folderListChanged === true
+          && !detail.fallbackCodeId
+        )
+      )
       && affectedCodeIds.includes(currentCodeId);
     if (currentWasDeleted) {
       setCurrentSidebarCode("");
@@ -989,11 +1298,13 @@
       && (
         detail.auditReload === true
         || (
-          detail.operation !== "delete"
+          !hasExplicitAuditReload
+          && detail.operation !== "delete"
           && affectedCodeIds.includes(currentCodeId)
         )
       );
     if (shouldReloadCurrent) {
+      preserveDirtyMetadataDraftForReload();
       dataCache.delete(currentCodeId);
       loadCode(currentCodeId, {
         pushHistory: false,
@@ -1111,6 +1422,7 @@
         && !evt.ctrlKey && !evt.metaKey && !evt.altKey && !evt.shiftKey) {
       if (isEditableElement(document.activeElement)) return;
       claim(evt);
+      if (!confirmDiscardMetadataEdits()) return;
       window.location.href = "/code";
       return;
     }
@@ -1268,7 +1580,11 @@
   window.addEventListener("popstate", () => {
     const m = location.pathname.match(/^\/code\/([^/]+)\/view\/?$/);
     if (m && m[1] !== data.code.id) {
-      loadCode(m[1], { pushHistory: false });
+      loadCode(m[1], { pushHistory: false }).then((result) => {
+        if (result?.cancelled) {
+          history.replaceState({ codeId: data.code.id }, "", `/code/${data.code.id}/view`);
+        }
+      });
     }
   });
 

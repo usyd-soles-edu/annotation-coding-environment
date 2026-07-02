@@ -17,7 +17,6 @@ from fastapi import (
 )
 from fastapi.responses import (
     FileResponse,
-    HTMLResponse,
     JSONResponse,
 )
 from starlette.background import BackgroundTask
@@ -168,6 +167,8 @@ async def create_folder_route(
             current_code_id=current_code_id,
             status_html=_oob_announce(f"Created folder {name}"),
             headers={"HX-Reswap": "none"},
+            audit_reload=bool(current_code_id),
+            folder_list_changed=True,
         )
 
 
@@ -242,6 +243,9 @@ async def set_code_parent_route(
             new_dest_ordering=new_dest_ordering,
         )
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
+        status_html = ""
+        if _request_codebook_mode(request, explicit=codebook_mode) == "audit":
+            status_html = _oob_status("Saved code folder.", "ok").body.decode()
         return _render_codebook_mutation_response(
             request,
             conn,
@@ -251,6 +255,7 @@ async def set_code_parent_route(
             current_code_id=current_code_id,
             affected_code_ids=[code_id],
             headers={"HX-Reswap": "none"},
+            status_html=status_html,
         )
 
 
@@ -343,6 +348,8 @@ async def indent_promote_route(
             current_code_id=current_code_id,
             affected_code_ids=[above_code_id, code_id],
             status_html=status_html,
+            audit_reload=bool(current_code_id),
+            folder_list_changed=True,
         )
 
 
@@ -590,6 +597,29 @@ async def import_codebook(
         return _oob_status("Invalid codes_json format.")
 
     with _project_db(request) as conn:
+        existing_code_names = {
+            r["name"].lower()
+            for r in conn.execute(
+                "SELECT name FROM codebook_code "
+                "WHERE deleted_at IS NULL AND kind = 'code'"
+            ).fetchall()
+        }
+        existing_folder_names = {
+            r["name"].lower()
+            for r in conn.execute(
+                "SELECT name FROM codebook_code "
+                "WHERE deleted_at IS NULL AND kind = 'folder'"
+            ).fetchall()
+        }
+        incoming_groups = {
+            str(code.get("group_name")).strip()
+            for code in codes_list
+            if code.get("group_name")
+            and str(code.get("name", "")).lower() not in existing_code_names
+        }
+        folder_list_changed = any(
+            group.lower() not in existing_folder_names for group in incoming_groups
+        )
         imported_ids = import_selected_codes(conn, codes_list)
         if imported_ids:
             _get_undo_manager(request).record_codebook_import(imported_ids)
@@ -603,6 +633,7 @@ async def import_codebook(
             current_code_id=current_code_id,
             affected_code_ids=imported_ids,
             audit_reload=bool(imported_ids and current_code_id),
+            folder_list_changed=folder_list_changed,
         )
 
     # Clean up temp file
@@ -619,6 +650,8 @@ async def convert_code_to_folder_route(
     request: Request,
     code_id: str,
     current_index: int = Form(default=0),
+    codebook_mode: str = Form(default="coding"),
+    current_code_id: str | None = Form(default=None),
 ):
     """Convert a code to a folder, preserving annotations in a child code."""
     from ace.models.codebook import InvariantError, convert_code_to_folder
@@ -642,12 +675,39 @@ async def convert_code_to_folder_route(
             code_id=code_id,
             prev_colour=result["prev_colour"],
             prev_chord=result["prev_chord"],
+            prev_definition=result["prev_definition"],
             child_code_id=result["child_code_id"],
             annotation_ids=result["annotation_ids"],
         )
+        resolved_mode = _request_codebook_mode(request, explicit=codebook_mode)
+        affected_code_ids = [code_id]
+        if result["child_code_id"] is not None:
+            affected_code_ids.append(result["child_code_id"])
+        fallback_code_id = None
+        audit_reload = None
+        if resolved_mode == "audit":
+            if current_code_id == code_id:
+                fallback_code_id = result["child_code_id"] or _fallback_code_after_delete(
+                    conn,
+                    code_id,
+                )
+                audit_reload = False
+            else:
+                audit_reload = bool(current_code_id)
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
-        content += _oob_status_undo("Converted code")
-        return HTMLResponse(content)
+        return _render_codebook_mutation_response(
+            request,
+            conn,
+            coder_id,
+            coding_content=content,
+            mode=codebook_mode,
+            current_code_id=current_code_id,
+            affected_code_ids=affected_code_ids,
+            fallback_code_id=fallback_code_id,
+            audit_reload=audit_reload,
+            folder_list_changed=True,
+            status_html=_oob_status_undo("Converted code"),
+        )
 
 
 @router.put("/codes/{code_id}")
@@ -656,6 +716,7 @@ async def update_code_route(
     code_id: str,
     name: str | None = Form(default=None),
     colour: str | None = Form(default=None),
+    definition: str | None = Form(default=None),
     current_index: int = Form(default=0),
     codebook_mode: str = Form(default="coding"),
     current_code_id: str | None = Form(default=None),
@@ -668,6 +729,8 @@ async def update_code_route(
     from ace.models.codebook import update_code
 
     coder_id = _require_coder(request)
+    form_data = await request.form()
+    definition_submitted = "definition" in form_data
 
     with _project_db(request) as conn:
         kwargs: dict = {}
@@ -680,14 +743,21 @@ async def update_code_route(
             if not re.fullmatch(r'#[0-9a-fA-F]{6}', colour):
                 return _oob_status("Invalid colour format.")
             kwargs["colour"] = colour
+        if definition_submitted:
+            raw_definition = form_data.get("definition")
+            definition = raw_definition if isinstance(raw_definition, str) else ""
+            definition = definition.strip() or None
+            kwargs["definition"] = definition
 
         # Read the prior state so we can record the right inverse op(s).
         prev = conn.execute(
-            "SELECT name, colour FROM codebook_code WHERE id = ?",
+            "SELECT name, colour, kind, definition FROM codebook_code WHERE id = ?",
             (code_id,),
         ).fetchone()
         if prev is None:
             raise HTTPException(status_code=404, detail=f"code {code_id} not found")
+        if "definition" in kwargs and prev["kind"] == "folder":
+            return _oob_status("Folders do not have definitions.")
 
         try:
             update_code(conn, code_id, **kwargs)
@@ -699,8 +769,17 @@ async def update_code_route(
             mgr.record_code_rename(code_id, prev["name"], kwargs["name"])
         if "colour" in kwargs and kwargs["colour"] != prev["colour"]:
             mgr.record_code_recolour(code_id, prev["colour"], kwargs["colour"])
+        if "definition" in kwargs and kwargs["definition"] != prev["definition"]:
+            mgr.record_code_definition_update(
+                code_id,
+                prev["definition"],
+                kwargs["definition"],
+            )
 
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
+        status_html = ""
+        if _request_codebook_mode(request, explicit=codebook_mode) == "audit" and kwargs:
+            status_html = _oob_status("Saved code details.", "ok").body.decode()
         return _render_codebook_mutation_response(
             request,
             conn,
@@ -708,6 +787,22 @@ async def update_code_route(
             coding_content=content,
             mode=codebook_mode,
             current_code_id=current_code_id or code_id,
+            affected_code_ids=[code_id],
+            folder_list_changed=(
+                prev["kind"] == "folder"
+                and "name" in kwargs
+                and kwargs["name"] != prev["name"]
+            ),
+            audit_reload=(
+                bool(current_code_id or code_id)
+                if (
+                    prev["kind"] == "folder"
+                    and "name" in kwargs
+                    and kwargs["name"] != prev["name"]
+                )
+                else None
+            ),
+            status_html=status_html,
         )
 
 
@@ -773,4 +868,6 @@ async def delete_code_route(
             affected_code_ids=[code_id],
             fallback_code_id=fallback_code_id,
             status_html=_oob_status_undo("Deleted code"),
+            audit_reload=bool(current_code_id) if prev["kind"] == "folder" else None,
+            folder_list_changed=prev["kind"] == "folder",
         )
