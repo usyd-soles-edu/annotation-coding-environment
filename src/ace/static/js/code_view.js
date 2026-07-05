@@ -153,6 +153,7 @@
     function isDirtyField(key, currentValue, savedValue) {
       if (
         pendingMetadataSave
+        && pendingMetadataSave.accepted === true
         && pendingMetadataSave.codeId === data.code.id
         && pendingMetadataSave.savedKeys.has(key)
         && currentValue === pendingMetadataSave.drafts[key]
@@ -181,13 +182,14 @@
 
   function preserveDirtyMetadataDraftForReload() {
     if (pendingMetadataSave && pendingMetadataSave.codeId === data?.code?.id) {
-      if (!pendingMetadataSave.savedKeys.has("name")) {
+      const pendingAccepted = pendingMetadataSave.accepted === true;
+      if (!pendingAccepted || !pendingMetadataSave.savedKeys.has("name")) {
         pendingMetadataSave.drafts.name = codeNameInput.value;
       }
-      if (!pendingMetadataSave.savedKeys.has("parentId")) {
+      if (!pendingAccepted || !pendingMetadataSave.savedKeys.has("parentId")) {
         pendingMetadataSave.drafts.parentId = codeFolderSelect.value;
       }
-      if (!pendingMetadataSave.savedKeys.has("definition")) {
+      if (!pendingAccepted || !pendingMetadataSave.savedKeys.has("definition")) {
         pendingMetadataSave.drafts.definition = codeDefinitionTextarea.value;
       }
       pendingMetadataSave.restoreFocusId =
@@ -213,6 +215,7 @@
     pendingMetadataSave = {
       codeId: data.code.id,
       savedKeys: new Set(savedKeys || []),
+      accepted: false,
       restoreFocusId: document.activeElement?.id || null,
       drafts: {
         name: codeNameInput.value,
@@ -237,13 +240,14 @@
     const pending = pendingMetadataSave;
     let restoreFocusId = null;
     if (pending && pending.codeId === data.code.id) {
-      if (!pending.savedKeys.has("name")) {
+      const pendingAccepted = pending.accepted === true;
+      if (!pendingAccepted || !pending.savedKeys.has("name")) {
         codeNameInput.value = pending.drafts.name;
       }
-      if (!pending.savedKeys.has("parentId")) {
+      if (!pendingAccepted || !pending.savedKeys.has("parentId")) {
         codeFolderSelect.value = pending.drafts.parentId;
       }
-      if (!pending.savedKeys.has("definition")) {
+      if (!pendingAccepted || !pending.savedKeys.has("definition")) {
         codeDefinitionTextarea.value = pending.drafts.definition;
       }
       restoreFocusId = pending.restoreFocusId;
@@ -356,6 +360,40 @@
       body: new URLSearchParams(requestValues),
     }).catch(() => {});
   }
+
+  function responseTriggersCodebookMutation(xhr) {
+    if (!xhr || typeof xhr.getResponseHeader !== "function") return false;
+    return ["HX-Trigger", "HX-Trigger-After-Swap", "HX-Trigger-After-Settle"]
+      .some((name) => (xhr.getResponseHeader(name) || "").includes("ace:codebook-mutated"));
+  }
+
+  function isPendingMetadataRequest(path) {
+    if (!pendingMetadataSave || !path) return false;
+    let pathname = "";
+    try {
+      pathname = new URL(path, window.location.origin).pathname;
+    } catch (_e) {
+      pathname = String(path);
+    }
+    const codePath = `/api/codes/${pendingMetadataSave.codeId}`;
+    return pathname === codePath || pathname === `${codePath}/parent`;
+  }
+
+  document.addEventListener("htmx:afterRequest", (evt) => {
+    if (!pendingMetadataSave) return;
+    const detail = evt.detail || {};
+    const requestPath =
+      detail.pathInfo?.requestPath
+      || detail.requestConfig?.path
+      || detail.xhr?.responseURL
+      || "";
+    if (!isPendingMetadataRequest(requestPath)) return;
+    if (responseTriggersCodebookMutation(detail.xhr)) {
+      pendingMetadataSave.accepted = true;
+    } else {
+      pendingMetadataSave = null;
+    }
+  });
 
   // --- Static render: tracks ---
   function renderTracksFresh() {

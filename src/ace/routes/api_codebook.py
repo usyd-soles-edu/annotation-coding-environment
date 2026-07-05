@@ -730,11 +730,14 @@ async def update_code_route(
 
     coder_id = _require_coder(request)
     form_data = await request.form()
+    name_submitted = "name" in form_data
     definition_submitted = "definition" in form_data
 
     with _project_db(request) as conn:
         kwargs: dict = {}
-        if name is not None:
+        if name_submitted:
+            raw_name = form_data.get("name")
+            name = raw_name if isinstance(raw_name, str) else ""
             name = name.strip()
             if not name:
                 return _oob_status("Code name cannot be empty.")

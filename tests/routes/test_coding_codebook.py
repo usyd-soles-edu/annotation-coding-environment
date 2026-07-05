@@ -904,6 +904,24 @@ def test_audit_mode_definition_update_records_undo_entry(client_with_codes):
     assert _codebook_row(db_path, code_id)["definition"] == "Updated definition"
 
 
+def test_audit_mode_empty_name_is_rejected(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, db_path = client_with_codes
+
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "name": "",
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+        },
+    )
+
+    assert resp.status_code == 200
+    assert "Code name cannot be empty." in resp.text
+    assert "ace:codebook-mutated" not in resp.headers.get("HX-Trigger-After-Settle", "")
+    assert _codebook_row(db_path, code_id)["name"]
+
+
 def test_audit_mode_definition_empty_string_stores_null(client_with_codes):
     from ace.db.connection import open_project
     from ace.models.codebook import update_code

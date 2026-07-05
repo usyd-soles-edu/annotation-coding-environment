@@ -139,7 +139,7 @@
 }
 .cv-summary b { color: var(--ace-text); }
 
-.cv-notification-receipt {
+#code-view #ace-notification-receipt {
   position: static;
   grid-column: 1 / -1;
   justify-self: center;
@@ -152,7 +152,7 @@
   font-family: var(--ace-font-mono);
   transform: none;
 }
-.cv-notification-receipt:not(:empty) {
+#code-view #ace-notification-receipt:not(:empty) {
   transform: none;
 }
 
