@@ -179,6 +179,7 @@
   function confirmAndDiscardMetadataEdits() {
     if (!editorHasDirtyValues()) return true;
     if (!confirmDiscardMetadataEdits()) return false;
+    pendingMetadataSave = null;
     populateCodeEditor();
     return true;
   }
@@ -369,6 +370,25 @@
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams(requestValues),
     }).catch(() => {});
+  }
+
+  function submitChangedCodeDetails() {
+    if (!codeNameInput || !codeDefinitionTextarea || !data?.code) return false;
+    const values = {};
+    const savedKeys = [];
+    const nextName = codeNameInput.value;
+    const nextDefinition = codeDefinitionTextarea.value;
+    if (nextName !== (data.code.name || "")) {
+      values.name = nextName;
+      savedKeys.push("name");
+    }
+    if (nextDefinition !== (data.code.definition || "")) {
+      values.definition = nextDefinition;
+      savedKeys.push("definition");
+    }
+    if (savedKeys.length === 0) return false;
+    submitCodeUpdate(values, savedKeys);
+    return true;
   }
 
   function submitFolderUpdate(parentId) {
@@ -1063,6 +1083,7 @@
   if (editPanelEl) {
     editPanelEl.addEventListener("submit", (evt) => {
       evt.preventDefault();
+      submitChangedCodeDetails();
     });
     editPanelEl.addEventListener("keydown", (evt) => {
       if (evt.key !== "Escape") return;
@@ -1118,7 +1139,10 @@
       )) return;
       const id = codeIdFromCodebookRow(row);
       if (!id) return;
-      if (id !== data.code.id && !confirmAndDiscardMetadataEdits()) return;
+      if (id !== data.code.id && !confirmAndDiscardMetadataEdits()) {
+        selectCodebookRowById(data.code.id);
+        return;
+      }
       selectCodebookRowById(id);
       if (id === data.code.id) return;   // already here, no-op
       loadCode(id, { pushHistory: true });
@@ -1127,7 +1151,10 @@
     document.addEventListener("ace:view-code", (evt) => {
       const codeId = evt.detail && evt.detail.codeId;
       if (!codeId) return;
-      if (codeId !== data.code.id && !confirmAndDiscardMetadataEdits()) return;
+      if (codeId !== data.code.id && !confirmAndDiscardMetadataEdits()) {
+        selectCodebookRowById(data.code.id);
+        return;
+      }
       selectCodebookRowById(codeId);
       if (codeId !== data.code.id) {
         loadCode(codeId, {

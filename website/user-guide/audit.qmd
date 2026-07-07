@@ -6,7 +6,7 @@ Review coded text shows every excerpt for one code across the project.
 
 Use it when you want to check how a code has been applied before exporting or comparing coders.
 
-![Review coded text view showing the codebook, source tracks, and excerpts for the Conditions code](../assets/guide/review-coded-text.png)
+![Review coded text view showing the codebook, Review excerpts/Edit code details switch, source tracks, and excerpts for the Conditions code](../assets/guide/review-coded-text.png)
 
 ## Open the view
 
@@ -90,9 +90,9 @@ To edit the selected code's dictionary entry:
 
 1. Choose **Edit code details**.
 2. Edit the code name, folder, or definition.
-3. Save the field you changed.
+3. Select **Save changes** for name or definition edits.
 
-The name field saves with `Enter`. The folder field saves when changed. The definition field saves with `Command+Enter` on macOS or `Control+Enter` on Windows.
+The folder field saves when changed. The name field also saves with `Enter`. The definition field also saves with `Command+Enter` on macOS or `Control+Enter` on Windows.
 
 If you switch away from edit mode with unsaved changes, ACE asks whether to discard them.
 

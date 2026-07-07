@@ -412,6 +412,27 @@
   font-size: 10px;
   color: var(--ace-text-muted);
 }
+.cv-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+.cv-save-button {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--ace-text);
+  border-radius: 3px;
+  background: var(--ace-text);
+  color: var(--ace-bg);
+  font-family: var(--ace-font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+.cv-save-button:hover,
+.cv-save-button:focus-visible {
+  background: var(--ace-bg);
+  color: var(--ace-text);
+}
 
 /* Excerpts column */
 .cv-excerpts-col {

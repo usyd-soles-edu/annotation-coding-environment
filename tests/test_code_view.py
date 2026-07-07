@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from ace.app import create_app
 from ace.db.connection import create_project
 from ace.models.annotation import add_annotation
-from ace.models.codebook import add_code
+from ace.models.codebook import add_code, add_folder
 from ace.models.project import list_coders
 from ace.models.source import add_source
 
@@ -96,6 +96,48 @@ def test_view_data_blob_is_valid_json(client_with_annotations):
     assert data["stats"]["sources_with_hits"] == 2
     assert data["stats"]["total_sources"] == 2
     assert len(data["sources"]) == 2
+
+
+def test_view_data_includes_editable_dictionary_fields(tmp_path):
+    app = create_app()
+    db_path = tmp_path / "test.ace"
+    conn = create_project(str(db_path), "Test Project")
+
+    coder_id = list_coders(conn)[0]["id"]
+    folder = add_folder(conn, "Review folder")
+    code = add_code(
+        conn,
+        "Theme A",
+        "#1565c0",
+        parent_id=folder,
+        definition="Initial dictionary definition.",
+    )
+    source = add_source(conn, "S001", "a" * 100, "row")
+    add_annotation(conn, source, coder_id, code, 0, 10, "aaaaaaaaaa")
+    conn.close()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        app.state.project_path = str(db_path)
+        app.state.coder_id = coder_id
+        client.get("/code")
+
+        page = client.get(f"/code/{code}/view")
+        assert page.status_code == 200
+        m = re.search(
+            r'<script id="ace-codeview-data" type="application/json">(.*?)</script>',
+            page.text,
+            re.DOTALL,
+        )
+        assert m, "ace-codeview-data script not found"
+        embedded = json.loads(m.group(1))
+        assert embedded["code"]["parent_id"] == folder
+        assert embedded["code"]["definition"] == "Initial dictionary definition."
+        assert any(item["id"] == folder and item["name"] == "Review folder" for item in embedded["folders"])
+
+        data = client.get(f"/api/code/{code}/view-data").json()
+        assert data["code"]["parent_id"] == folder
+        assert data["code"]["definition"] == "Initial dictionary definition."
+        assert any(item["id"] == folder and item["name"] == "Review folder" for item in data["folders"])
 
 
 def test_view_redirects_when_no_project(tmp_path):
@@ -212,6 +254,7 @@ def test_code_view_uses_prominent_audit_mode_band(client_with_annotations):
     assert edit_attrs["aria-pressed"] == "false"
     assert edit_attrs["aria-controls"] == "cv-code-editor"
     assert ">Edit code details</button>" in body
+    assert ">Save changes</button>" in body
 
     header_pos = body.index('class="cv-header"')
     band_pos = body.index('class="cv-mode-band"')
