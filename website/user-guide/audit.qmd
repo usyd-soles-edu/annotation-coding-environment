@@ -28,6 +28,8 @@ The view has three areas:
 
 The header shows how many excerpts use the selected code and how many sources contain it.
 
+The mode switch above the source tracks lets you move between **Review excerpts** and **Edit code details**. Use review mode to inspect excerpts. Use edit mode when the review shows that a code name, folder, or definition needs to be corrected.
+
 ## Read source tracks
 
 Source tracks are a compact plot of where the selected code appears.
@@ -80,9 +82,19 @@ Use the excerpts list for close reading. Use the source tracks for orientation.
 
 ## Edit the codebook
 
-The audit view uses the same codebook as the coding screen.
+The audit view uses the same codebook as the coding screen, so codebook edits made here update the project codebook.
 
 You can rename, reorder, move, or delete codes from the codebook. Undo is available for codebook edits.
+
+To edit the selected code's dictionary entry:
+
+1. Choose **Edit code details**.
+2. Edit the code name, folder, or definition.
+3. Save the field you changed.
+
+The name field saves with `Enter`. The folder field saves when changed. The definition field saves with `Command+Enter` on macOS or `Control+Enter` on Windows.
+
+If you switch away from edit mode with unsaved changes, ACE asks whether to discard them.
 
 You cannot apply codes to source text from this view. Return to coding when you need to add or remove annotations.
 

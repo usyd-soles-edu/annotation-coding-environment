@@ -57,14 +57,24 @@
       <div class="ace-sr-only" aria-live="polite" aria-atomic="true" id="cv-live"></div>
     </header>
 
+    <section class="cv-mode-band" aria-label="Audit task mode">
+      <div class="cv-mode-copy">
+        <strong class="cv-mode-title" id="cv-mode-title">Review coded excerpts</strong>
+        <span class="cv-mode-description" id="cv-mode-description">
+          Coded excerpts are visible for audit and comparison.
+        </span>
+      </div>
+      <div class="cv-mode-toggle" role="group" aria-label="Review or edit this code">
+        <button type="button" id="cv-mode-review" aria-pressed="true" aria-controls="cv-source-review">Review excerpts</button>
+        <button type="button" id="cv-mode-edit" aria-pressed="false" aria-controls="cv-code-editor">Edit code details</button>
+      </div>
+    </section>
+
     <div class="cv-body">
       <section class="cv-tracks-col" aria-labelledby="cv-tracks-heading">
-        <div class="ace-panel-heading-bar cv-mode-head">
+        <div class="ace-panel-heading-bar">
           <h2 id="cv-tracks-heading" class="ace-panel-heading">Sources</h2>
-          <div class="cv-mode-toggle" role="group" aria-label="Review/Edit mode">
-            <button type="button" id="cv-mode-review" aria-pressed="true" aria-controls="cv-source-review">Review</button>
-            <button type="button" id="cv-mode-edit" aria-pressed="false" aria-controls="cv-code-editor">Edit</button>
-          </div>
+          <span class="cv-mode-status" id="cv-mode-status">Review mode</span>
         </div>
         <div id="cv-source-review" class="cv-source-review" data-cv-review-panel>
           <div class="cv-tracks" id="cv-tracks" role="listbox"

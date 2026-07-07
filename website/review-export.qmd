@@ -15,6 +15,8 @@ Before exporting, scan:
 
 Use [Review coded text](user-guide/audit.qmd) to inspect every excerpt for one code across the project.
 
+If the examples show that a code name or definition needs tightening, switch to **Edit code details** from the review view and update the dictionary entry before exporting.
+
 ## Compare coders
 
 Use agreement when two or more coders worked on the same source set.

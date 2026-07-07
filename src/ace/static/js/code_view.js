@@ -22,6 +22,9 @@
   const codeNameInput = document.getElementById("cv-code-name");
   const codeFolderSelect = document.getElementById("cv-code-folder");
   const codeDefinitionTextarea = document.getElementById("cv-code-definition");
+  const modeTitleEl = document.getElementById("cv-mode-title");
+  const modeDescriptionEl = document.getElementById("cv-mode-description");
+  const modeStatusEl = document.getElementById("cv-mode-status");
   const CODEBOOK_CODE_ROW_SELECTOR = ".ace-ht-row--code[data-code-id]";
   let lastReviewFocus = null;
   let pendingMetadataSave = null;
@@ -180,6 +183,24 @@
     return true;
   }
 
+  function setModeCopy(nextMode) {
+    const editing = nextMode === "edit";
+    if (modeTitleEl) {
+      modeTitleEl.textContent = editing ? "Edit code details" : "Review coded excerpts";
+    }
+    if (modeDescriptionEl) {
+      modeDescriptionEl.textContent = editing
+        ? "Dictionary fields for this code are ready to update."
+        : "Coded excerpts are visible for audit and comparison.";
+    }
+    if (modeStatusEl) {
+      modeStatusEl.textContent = editing ? "Editing" : "Review mode";
+    }
+    if (modeHeadingEl) {
+      modeHeadingEl.textContent = editing ? "Edit code details" : "Sources";
+    }
+  }
+
   function preserveDirtyMetadataDraftForReload() {
     if (pendingMetadataSave && pendingMetadataSave.codeId === data?.code?.id) {
       const pendingAccepted = pendingMetadataSave.accepted === true;
@@ -277,16 +298,18 @@
       }
     }
 
+    const activeBeforeModeChange = document.activeElement;
     codeViewMode = nextMode;
     const shell = document.getElementById("code-view");
     if (shell) shell.dataset.cvMode = nextMode;
     if (reviewPanelEl) reviewPanelEl.hidden = nextMode !== "review";
     if (editPanelEl) editPanelEl.hidden = nextMode !== "edit";
-    if (modeHeadingEl) {
-      modeHeadingEl.textContent = nextMode === "edit" ? "Edit selected code" : "Sources";
-    }
+    setModeCopy(nextMode);
     if (reviewModeBtn) reviewModeBtn.setAttribute("aria-pressed", nextMode === "review" ? "true" : "false");
     if (editModeBtn) editModeBtn.setAttribute("aria-pressed", nextMode === "edit" ? "true" : "false");
+    if (prevMode !== nextMode && opts.announce !== false) {
+      announce(nextMode === "edit" ? "Edit code details mode" : "Review excerpts mode");
+    }
 
     if (opts.restoreFocusId) {
       const focusTarget = document.getElementById(opts.restoreFocusId);
@@ -311,6 +334,16 @@
       && typeof lastReviewFocus.focus === "function"
     ) {
       lastReviewFocus.focus({ preventScroll: true });
+      return true;
+    }
+    if (
+      prevMode === "edit"
+      && reviewModeBtn
+      && editPanelEl
+      && activeBeforeModeChange
+      && editPanelEl.contains(activeBeforeModeChange)
+    ) {
+      reviewModeBtn.focus({ preventScroll: true });
     }
     return true;
   }
@@ -1015,7 +1048,7 @@
 
   // --- Code metadata editor ---
   populateCodeEditor();
-  setCodeViewMode("review", { focusName: false, skipDirtyCheck: true });
+  setCodeViewMode("review", { focusName: false, skipDirtyCheck: true, announce: false });
 
   if (reviewModeBtn) {
     reviewModeBtn.addEventListener("click", () => {
@@ -1031,6 +1064,11 @@
     editPanelEl.addEventListener("submit", (evt) => {
       evt.preventDefault();
     });
+    editPanelEl.addEventListener("keydown", (evt) => {
+      if (evt.key !== "Escape") return;
+      claim(evt);
+      setCodeViewMode("review");
+    }, true);
   }
   if (codeNameInput) {
     codeNameInput.addEventListener("keydown", (evt) => {
