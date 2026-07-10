@@ -1017,7 +1017,12 @@ def _audit_undo_codebook_mutation_kwargs(
     op = result.get("codebook_op")
     payload = result.get("codebook_payload") or {}
     direction = result.get("undo_direction")
-    affected_code_ids: list[str] | None = [current_code_id] if current_code_id else None
+    payload_code_id = payload.get("code_id")
+    affected_code_ids: list[str] | None = (
+        [payload_code_id]
+        if payload_code_id
+        else ([current_code_id] if current_code_id else None)
+    )
     fallback_code_id: str | None = None
     audit_reload: bool | None = None
     folder_list_changed = False

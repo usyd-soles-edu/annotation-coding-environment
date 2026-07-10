@@ -904,6 +904,46 @@ def test_audit_mode_definition_update_records_undo_entry(client_with_codes):
     assert _codebook_row(db_path, code_id)["definition"] == "Updated definition"
 
 
+def test_audit_definition_undo_invalidates_edited_code_when_viewing_another(
+    client_with_codes,
+):
+    client, _coder_id, code_id, current_code_id, _db_path = client_with_codes
+
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "definition": "Updated elsewhere",
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["affectedCodeIds"] == [code_id]
+    assert detail["auditReload"] is False
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={"codebook_mode": "audit", "current_code_id": current_code_id},
+    )
+
+    assert_audit_codebook_response(undo_resp)
+    undo_detail = _audit_mutation_detail(undo_resp)
+    assert undo_detail["affectedCodeIds"] == [code_id]
+    assert undo_detail["auditReload"] is False
+
+    redo_resp = client.post(
+        "/api/redo",
+        data={"codebook_mode": "audit", "current_code_id": current_code_id},
+    )
+
+    assert_audit_codebook_response(redo_resp)
+    redo_detail = _audit_mutation_detail(redo_resp)
+    assert redo_detail["affectedCodeIds"] == [code_id]
+    assert redo_detail["auditReload"] is False
+
+
 def test_audit_mode_empty_name_is_rejected(client_with_codes):
     client, _coder_id, code_id, _other_code_id, db_path = client_with_codes
 

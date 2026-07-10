@@ -299,7 +299,7 @@ def get_code_view_data(
         {"id": r["id"], "name": r["name"]}
         for r in conn.execute(
             "SELECT id, name FROM codebook_code "
-            "WHERE deleted_at IS NULL AND kind = 'folder' AND parent_id IS NULL "
+            "WHERE deleted_at IS NULL AND kind = 'folder' "
             "ORDER BY sort_order"
         ).fetchall()
     ]

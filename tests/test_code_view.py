@@ -105,11 +105,12 @@ def test_view_data_includes_editable_dictionary_fields(tmp_path):
 
     coder_id = list_coders(conn)[0]["id"]
     folder = add_folder(conn, "Review folder")
+    nested_folder = add_folder(conn, "Nested review folder", parent_id=folder)
     code = add_code(
         conn,
         "Theme A",
         "#1565c0",
-        parent_id=folder,
+        parent_id=nested_folder,
         definition="Initial dictionary definition.",
     )
     source = add_source(conn, "S001", "a" * 100, "row")
@@ -130,14 +131,20 @@ def test_view_data_includes_editable_dictionary_fields(tmp_path):
         )
         assert m, "ace-codeview-data script not found"
         embedded = json.loads(m.group(1))
-        assert embedded["code"]["parent_id"] == folder
+        assert embedded["code"]["parent_id"] == nested_folder
         assert embedded["code"]["definition"] == "Initial dictionary definition."
-        assert any(item["id"] == folder and item["name"] == "Review folder" for item in embedded["folders"])
+        assert embedded["folders"] == [
+            {"id": folder, "name": "Review folder"},
+            {"id": nested_folder, "name": "Nested review folder"},
+        ]
 
         data = client.get(f"/api/code/{code}/view-data").json()
-        assert data["code"]["parent_id"] == folder
+        assert data["code"]["parent_id"] == nested_folder
         assert data["code"]["definition"] == "Initial dictionary definition."
-        assert any(item["id"] == folder and item["name"] == "Review folder" for item in data["folders"])
+        assert data["folders"] == [
+            {"id": folder, "name": "Review folder"},
+            {"id": nested_folder, "name": "Nested review folder"},
+        ]
 
 
 def test_view_redirects_when_no_project(tmp_path):
