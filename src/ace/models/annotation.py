@@ -287,7 +287,7 @@ def get_code_view_data(
     Returns None if the code doesn't exist in the codebook.
     """
     code_row = conn.execute(
-        "SELECT id, name, colour FROM codebook_code "
+        "SELECT id, name, colour, parent_id, definition FROM codebook_code "
         "WHERE id = ? AND kind = 'code' AND deleted_at IS NULL",
         (code_id,),
     ).fetchone()
@@ -295,6 +295,14 @@ def get_code_view_data(
         return None
 
     total_sources = conn.execute("SELECT COUNT(*) FROM source").fetchone()[0]
+    folders = [
+        {"id": r["id"], "name": r["name"]}
+        for r in conn.execute(
+            "SELECT id, name FROM codebook_code "
+            "WHERE deleted_at IS NULL AND kind = 'folder' "
+            "ORDER BY sort_order"
+        ).fetchall()
+    ]
 
     rows = conn.execute(
         """
@@ -349,7 +357,10 @@ def get_code_view_data(
             "id": code_row["id"],
             "name": code_row["name"],
             "colour": code_row["colour"],
+            "parent_id": code_row["parent_id"],
+            "definition": code_row["definition"],
         },
+        "folders": folders,
         "stats": {
             "excerpts": len(rows),
             "sources_with_hits": len(groups),

@@ -72,4 +72,7 @@ Use the shortcuts shown inside ACE first. Use this page as a reference when you 
 | `Shift+Up` / `Shift+Down` | Range-select source tracks |
 | `Command+A` / `Control+A` | Pin all source tracks |
 | `/` | Search the codebook |
+| `Enter` in code name | Save the code name in edit mode |
+| `Command+Enter` / `Control+Enter` in definition | Save the code definition in edit mode |
+| `Escape` in edit mode | Return to review mode |
 | `?` | Open the in-app shortcut sheet |

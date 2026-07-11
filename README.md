@@ -19,7 +19,7 @@ Harianto, J., Van Den Berg, F., Lilje, O., Pang, R., & Widjaja, M. (2026). *Anno
 - Use optional local wording cues to notice possible code matches.
 - Highlight passages and assign one or more codes to each passage.
 - Add source-level notes while coding.
-- Review coded text, code counts, source maps, and code timelines.
+- Review coded text, code counts, source maps, and code timelines, and refine code definitions during review.
 - Compare coding across coders using agreement summaries.
 - Export annotations, codebooks, notes, and raw coding data for analysis in R, Python, Excel, or other tools.
 - Work locally with `.ace` project files; no cloud storage or user account is required.

@@ -488,7 +488,7 @@
 
   document.addEventListener("keydown", function (evt) {
     if (!document.getElementById("text-panel")) return;
-    if (evt.target.matches("input, textarea, [contenteditable='true']")) return;
+    if (evt.target.matches("input, textarea, select, [contenteditable='true']")) return;
     if (evt.metaKey || evt.ctrlKey || evt.altKey) return;
 
     if (_chordMode === "awaiting") {
@@ -2599,7 +2599,9 @@
     if (!codeId) return;
     htmx.ajax("POST", `/api/codes/${codeId}/convert-to-folder`, {
       ..._codebookMutationSwapOptions(),
-      values: { current_index: window.__aceCurrentIndex || 0 },
+      values: _codebookMutationValues({
+        current_index: window.__aceCurrentIndex || 0,
+      }),
     });
   }
 
@@ -2985,7 +2987,7 @@
     if (t.getAttribute && t.getAttribute("role") === "treeitem") return;
     if (t.isContentEditable) return;
     const tag = (t.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea") return;
+    if (tag === "input" || tag === "textarea" || tag === "select") return;
     // stopPropagation so this Esc doesn't ALSO fire the bubble-phase
     // Esc cascade (which would close any open dialog / clear text
     // selection / step out of note-drawer edit mode after focus lands
@@ -3009,7 +3011,12 @@
     // Skip if focus is in any editable text — covers inline rename
     // (contenteditable), the filter <input>, and any textarea.
     const ae = document.activeElement;
-    if (ae && (ae.isContentEditable || ae.tagName === "INPUT" || ae.tagName === "TEXTAREA")) {
+    if (ae && (
+      ae.isContentEditable
+      || ae.tagName === "INPUT"
+      || ae.tagName === "TEXTAREA"
+      || ae.tagName === "SELECT"
+    )) {
       return;
     }
 
@@ -4417,7 +4424,7 @@
     if (evt.key !== "v" && evt.key !== "V") return;
     if (evt.metaKey || evt.ctrlKey || evt.altKey || evt.shiftKey) return;
     const tag = (evt.target.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || evt.target.isContentEditable) return;
+    if (tag === "input" || tag === "textarea" || tag === "select" || evt.target.isContentEditable) return;
     const controller = _getSidebarTreeController();
     let treeItem = controller && typeof controller.activeCodeItem === "function"
       ? controller.activeCodeItem()

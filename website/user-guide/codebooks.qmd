@@ -20,6 +20,8 @@ Each code has a colour. ACE uses that colour for highlights and chips.
 
 Code definitions also help [wording cues](coding.qmd#wording-cues), if you turn that feature on. Plain definitions work best: describe what the code means in ordinary language rather than filling the field with keywords.
 
+You can edit a code's name, folder, and definition from [Review coded text](audit.qmd). Open the code, choose **Edit code details**, then update the dictionary fields while keeping the coded excerpts visible for comparison.
+
 ## Folders
 
 Use folders to group related codes.

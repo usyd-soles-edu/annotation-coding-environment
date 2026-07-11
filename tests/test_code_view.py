@@ -2,6 +2,7 @@
 
 import json
 import re
+from html.parser import HTMLParser
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,9 +10,31 @@ from fastapi.testclient import TestClient
 from ace.app import create_app
 from ace.db.connection import create_project
 from ace.models.annotation import add_annotation
-from ace.models.codebook import add_code
+from ace.models.codebook import add_code, add_folder
 from ace.models.project import list_coders
 from ace.models.source import add_source
+
+
+class _ElementFinder(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.elements = []
+
+    def handle_starttag(self, tag, attrs):
+        self.elements.append((tag, dict(attrs)))
+
+
+def _elements(body: str):
+    parser = _ElementFinder()
+    parser.feed(body)
+    return parser.elements
+
+
+def _attrs_by_id(body: str, element_id: str) -> dict[str, str]:
+    for _tag, attrs in _elements(body):
+        if attrs.get("id") == element_id:
+            return attrs
+    raise AssertionError(f"missing element id={element_id!r}")
 
 
 @pytest.fixture()
@@ -75,6 +98,55 @@ def test_view_data_blob_is_valid_json(client_with_annotations):
     assert len(data["sources"]) == 2
 
 
+def test_view_data_includes_editable_dictionary_fields(tmp_path):
+    app = create_app()
+    db_path = tmp_path / "test.ace"
+    conn = create_project(str(db_path), "Test Project")
+
+    coder_id = list_coders(conn)[0]["id"]
+    folder = add_folder(conn, "Review folder")
+    nested_folder = add_folder(conn, "Nested review folder", parent_id=folder)
+    code = add_code(
+        conn,
+        "Theme A",
+        "#1565c0",
+        parent_id=nested_folder,
+        definition="Initial dictionary definition.",
+    )
+    source = add_source(conn, "S001", "a" * 100, "row")
+    add_annotation(conn, source, coder_id, code, 0, 10, "aaaaaaaaaa")
+    conn.close()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        app.state.project_path = str(db_path)
+        app.state.coder_id = coder_id
+        client.get("/code")
+
+        page = client.get(f"/code/{code}/view")
+        assert page.status_code == 200
+        m = re.search(
+            r'<script id="ace-codeview-data" type="application/json">(.*?)</script>',
+            page.text,
+            re.DOTALL,
+        )
+        assert m, "ace-codeview-data script not found"
+        embedded = json.loads(m.group(1))
+        assert embedded["code"]["parent_id"] == nested_folder
+        assert embedded["code"]["definition"] == "Initial dictionary definition."
+        assert embedded["folders"] == [
+            {"id": folder, "name": "Review folder"},
+            {"id": nested_folder, "name": "Nested review folder"},
+        ]
+
+        data = client.get(f"/api/code/{code}/view-data").json()
+        assert data["code"]["parent_id"] == nested_folder
+        assert data["code"]["definition"] == "Initial dictionary definition."
+        assert data["folders"] == [
+            {"id": folder, "name": "Review folder"},
+            {"id": nested_folder, "name": "Nested review folder"},
+        ]
+
+
 def test_view_redirects_when_no_project(tmp_path):
     app = create_app()
     with TestClient(app, raise_server_exceptions=False) as client:
@@ -126,7 +198,7 @@ def test_code_view_has_column_headings(client_with_annotations):
     body = resp.text
 
     # Visible column headings
-    assert '<h2 id="cv-tracks-heading" class="ace-panel-heading">Source tracks</h2>' in body
+    assert '<h2 id="cv-tracks-heading" class="ace-panel-heading">Sources</h2>' in body
     assert '<h2 id="cv-excerpts-heading" class="ace-panel-heading">Excerpts</h2>' in body
 
     # Sections point at the visible headings rather than carrying redundant aria-label
@@ -135,10 +207,66 @@ def test_code_view_has_column_headings(client_with_annotations):
 
     # Document order: tracks heading inside tracks column; excerpts heading inside excerpts column
     tracks_col_pos = body.index('class="cv-tracks-col"')
-    tracks_h2_pos = body.index('Source tracks</h2>')
+    tracks_h2_pos = body.index('Sources</h2>')
     excerpts_col_pos = body.index('class="cv-excerpts-col"')
     excerpts_h2_pos = body.index('Excerpts</h2>')
     assert tracks_col_pos < tracks_h2_pos < excerpts_col_pos < excerpts_h2_pos
+
+
+def test_code_view_has_desktop_review_edit_editor_shell(client_with_annotations):
+    client, _, code_id, _ = client_with_annotations
+    resp = client.get(f"/code/{code_id}/view")
+    assert resp.status_code == 200
+    body = resp.text
+
+    assert 'id="ace-notification-receipt"' in body
+    assert 'class="ace-notification-receipt cv-notification-receipt"' in body
+    assert 'aria-label="Review or edit this code"' in body
+    assert 'id="cv-mode-review"' in body
+    assert 'id="cv-mode-edit"' in body
+    assert 'id="cv-source-review"' in body
+    assert "data-cv-review-panel" in body
+    assert 'id="cv-code-editor"' in body
+    assert "data-cv-edit-panel" in body
+    assert 'id="cv-code-name"' in body
+    assert 'id="cv-code-folder"' in body
+    assert 'id="cv-code-definition"' in body
+    assert 'aria-keyshortcuts="Enter Meta+Enter Control+Enter"' in body
+    assert 'aria-keyshortcuts="Meta+Enter Control+Enter"' in body
+
+
+def test_code_view_uses_prominent_audit_mode_band(client_with_annotations):
+    client, _, code_id, _ = client_with_annotations
+    resp = client.get(f"/code/{code_id}/view")
+    assert resp.status_code == 200
+    body = resp.text
+
+    assert 'class="cv-mode-band" aria-label="Audit task mode"' in body
+    assert 'id="cv-mode-title"' in body
+    assert 'id="cv-mode-description"' in body
+    assert 'id="cv-mode-status"' in body
+    assert 'Review coded excerpts' in body
+    assert "Coded excerpts are visible for audit and comparison." in body
+    assert 'aria-label="Review or edit this code"' in body
+    assert 'aria-label="Review/Edit mode"' not in body
+
+    review_attrs = _attrs_by_id(body, "cv-mode-review")
+    assert review_attrs["type"] == "button"
+    assert review_attrs["aria-pressed"] == "true"
+    assert review_attrs["aria-controls"] == "cv-source-review"
+    assert ">Review excerpts</button>" in body
+
+    edit_attrs = _attrs_by_id(body, "cv-mode-edit")
+    assert edit_attrs["type"] == "button"
+    assert edit_attrs["aria-pressed"] == "false"
+    assert edit_attrs["aria-controls"] == "cv-code-editor"
+    assert ">Edit code details</button>" in body
+    assert ">Save changes</button>" in body
+
+    header_pos = body.index('class="cv-header"')
+    band_pos = body.index('class="cv-mode-band"')
+    body_pos = body.index('class="cv-body"')
+    assert header_pos < band_pos < body_pos
 
 
 def test_cv_table_has_listbox_role(client_with_annotations):
