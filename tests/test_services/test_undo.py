@@ -162,13 +162,15 @@ def test_code_metadata_update_round_trip_is_atomic(project):
         "Positive affect",
     )
 
-    mgr.undo(conn)
+    undo_result = mgr.undo(conn)
+    assert "Frustration" in undo_result["description"]
     row = conn.execute(
         "SELECT name, definition FROM codebook_code WHERE id = ?", (code_id,)
     ).fetchone()
     assert (row["name"], row["definition"]) == ("Frustration", None)
 
-    mgr.redo(conn)
+    redo_result = mgr.redo(conn)
+    assert "Joy" in redo_result["description"]
     row = conn.execute(
         "SELECT name, definition FROM codebook_code WHERE id = ?", (code_id,)
     ).fetchone()

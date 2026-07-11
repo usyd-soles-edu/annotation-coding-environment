@@ -529,7 +529,7 @@ def _set_code_metadata(conn, entry, *, use_new: bool) -> None:
 
 def _undo_code_metadata_update(conn, entry):
     _set_code_metadata(conn, entry, use_new=False)
-    return f"details for '{entry.payload['new_name']}'", None
+    return f"details for '{entry.payload['prev_name']}'", None
 
 
 def _redo_code_metadata_update(conn, entry):

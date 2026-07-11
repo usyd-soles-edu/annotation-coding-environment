@@ -403,6 +403,7 @@
       body: new URLSearchParams(requestValues),
     }).then((response) => {
       if (!response.ok) throw new Error(`status ${response.status}`);
+      finishMetadataSave(envelope.requestId, true);
     }).catch(() => {
       showMetadataError("Code details could not be saved. Try again.", envelope, true);
       finishMetadataSave(envelope.requestId, false);

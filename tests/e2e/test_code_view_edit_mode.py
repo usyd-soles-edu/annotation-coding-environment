@@ -294,6 +294,48 @@ def test_metadata_saves_are_single_flight_and_keep_latest_draft(ace_server, brow
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_metadata_fetch_fallback_releases_queue_after_success(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            code_id = _open_first_code_view(page, ace_server)
+            page.evaluate(
+                """
+                (codeId) => {
+                  const originalFetch = window.fetch.bind(window);
+                  window.__aceFallbackRequests = 0;
+                  window.__aceFallbackResolved = 0;
+                  window.fetch = (input, init) => {
+                    const url = String(input);
+                    if (init?.method === "PUT" && url.endsWith(`/api/codes/${codeId}`)) {
+                      window.__aceFallbackRequests += 1;
+                      return originalFetch(input, init).then((response) => {
+                        window.__aceFallbackResolved += 1;
+                        return response;
+                      });
+                    }
+                    return originalFetch(input, init);
+                  };
+                  window.htmx = null;
+                }
+                """,
+                code_id,
+            )
+
+            page.get_by_role("button", name="Edit code details").click()
+            page.locator("#cv-code-name").fill("Fallback first name")
+            page.get_by_role("button", name="Save changes").click()
+            page.wait_for_function("window.__aceFallbackResolved === 1")
+
+            page.locator("#cv-code-name").fill("Fallback final name")
+            page.get_by_role("button", name="Save changes").click()
+            page.wait_for_function("window.__aceFallbackRequests === 2")
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_cancelled_dirty_code_switch_restores_current_codebook_focus(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
