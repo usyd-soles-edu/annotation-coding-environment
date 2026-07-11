@@ -191,6 +191,109 @@ def test_edit_mode_save_button_persists_code_details(ace_server, browser_name):
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
+def test_rejected_metadata_save_retains_accessible_edit_state(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            page.goto(f"{ace_server}/code")
+            page.wait_for_selector("#ace-headless-tree-mount")
+            tree = page.evaluate("fetch('/api/codes/tree').then((r) => r.json())")
+            codes = [item for item in tree["items"].values() if item["kind"] == "code"]
+            assert len(codes) >= 2
+            current, conflicting = codes[:2]
+            page.goto(f"{ace_server}/code/{current['id']}/view")
+            page.wait_for_selector("#code-view")
+
+            page.get_by_role("button", name="Edit code details").click()
+            page.locator("#cv-code-name").fill(conflicting["name"])
+            with page.expect_response(
+                lambda response: f"/api/codes/{current['id']}" in response.url
+                and response.request.method == "PUT"
+            ):
+                page.get_by_role("button", name="Save changes").click()
+
+            expect(page.locator("#cv-code-name")).to_have_value(conflicting["name"])
+            expect(page.locator("#cv-code-name")).to_have_attribute("aria-invalid", "true")
+            expect(page.locator("#cv-code-name")).to_have_attribute(
+                "aria-describedby", "cv-code-name-hint cv-code-name-error"
+            )
+            expect(page.locator("#cv-code-name-error")).to_have_text(
+                "An item with that name already exists."
+            )
+            expect(page.locator("#ace-live-region-assertive")).to_have_text(
+                "An item with that name already exists."
+            )
+            assert page.evaluate("document.activeElement?.id") == "cv-code-name"
+
+            page.locator("#cv-code-name").fill("Recovered audit name")
+            with page.expect_response(
+                lambda response: f"/api/codes/{current['id']}" in response.url
+                and response.request.method == "PUT"
+            ):
+                page.get_by_role("button", name="Save changes").click()
+
+            expect(page.locator(".cv-code-name")).to_have_text("Recovered audit name")
+            expect(page.locator("#cv-code-name")).not_to_have_attribute("aria-invalid", "true")
+            expect(page.locator("#cv-code-name-error")).to_be_hidden()
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_metadata_saves_are_single_flight_and_keep_latest_draft(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page(viewport={"width": 1440, "height": 900})
+            code_id = _open_first_code_view(page, ace_server)
+            page.evaluate(
+                """
+                (codeId) => {
+                  const originalOpen = XMLHttpRequest.prototype.open;
+                  const originalSend = XMLHttpRequest.prototype.send;
+                  window.__aceMetadataRequests = 0;
+                  window.__releaseAceMetadata = null;
+                  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+                    this.__aceMethod = method;
+                    this.__aceUrl = String(url);
+                    return originalOpen.call(this, method, url, ...rest);
+                  };
+                  XMLHttpRequest.prototype.send = function (body) {
+                    const isMetadata = this.__aceMethod === "PUT"
+                      && this.__aceUrl.endsWith(`/api/codes/${codeId}`);
+                    if (!isMetadata) return originalSend.call(this, body);
+                    window.__aceMetadataRequests += 1;
+                    if (window.__aceMetadataRequests === 1) {
+                      const xhr = this;
+                      window.__releaseAceMetadata = () => originalSend.call(xhr, body);
+                      return;
+                    }
+                    return originalSend.call(this, body);
+                  };
+                }
+                """,
+                code_id,
+            )
+            page.get_by_role("button", name="Edit code details").click()
+            page.locator("#cv-code-name").fill("First queued name")
+            page.evaluate("document.querySelector('.cv-save-button').click()")
+            page.wait_for_function("window.__aceMetadataRequests === 1")
+
+            page.locator("#cv-code-name").fill("Final queued name")
+            page.evaluate("document.querySelector('.cv-save-button').click()")
+            assert page.evaluate("window.__aceMetadataRequests") == 1
+
+            page.evaluate("window.__releaseAceMetadata()")
+
+            expect(page.locator(".cv-code-name")).to_have_text("Final queued name")
+            expect(page.locator("#cv-code-name")).to_have_value("Final queued name")
+            assert page.evaluate("window.__aceMetadataRequests") == 2
+        finally:
+            browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
 def test_cancelled_dirty_code_switch_restores_current_codebook_focus(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()

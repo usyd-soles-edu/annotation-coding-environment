@@ -181,6 +181,7 @@ async def set_code_parent_route(
     current_index: int = Form(default=0),
     codebook_mode: str = Form(default="coding"),
     current_code_id: str | None = Form(default=None),
+    request_id: str | None = Form(default=None),
 ):
     """Move `code_id` into the scope of `parent_id` (folder id or empty for root)."""
     from ace.models.codebook import InvariantError, _move_code_to_parent_no_commit
@@ -256,6 +257,7 @@ async def set_code_parent_route(
             affected_code_ids=[code_id],
             headers={"HX-Reswap": "none"},
             status_html=status_html,
+            request_id=request_id,
         )
 
 
@@ -720,6 +722,7 @@ async def update_code_route(
     current_index: int = Form(default=0),
     codebook_mode: str = Form(default="coding"),
     current_code_id: str | None = Form(default=None),
+    request_id: str | None = Form(default=None),
 ):
     """Update a code (rename, recolour) and return sidebar + text panel.
 
@@ -768,11 +771,23 @@ async def update_code_route(
             return _oob_status("An item with that name already exists.")
 
         mgr = _get_undo_manager(request)
-        if "name" in kwargs and kwargs["name"] != prev["name"]:
+        name_changed = "name" in kwargs and kwargs["name"] != prev["name"]
+        definition_changed = (
+            "definition" in kwargs and kwargs["definition"] != prev["definition"]
+        )
+        if name_changed and definition_changed:
+            mgr.record_code_metadata_update(
+                code_id,
+                prev["name"],
+                kwargs["name"],
+                prev["definition"],
+                kwargs["definition"],
+            )
+        elif name_changed:
             mgr.record_code_rename(code_id, prev["name"], kwargs["name"])
         if "colour" in kwargs and kwargs["colour"] != prev["colour"]:
             mgr.record_code_recolour(code_id, prev["colour"], kwargs["colour"])
-        if "definition" in kwargs and kwargs["definition"] != prev["definition"]:
+        if definition_changed and not name_changed:
             mgr.record_code_definition_update(
                 code_id,
                 prev["definition"],
@@ -806,6 +821,7 @@ async def update_code_route(
                 else None
             ),
             status_html=status_html,
+            request_id=request_id,
         )
 
 

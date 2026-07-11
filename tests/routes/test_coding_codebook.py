@@ -904,6 +904,52 @@ def test_audit_mode_definition_update_records_undo_entry(client_with_codes):
     assert _codebook_row(db_path, code_id)["definition"] == "Updated definition"
 
 
+def test_audit_combined_metadata_update_is_one_undo_entry(client_with_codes):
+    client, _coder_id, code_id, _other_code_id, db_path = client_with_codes
+    original = _codebook_row(db_path, code_id)
+
+    resp = client.put(
+        f"/api/codes/{code_id}",
+        data={
+            "name": "Reviewed theme",
+            "definition": "Reviewed definition",
+            "codebook_mode": "audit",
+            "current_code_id": code_id,
+            "request_id": "metadata-test-1",
+        },
+    )
+
+    assert_audit_codebook_response(resp)
+    detail = _audit_mutation_detail(resp)
+    assert detail["requestId"] == "metadata-test-1"
+    updated = _codebook_row(db_path, code_id)
+    assert (updated["name"], updated["definition"]) == (
+        "Reviewed theme",
+        "Reviewed definition",
+    )
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={"codebook_mode": "audit", "current_code_id": code_id},
+    )
+    assert "Undid edit code details" in undo_resp.text
+    undone = _codebook_row(db_path, code_id)
+    assert (undone["name"], undone["definition"]) == (
+        original["name"],
+        original["definition"],
+    )
+
+    redo_resp = client.post(
+        "/api/redo",
+        data={"codebook_mode": "audit", "current_code_id": code_id},
+    )
+    assert "Redid edit code details" in redo_resp.text
+    redone = _codebook_row(db_path, code_id)
+    assert (redone["name"], redone["definition"]) == (
+        "Reviewed theme",
+        "Reviewed definition",
+    )
+
 def test_audit_definition_undo_invalidates_edited_code_when_viewing_another(
     client_with_codes,
 ):

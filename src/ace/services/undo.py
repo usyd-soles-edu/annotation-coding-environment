@@ -34,6 +34,7 @@ OpType = Literal[
     "code_rename",
     "code_recolour",
     "code_definition_update",
+    "code_metadata_update",
     "code_reorder",
     "flag_toggle",
     "codebook_import",
@@ -52,6 +53,7 @@ CODEBOOK_OPS = frozenset({
     "code_rename",
     "code_recolour",
     "code_definition_update",
+    "code_metadata_update",
     "code_reorder",
     "codebook_import",
     "code_create_folder",
@@ -152,6 +154,25 @@ class UndoManager:
             op="code_definition_update",
             payload={
                 "code_id": code_id,
+                "prev_definition": prev_definition,
+                "new_definition": new_definition,
+            },
+        ))
+
+    def record_code_metadata_update(
+        self,
+        code_id: str,
+        prev_name: str,
+        new_name: str,
+        prev_definition: str | None,
+        new_definition: str | None,
+    ) -> None:
+        self._push(UndoEntry(
+            op="code_metadata_update",
+            payload={
+                "code_id": code_id,
+                "prev_name": prev_name,
+                "new_name": new_name,
                 "prev_definition": prev_definition,
                 "new_definition": new_definition,
             },
@@ -492,6 +513,30 @@ def _redo_code_definition_update(conn, entry):
     return f"definition for '{_code_name(conn, entry.payload['code_id'])}'", None
 
 
+def _set_code_metadata(conn, entry, *, use_new: bool) -> None:
+    p = entry.payload
+    prefix = "new" if use_new else "prev"
+    try:
+        conn.execute(
+            "UPDATE codebook_code SET name = ?, definition = ? WHERE id = ?",
+            (p[f"{prefix}_name"], p.get(f"{prefix}_definition"), p["code_id"]),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def _undo_code_metadata_update(conn, entry):
+    _set_code_metadata(conn, entry, use_new=False)
+    return f"details for '{entry.payload['new_name']}'", None
+
+
+def _redo_code_metadata_update(conn, entry):
+    _set_code_metadata(conn, entry, use_new=True)
+    return f"details for '{entry.payload['new_name']}'", None
+
+
 def _move_annotations_to_code(
     conn,
     annotation_ids: list[str],
@@ -788,6 +833,7 @@ _NOTIFICATION_LABELS: dict[OpType, str] = {
     "code_rename": "rename code",
     "code_recolour": "change colour",
     "code_definition_update": "edit definition",
+    "code_metadata_update": "edit code details",
     "code_convert_to_folder": "convert code",
     "code_reorder": "reorder codes",
     "flag_toggle": "toggle flag",
@@ -816,6 +862,7 @@ _HANDLERS: dict[OpType, tuple[Handler, Handler]] = {
     "code_rename":                   (_undo_code_rename,                 _redo_code_rename),
     "code_recolour":                 (_undo_code_recolour,               _redo_code_recolour),
     "code_definition_update":        (_undo_code_definition_update,      _redo_code_definition_update),
+    "code_metadata_update":          (_undo_code_metadata_update,        _redo_code_metadata_update),
     "code_convert_to_folder":        (_undo_code_convert_to_folder,      _redo_code_convert_to_folder),
     "code_reorder":                  (_undo_code_reorder,                _redo_code_reorder),
     "flag_toggle":                   (_undo_flag_toggle,                 _redo_flag_toggle),
