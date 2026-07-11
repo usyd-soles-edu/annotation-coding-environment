@@ -2,9 +2,15 @@
 
 ## Unreleased
 
+## 1.6.0
+
 ### Changes
 
 - **Coded-text audit view** — made the review/edit switch more visible and documented how to update a code name, folder, or dictionary definition while reviewing excerpts.
+
+### Fixes
+
+- **Audit metadata saves** — serialised overlapping name, folder, and definition updates, kept rejected drafts editable with accessible error feedback, and made combined name-and-definition changes undo or redo as one atomic action.
 
 ## 1.5.0
 
