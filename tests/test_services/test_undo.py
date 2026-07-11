@@ -144,6 +144,76 @@ def test_code_rename_round_trip(project):
     assert name == "Joy"
 
 
+def test_code_metadata_update_round_trip_is_atomic(project):
+    mgr = UndoManager()
+    conn = project["conn"]
+    code_id = project["code_id"]
+
+    conn.execute(
+        "UPDATE codebook_code SET name = ?, definition = ? WHERE id = ?",
+        ("Joy", "Positive affect", code_id),
+    )
+    conn.commit()
+    mgr.record_code_metadata_update(
+        code_id,
+        "Frustration",
+        "Joy",
+        None,
+        "Positive affect",
+    )
+
+    undo_result = mgr.undo(conn)
+    assert "Frustration" in undo_result["description"]
+    row = conn.execute(
+        "SELECT name, definition FROM codebook_code WHERE id = ?", (code_id,)
+    ).fetchone()
+    assert (row["name"], row["definition"]) == ("Frustration", None)
+
+    redo_result = mgr.redo(conn)
+    assert "Joy" in redo_result["description"]
+    row = conn.execute(
+        "SELECT name, definition FROM codebook_code WHERE id = ?", (code_id,)
+    ).fetchone()
+    assert (row["name"], row["definition"]) == ("Joy", "Positive affect")
+
+
+def test_code_metadata_redo_conflict_rolls_back_and_remains_retryable(project):
+    mgr = UndoManager()
+    conn = project["conn"]
+    code_id = project["code_id"]
+
+    conn.execute(
+        "UPDATE codebook_code SET name = ?, definition = ? WHERE id = ?",
+        ("Joy", "Positive affect", code_id),
+    )
+    conn.commit()
+    mgr.record_code_metadata_update(
+        code_id,
+        "Frustration",
+        "Joy",
+        None,
+        "Positive affect",
+    )
+    mgr.undo(conn)
+    conflicting_id = add_code(conn, "Joy", "#00FF00")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        mgr.redo(conn)
+
+    row = conn.execute(
+        "SELECT name, definition FROM codebook_code WHERE id = ?", (code_id,)
+    ).fetchone()
+    assert (row["name"], row["definition"]) == ("Frustration", None)
+    assert mgr.can_redo()
+
+    delete_code(conn, conflicting_id)
+    mgr.redo(conn)
+    row = conn.execute(
+        "SELECT name, definition FROM codebook_code WHERE id = ?", (code_id,)
+    ).fetchone()
+    assert (row["name"], row["definition"]) == ("Joy", "Positive affect")
+
+
 def test_code_delete_cascade_round_trip(project):
     """Delete a code with annotations across two sources; undo restores both."""
     mgr = UndoManager()

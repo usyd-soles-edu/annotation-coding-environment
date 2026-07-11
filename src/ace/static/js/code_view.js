@@ -20,6 +20,7 @@
   const reviewModeBtn = document.getElementById("cv-mode-review");
   const editModeBtn = document.getElementById("cv-mode-edit");
   const codeNameInput = document.getElementById("cv-code-name");
+  const codeNameError = document.getElementById("cv-code-name-error");
   const codeFolderSelect = document.getElementById("cv-code-folder");
   const codeDefinitionTextarea = document.getElementById("cv-code-definition");
   const modeTitleEl = document.getElementById("cv-mode-title");
@@ -28,6 +29,9 @@
   const CODEBOOK_CODE_ROW_SELECTOR = ".ace-ht-row--code[data-code-id]";
   let lastReviewFocus = null;
   let pendingMetadataSave = null;
+  let inFlightMetadataSave = null;
+  let queuedMetadataSave = null;
+  let metadataRequestSequence = 0;
   let codeViewMode = "review";
 
   function codebookTreeElement() {
@@ -248,6 +252,33 @@
     return pendingMetadataSave;
   }
 
+  function clearMetadataError() {
+    if (!codeNameInput || !codeNameError) return;
+    codeNameInput.removeAttribute("aria-invalid");
+    codeNameInput.setAttribute("aria-describedby", "cv-code-name-hint");
+    codeNameError.hidden = true;
+    codeNameError.textContent = "";
+  }
+
+  function showMetadataError(message, envelope, shouldAnnounce) {
+    if (!codeNameInput || !codeNameError) return;
+    const affectsName = envelope?.savedKeys?.has("name");
+    if (!affectsName) {
+      if (shouldAnnounce) announce(message);
+      return;
+    }
+    codeNameInput.setAttribute("aria-invalid", "true");
+    codeNameInput.setAttribute(
+      "aria-describedby",
+      "cv-code-name-hint cv-code-name-error",
+    );
+    codeNameError.textContent = message;
+    codeNameError.hidden = false;
+    setCodeViewMode("edit", { announce: false, focusName: false });
+    codeNameInput.focus({ preventScroll: true });
+    if (shouldAnnounce) announce(message);
+  }
+
   function populateCodeEditor() {
     renderFolderOptions();
     if (!codeNameInput || !codeFolderSelect || !codeDefinitionTextarea || !data?.code) {
@@ -349,27 +380,65 @@
     return true;
   }
 
-  function submitCodeUpdate(values, savedKeys) {
-    if (!data?.code?.id) return;
-    captureMetadataDraft(savedKeys);
+  function startMetadataSave(envelope) {
+    inFlightMetadataSave = envelope;
+    pendingMetadataSave = envelope;
     const requestValues = {
       codebook_mode: "audit",
-      current_code_id: data.code.id,
-      ...values,
+      current_code_id: envelope.codeId,
+      request_id: envelope.requestId,
+      ...envelope.values,
     };
     if (window.htmx?.ajax) {
-      window.htmx.ajax("PUT", `/api/codes/${data.code.id}`, {
+      window.htmx.ajax("PUT", envelope.path, {
         target: "#code-sidebar",
         swap: "none",
         values: requestValues,
       });
       return;
     }
-    fetch(`/api/codes/${data.code.id}`, {
+    fetch(envelope.path, {
       method: "PUT",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams(requestValues),
-    }).catch(() => {});
+    }).then((response) => {
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      finishMetadataSave(envelope.requestId, true);
+    }).catch(() => {
+      showMetadataError("Code details could not be saved. Try again.", envelope, true);
+      finishMetadataSave(envelope.requestId, false);
+    });
+  }
+
+  function queueMetadataSave(path, values, savedKeys) {
+    if (!data?.code?.id) return;
+    const envelope = captureMetadataDraft(savedKeys);
+    if (!envelope) return;
+    envelope.requestId = `metadata-${++metadataRequestSequence}`;
+    envelope.path = path;
+    envelope.values = { ...values };
+    if (inFlightMetadataSave) {
+      queuedMetadataSave = envelope;
+      return;
+    }
+    startMetadataSave(envelope);
+  }
+
+  function finishMetadataSave(requestId, succeeded) {
+    if (!inFlightMetadataSave || inFlightMetadataSave.requestId !== requestId) return;
+    const completed = inFlightMetadataSave;
+    inFlightMetadataSave = null;
+    if (succeeded) clearMetadataError();
+    else if (!queuedMetadataSave) pendingMetadataSave = completed;
+    const next = queuedMetadataSave;
+    queuedMetadataSave = null;
+    if (next) startMetadataSave(next);
+    else if (succeeded) pendingMetadataSave = null;
+  }
+
+  function submitCodeUpdate(values, savedKeys) {
+    if (!data?.code?.id) return;
+    queueMetadataSave(`/api/codes/${data.code.id}`, values, savedKeys);
   }
 
   function submitChangedCodeDetails() {
@@ -393,25 +462,11 @@
 
   function submitFolderUpdate(parentId) {
     if (!data?.code?.id) return;
-    captureMetadataDraft(["parentId"]);
-    const requestValues = {
-      codebook_mode: "audit",
-      current_code_id: data.code.id,
-      parent_id: parentId,
-    };
-    if (window.htmx?.ajax) {
-      window.htmx.ajax("PUT", `/api/codes/${data.code.id}/parent`, {
-        target: "#code-sidebar",
-        swap: "none",
-        values: requestValues,
-      });
-      return;
-    }
-    fetch(`/api/codes/${data.code.id}/parent`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams(requestValues),
-    }).catch(() => {});
+    queueMetadataSave(
+      `/api/codes/${data.code.id}/parent`,
+      { parent_id: parentId },
+      ["parentId"],
+    );
   }
 
   function responseTriggersCodebookMutation(xhr) {
@@ -421,19 +476,19 @@
   }
 
   function isPendingMetadataRequest(path) {
-    if (!pendingMetadataSave || !path) return false;
+    if (!inFlightMetadataSave || !path) return false;
     let pathname = "";
     try {
       pathname = new URL(path, window.location.origin).pathname;
     } catch (_e) {
       pathname = String(path);
     }
-    const codePath = `/api/codes/${pendingMetadataSave.codeId}`;
+    const codePath = `/api/codes/${inFlightMetadataSave.codeId}`;
     return pathname === codePath || pathname === `${codePath}/parent`;
   }
 
   document.addEventListener("htmx:afterRequest", (evt) => {
-    if (!pendingMetadataSave) return;
+    if (!inFlightMetadataSave) return;
     const detail = evt.detail || {};
     const requestPath =
       detail.pathInfo?.requestPath
@@ -441,11 +496,17 @@
       || detail.xhr?.responseURL
       || "";
     if (!isPendingMetadataRequest(requestPath)) return;
-    if (responseTriggersCodebookMutation(detail.xhr)) {
-      pendingMetadataSave.accepted = true;
-    } else {
-      pendingMetadataSave = null;
+    if (responseTriggersCodebookMutation(detail.xhr)) return;
+    const failed = inFlightMetadataSave;
+    let message = "Code details could not be saved. Try again.";
+    const responseText = detail.xhr?.responseText || "";
+    if (responseText.includes("already exists")) {
+      message = "An item with that name already exists.";
+    } else if (responseText.includes("cannot be empty")) {
+      message = "Code name cannot be empty.";
     }
+    showMetadataError(message, failed, !responseText);
+    finishMetadataSave(failed.requestId, false);
   });
 
   // --- Static render: tracks ---
@@ -1377,6 +1438,12 @@
   document.addEventListener("ace:codebook-mutated", (evt) => {
     const detail = evt.detail || {};
     if (detail.mode !== "audit") return;
+    const metadataEnvelope = (
+      inFlightMetadataSave
+      && detail.requestId
+      && detail.requestId === inFlightMetadataSave.requestId
+    ) ? inFlightMetadataSave : null;
+    if (metadataEnvelope) metadataEnvelope.accepted = true;
 
     const affectedCodeIds = Array.isArray(detail.affectedCodeIds)
       ? detail.affectedCodeIds.filter(Boolean)
@@ -1426,17 +1493,21 @@
     if (shouldReloadCurrent) {
       preserveDirtyMetadataDraftForReload();
       dataCache.delete(currentCodeId);
-      loadCode(currentCodeId, {
+      const reload = loadCode(currentCodeId, {
         pushHistory: false,
         viewTransition: false,
         forceReload: true,
       });
+      if (metadataEnvelope) {
+        reload.finally(() => finishMetadataSave(metadataEnvelope.requestId, true));
+      }
       return;
     }
 
     if (currentCodeId) {
       setCurrentSidebarCode(currentCodeId);
     }
+    if (metadataEnvelope) finishMetadataSave(metadataEnvelope.requestId, true);
   });
 
   document.addEventListener("click", (evt) => {

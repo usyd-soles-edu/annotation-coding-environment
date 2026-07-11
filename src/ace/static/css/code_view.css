@@ -412,6 +412,16 @@
   font-size: 10px;
   color: var(--ace-text-muted);
 }
+.cv-field-error {
+  margin-top: 5px;
+  font-size: var(--ace-font-size-2xs);
+  font-weight: 600;
+}
+.cv-edit-section input[aria-invalid="true"] {
+  border-color: var(--ace-text);
+  outline: 2px solid var(--ace-text);
+  outline-offset: 1px;
+}
 .cv-edit-actions {
   display: flex;
   justify-content: flex-end;

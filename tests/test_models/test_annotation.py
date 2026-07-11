@@ -390,7 +390,13 @@ def test_get_code_view_data_shape_and_stats():
 
     data = get_code_view_data(conn, code, coder)
 
-    assert data["code"] == {"id": code, "name": "Theme A", "colour": "#123456"}
+    assert data["code"] == {
+        "id": code,
+        "name": "Theme A",
+        "colour": "#123456",
+        "parent_id": None,
+        "definition": None,
+    }
     assert data["stats"] == {"excerpts": 3, "sources_with_hits": 2, "total_sources": 3}
     assert len(data["sources"]) == 2
     # Source idxes match their 1-based sort_order; S003 has no hits so only S001+S002 appear

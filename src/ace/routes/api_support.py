@@ -828,6 +828,7 @@ def _audit_codebook_mutation_detail(
     fallback_code_id: str | None = None,
     audit_reload: bool | None = None,
     folder_list_changed: bool = False,
+    request_id: str | None = None,
 ) -> dict[str, object]:
     operation = _codebook_mutation_operation(request)
     if affected_code_ids is None:
@@ -850,6 +851,7 @@ def _audit_codebook_mutation_detail(
         "auditReload": should_reload_current,
         "fallbackCodeId": fallback_code_id,
         "folderListChanged": folder_list_changed,
+        "requestId": request_id,
     }
 
 
@@ -931,6 +933,7 @@ def _render_codebook_mutation_response(
     fallback_code_id: str | None = None,
     audit_reload: bool | None = None,
     folder_list_changed: bool = False,
+    request_id: str | None = None,
     status_html: str = "",
     headers: dict[str, str] | None = None,
 ) -> HTMLResponse:
@@ -955,6 +958,7 @@ def _render_codebook_mutation_response(
                 fallback_code_id=fallback_code_id,
                 audit_reload=audit_reload,
                 folder_list_changed=folder_list_changed,
+                request_id=request_id,
             ),
             header_name="HX-Trigger-After-Settle",
         )
