@@ -68,6 +68,13 @@ class TestAppStartup:
             assert app.state.migrated_paths == set()
             assert app.state.active_projects == set()
 
+    def test_lifespan_preserves_injected_runtime_shutdown(self, app):
+        shutdown = lambda: None
+        app.state.browser_runtime_shutdown = shutdown
+
+        with TestClient(app):
+            assert app.state.browser_runtime_shutdown is shutdown
+
 
 # ── CSRF middleware ──────────────────────────────────────────────────────
 
@@ -215,6 +222,8 @@ class TestGetDb:
         # Connection should be closed — executing should raise
         with pytest.raises(sqlite3.ProgrammingError):
             conn.execute("SELECT 1")
+        assert not db_path.with_name(f"{db_path.name}-wal").exists()
+        assert not db_path.with_name(f"{db_path.name}-shm").exists()
 
 
 # ── Allowed origins builder ──────────────────────────────────────────────
@@ -240,72 +249,84 @@ from unittest.mock import patch
 
 def test_run_accepts_port_parameter():
     """run(port=9999) should pass port=9999 to uvicorn."""
-    with patch("ace.app.uvicorn.run") as mock_run, \
+    with patch("ace.app.uvicorn.Server") as mock_server, \
          patch("ace.app._kill_stale_server"), \
          patch("ace.app._kill_stale_ace_instances"):
         from ace.app import run
         run(port=9999)
-        mock_run.assert_called_once()
-        assert mock_run.call_args.kwargs["port"] == 9999
+        config = mock_server.call_args.args[0]
+        assert config.port == 9999
+        mock_server.return_value.run.assert_called_once_with()
 
 
 def test_run_defaults_to_8080():
     """run() without port should default to 8080."""
     import os
     os.environ.pop("ACE_PORT", None)
-    with patch("ace.app.uvicorn.run") as mock_run, \
+    with patch("ace.app.uvicorn.Server") as mock_server, \
          patch("ace.app._kill_stale_server"), \
          patch("ace.app._kill_stale_ace_instances"):
         from ace.app import run
         run()
-        assert mock_run.call_args.kwargs["port"] == 8080
+        config = mock_server.call_args.args[0]
+        assert config.port == 8080
 
 
 def test_run_respects_ace_port_env():
     """run() without --port should use ACE_PORT env var."""
-    with patch("ace.app.uvicorn.run") as mock_run, \
+    with patch("ace.app.uvicorn.Server") as mock_server, \
          patch("ace.app._kill_stale_server"), \
          patch("ace.app._kill_stale_ace_instances"), \
          patch.dict("os.environ", {"ACE_PORT": "9000"}):
         from ace.app import run
         run()
-        assert mock_run.call_args.kwargs["port"] == 9000
+        config = mock_server.call_args.args[0]
+        assert config.port == 9000
 
 
 def test_run_cli_port_overrides_env():
     """run(port=7777) should take priority over ACE_PORT."""
-    with patch("ace.app.uvicorn.run") as mock_run, \
+    with patch("ace.app.uvicorn.Server") as mock_server, \
          patch("ace.app._kill_stale_server"), \
          patch("ace.app._kill_stale_ace_instances"), \
          patch.dict("os.environ", {"ACE_PORT": "9000"}):
         from ace.app import run
         run(port=7777)
-        assert mock_run.call_args.kwargs["port"] == 7777
+        config = mock_server.call_args.args[0]
+        assert config.port == 7777
 
 
-def test_run_uses_callable_not_string():
-    """run() should pass the create_app callable, not a string, to uvicorn."""
-    with patch("ace.app.uvicorn.run") as mock_run, \
+def test_run_uses_factory_wired_to_graceful_shutdown():
+    with patch("ace.app.uvicorn.Server") as mock_server, \
          patch("ace.app._kill_stale_server"), \
          patch("ace.app._kill_stale_ace_instances"):
         from ace.app import run
         run()
-        first_arg = mock_run.call_args[0][0]
-        assert callable(first_arg), f"Expected callable, got {type(first_arg)}: {first_arg}"
+        config = mock_server.call_args.args[0]
+        assert callable(config.app)
+        assert config.factory is True
+
+        app = config.app()
+        app.state.browser_runtime_shutdown()
+        assert mock_server.return_value.should_exit is True
 
 
 def test_run_starts_parent_watchdog_when_parent_pid_given():
     """Packaged sidecar should exit if the launcher parent process disappears."""
-    with patch("ace.app.uvicorn.run"), \
+    with patch("ace.app.uvicorn.Server") as mock_server, \
          patch("ace.app._kill_stale_server"), \
          patch("ace.app._kill_stale_ace_instances"), \
          patch("ace.app._start_parent_watchdog") as mock_watchdog:
         from ace.app import run
         run(port=9999, parent_pid=12345)
-        mock_watchdog.assert_called_once_with(12345)
+        mock_watchdog.assert_called_once()
+        parent_pid, shutdown = mock_watchdog.call_args.args
+        assert parent_pid == 12345
+        shutdown()
+        assert mock_server.return_value.should_exit is True
 
 def test_run_skips_stale_process_cleanup_when_disabled():
-    with patch("ace.app.uvicorn.run"), \
+    with patch("ace.app.uvicorn.Server"), \
          patch("ace.app._kill_stale_server") as mock_kill_server, \
          patch("ace.app._kill_stale_ace_instances") as mock_kill_instances:
         from ace.app import run
@@ -317,7 +338,7 @@ def test_run_skips_stale_process_cleanup_when_disabled():
 
 
 def test_run_sets_launcher_runtime_environment():
-    with patch("ace.app.uvicorn.run"), \
+    with patch("ace.app.uvicorn.Server"), \
          patch("ace.app._kill_stale_server"), \
          patch("ace.app._kill_stale_ace_instances"), \
          patch.dict("os.environ", {}, clear=False):

@@ -8,7 +8,7 @@ import sqlite3
 import subprocess
 import threading
 import time
-from collections.abc import AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
@@ -188,6 +188,11 @@ def _remove_runtime_file_for_current_process(config: BrowserRuntimeConfig) -> No
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    runtime_shutdown = getattr(
+        app.state,
+        "browser_runtime_shutdown",
+        _request_process_shutdown,
+    )
     _DATA_DIR.mkdir(exist_ok=True)
     app.state.db = None
     app.state.project_path = None
@@ -197,7 +202,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.browser_runtime_config = _runtime_config_from_env()
     app.state.browser_runtime = None
     app.state.browser_runtime_monitor = None
-    app.state.browser_runtime_shutdown = _request_process_shutdown
+    app.state.browser_runtime_shutdown = runtime_shutdown
     if app.state.browser_runtime_config.enabled:
         _install_sigterm_handler()
         tracker = BrowserSessionTracker(app.state.browser_runtime_config)
@@ -321,7 +326,10 @@ def _kill_stale_ace_instances() -> None:
         pass
 
 
-def _start_parent_watchdog(parent_pid: int) -> None:
+def _start_parent_watchdog(
+    parent_pid: int,
+    shutdown: Callable[[], None] = _request_process_shutdown,
+) -> None:
     """Terminate the sidecar if its parent launcher process disappears."""
     if parent_pid <= 1:
         return
@@ -330,7 +338,7 @@ def _start_parent_watchdog(parent_pid: int) -> None:
         while True:
             time.sleep(1)
             if not _parent_pid_exists(parent_pid):
-                os.kill(os.getpid(), signal.SIGTERM)
+                shutdown()
                 return
 
     threading.Thread(target=_watch_parent, daemon=True).start()
@@ -373,12 +381,24 @@ def run(
     # uvicorn runs its graceful shutdown path (close connections, run
     # lifespan shutdown, release the SQLite database).
     _install_sigterm_handler()
-    if parent_pid is not None:
-        _start_parent_watchdog(parent_pid)
-    uvicorn.run(
-        create_app,
+    server: uvicorn.Server
+
+    def _request_server_shutdown() -> None:
+        server.should_exit = True
+
+    def _app_factory() -> FastAPI:
+        app = create_app()
+        app.state.browser_runtime_shutdown = _request_server_shutdown
+        return app
+
+    config = uvicorn.Config(
+        _app_factory,
         factory=True,
         host="127.0.0.1",
         port=port,
         log_level="info",
     )
+    server = uvicorn.Server(config)
+    if parent_pid is not None:
+        _start_parent_watchdog(parent_pid, _request_server_shutdown)
+    server.run()

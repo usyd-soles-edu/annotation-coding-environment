@@ -519,3 +519,7 @@ class TestIdleShutdown:
             pytest.fail(
                 f"Server PID {pid} did not exit within idle-shutdown window"
             )
+
+        assert not runtime_file.exists(), (
+            "graceful idle shutdown should complete lifespan cleanup"
+        )

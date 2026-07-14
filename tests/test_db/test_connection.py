@@ -64,6 +64,9 @@ def test_checkpoint_and_close_switches_to_delete_mode(tmp_db):
     conn = create_project(tmp_db, "Test Project")
     checkpoint_and_close(conn)
 
+    assert not tmp_db.with_name(f"{tmp_db.name}-wal").exists()
+    assert not tmp_db.with_name(f"{tmp_db.name}-shm").exists()
+
     # Re-open to check journal mode was switched back
     verify_conn = sqlite3.connect(str(tmp_db))
     row = verify_conn.execute("PRAGMA journal_mode").fetchone()
