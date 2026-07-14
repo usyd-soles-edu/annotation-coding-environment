@@ -353,7 +353,7 @@ def test_new_project_choose_another_folder_clears_conflicting_path(
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_landing_dismisses_last_recent_project(ace_server, browser_name):
+def test_landing_dismisses_quick_resume(ace_server, browser_name):
     with sync_playwright() as p:
         browser = getattr(p, browser_name).launch()
         try:
@@ -374,17 +374,19 @@ def test_landing_dismisses_last_recent_project(ace_server, browser_name):
 
             resume = page.locator("#resume-link")
             assert resume.is_visible()
-
-            page.locator("#resume-clear-btn").click()
-
-            assert resume.is_visible()
-            expect(page.locator("#resume-project-link")).to_have_text("backup.ace")
             assert page.evaluate(
                 """
                 () => JSON.parse(localStorage.getItem("ace-recent-files"))
                   .map((item) => item.path)
                 """
-            ) == ["/tmp/backup.ace"]
+            ) == ["/tmp/example.ace"]
+
+            page.locator("#resume-clear-btn").click()
+
+            expect(resume).to_be_hidden()
+            assert page.evaluate(
+                'localStorage.getItem("ace-recent-files")'
+            ) is None
         finally:
             browser.close()
 
@@ -417,19 +419,16 @@ def test_landing_arrow_keys_can_focus_and_enter_clear_recent(
             assert page.evaluate("document.activeElement.id") == "resume-clear-btn"
             page.keyboard.press("Enter")
 
-            expect(page.locator("#resume-project-link")).to_have_text("backup.ace")
+            expect(page.locator("#resume-link")).to_be_hidden()
             assert page.evaluate(
-                """
-                () => JSON.parse(localStorage.getItem("ace-recent-files"))
-                  .map((item) => item.path)
-                """
-            ) == ["/tmp/backup.ace"]
+                'localStorage.getItem("ace-recent-files")'
+            ) is None
         finally:
             browser.close()
 
 
 @pytest.mark.parametrize("browser_name", browser_params())
-def test_landing_failed_resume_removes_only_dead_recent(
+def test_landing_failed_resume_clears_quick_resume(
     ace_server, tmp_path, browser_name
 ):
     project = tmp_path / "Still here.ace"
@@ -461,13 +460,10 @@ def test_landing_failed_resume_removes_only_dead_recent(
             expect(page.locator("#ace-home-message")).to_contain_text(
                 "Could not open that project"
             )
-            expect(page.locator("#resume-project-link")).to_have_text("Still here.ace")
+            expect(page.locator("#resume-link")).to_be_hidden()
             assert page.evaluate(
-                """
-                () => JSON.parse(localStorage.getItem("ace-recent-files"))
-                  .map((item) => item.path)
-                """
-            ) == [str(project)]
+                'localStorage.getItem("ace-recent-files")'
+            ) is None
         finally:
             browser.close()
 

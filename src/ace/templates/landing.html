@@ -170,8 +170,8 @@
     else window.ACE_RECENTS.clear();
   }
 
-  function clearResume(path) {
-    removeRecent(path);
+  function clearResume() {
+    if (window.ACE_RECENTS) window.ACE_RECENTS.clear();
     renderResume();
   }
 
@@ -202,7 +202,7 @@
       openProject(path, { fromResume: true });
     });
     el.querySelector("#resume-clear-btn").addEventListener("click", function() {
-      clearResume(path);
+      clearResume();
     });
     el.hidden = false;
     document.getElementById("ace-home-shortcuts").innerHTML =

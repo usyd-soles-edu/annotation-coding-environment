@@ -52,17 +52,20 @@
   function getRecentFiles() {
     try {
       const raw = JSON.parse(window.localStorage.getItem(RECENT_FILES_KEY)) || [];
-      return migrateRecent(raw);
+      const list = migrateRecent(raw).slice(0, 1);
+      if (Array.isArray(raw) && raw.length > list.length) {
+        window.localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(list));
+      }
+      return list;
     } catch (_err) {
       return [];
     }
   }
 
   function addRecentFile(path) {
-    let list = getRecentFiles().filter(function (item) { return item.path !== path; });
-    list.unshift({ path: path, openedAt: Date.now() });
-    if (list.length > 5) list = list.slice(0, 5);
-    window.localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(list));
+    window.localStorage.setItem(RECENT_FILES_KEY, JSON.stringify([
+      { path: path, openedAt: Date.now() },
+    ]));
   }
 
   function clearRecentFiles() {
@@ -70,10 +73,8 @@
   }
 
   function removeRecentFile(path) {
-    let list = getRecentFiles().filter(function (item) { return item.path !== path; });
-    if (list.length) {
-      window.localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(list));
-    } else {
+    const recent = getRecentFiles()[0];
+    if (recent && recent.path === path) {
       clearRecentFiles();
     }
   }
