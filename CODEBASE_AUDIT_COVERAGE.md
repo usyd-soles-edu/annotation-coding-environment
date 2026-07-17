@@ -11,7 +11,7 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 |---|---|---:|---:|---:|---|
 | P0 | Baseline and inventory | Repository-wide | 228/228 inventoried | 0 | Complete |
 | P1 | Architecture and integration seams | 6 | 6/6 | 4 | Complete |
-| P2 | Persistence, models, and services | 25 | 0/25 | 0 | Pending |
+| P2 | Persistence, models, and services | 25 | 25/25 | 8 | Complete |
 | P3 | Routes, templates, and HTMX contracts | 18 | 0/18 | 0 | Pending |
 | P4 | Frontend JavaScript and CSS | 14 | 0/14 | 0 | Pending |
 | P5 | Desktop, packaging, and release engineering | 17 | 0/17 | 0 | Pending |
@@ -175,18 +175,18 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `src/ace/__init__.py` | Authored | P1 | Reviewed | Version source and packaging call sites | None | — |
 | `src/ace/__main__.py` | Authored | P1 | Reviewed | CLI-to-`run` argument map; launcher invocation; call-site and history scans | ARCH-004 | — |
 | `src/ace/app.py` | Authored | P1 | Reviewed | Factory, middleware, lifespan, DB ownership, app-state inventory, server/runtime call graph, lifecycle tests | ARCH-003, ARCH-004 | — |
-| `src/ace/db/__init__.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/db/connection.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/db/migrations.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/db/schema.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/models/__init__.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/models/annotation.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/models/assignment.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/models/codebook.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/models/codebook_invariants.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/models/project.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/models/source.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/models/source_note.py` | Authored | P2 | Pending | — | — | — |
+| `src/ace/db/__init__.py` | Authored | P2 | Reviewed | Package-boundary and import scan | None | — |
+| `src/ace/db/connection.py` | Authored | P2 | Reviewed | Connection lifecycle, application ID, WAL/FK setup, version-gate reproduction, and tests | DB-001 | — |
+| `src/ace/db/migrations.py` | Authored | P2 | Reviewed | v1-v10 migration graph, schema probes, migration tests, and future-version reproduction | DB-001 | — |
+| `src/ace/db/schema.py` | Authored | P2 | Reviewed | Schema, index, trigger, constraint, and migration-parity review | DB-001 | — |
+| `src/ace/models/__init__.py` | Authored | P2 | Reviewed | Package-boundary and import scan | None | — |
+| `src/ace/models/annotation.py` | Authored | P2 | Reviewed | CRUD, merge/replay SQL, transaction map, concurrency reproduction, Unicode-offset reproduction, and tests | ANN-001, TEXT-001 | — |
+| `src/ace/models/assignment.py` | Authored | P2 | Reviewed | CRUD transaction, uniqueness, ordering, caller, and test review | None | — |
+| `src/ace/models/codebook.py` | Authored | P2 | Reviewed | Tree invariants, ordering, transaction ownership, CSV adapter, rollback tests, and failure injection | UNDO-001, MODEL-001 | — |
+| `src/ace/models/codebook_invariants.py` | Authored | P2 | Reviewed | Parent/cycle guards, schema defence, call sites, and tests | None | — |
+| `src/ace/models/project.py` | Authored | P2 | Reviewed | Project/coder CRUD, uniqueness, callers, and tests | None | — |
+| `src/ace/models/source.py` | Authored | P2 | Reviewed | Two-table insert, hash/order queries, commit ownership, import failure reproduction, and tests | IMPORT-001 | — |
+| `src/ace/models/source_note.py` | Authored | P2 | Reviewed | Upsert/delete/read/export queries, constraints, callers, and tests | None | — |
 | `src/ace/routes/__init__.py` | Authored | P1 | Reviewed | Empty package marker; import and registration map | None | — |
 | `src/ace/routes/api.py` | Authored | P1 | Reviewed | Structural router composition; 63-route registration check; import/name-use and test call-site scans | ARCH-002 | — |
 | `src/ace/routes/api_agreement.py` | Authored | P3 | Pending | — | — | — |
@@ -196,20 +196,20 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `src/ace/routes/api_support.py` | Authored | P3 | Pending | P1 seam scan: three lazy imports of page-owned `_coding_context`; full P3 review pending | ARCH-001 | — |
 | `src/ace/routes/pages.py` | Authored | P3 | Pending | P1 seam scan: `_coding_context` responsibility, dependency, call-site, and template-key maps; full P3 review pending | ARCH-001 | — |
 | `src/ace/routes/runtime.py` | Authored | P3 | Pending | — | — | — |
-| `src/ace/services/__init__.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/agreement_computer.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/agreement_loader.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/agreement_types.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/agreement_verdict.py` | Authored | P2 | Pending | — | — | — |
+| `src/ace/services/__init__.py` | Authored | P2 | Reviewed | Package-boundary and import scan | None | — |
+| `src/ace/services/agreement_computer.py` | Authored | P2 | Reviewed | Sparse event algorithm, metric contracts, benchmark, Unicode-offset dependency, and tests | TEXT-001, AGREEMENT-001 | — |
+| `src/ace/services/agreement_loader.py` | Authored | P2 | Reviewed | Read-only loading, schema probes, matching logic, duplicate-hash reproduction, and tests | AGREEMENT-001 | — |
+| `src/ace/services/agreement_types.py` | Authored | P2 | Reviewed | Dataclass contracts, consumers, and test fixtures | AGREEMENT-001 | — |
+| `src/ace/services/agreement_verdict.py` | Authored | P2 | Reviewed | Threshold, paradox, overall, pairwise, caller, and test review | None | — |
 | `src/ace/services/browser_runtime.py` | Authored | P1 | Reviewed | Tracker/monitor responsibility and thread-safety map; runtime route, JavaScript, launcher, and lifecycle-test traces | None | — |
-| `src/ace/services/chord_assignment.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/code_cues.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/coding_render.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/exporter.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/importer.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/notes_exporter.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/text_splitter.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/undo.py` | Authored | P2 | Pending | — | — | — |
+| `src/ace/services/chord_assignment.py` | Authored | P2 | Reviewed | Candidate generation, fallback, uniqueness, callers, and tests | None | — |
+| `src/ace/services/code_cues.py` | Authored | P2 | Reviewed | Temporary FTS index, fallback ranking, benchmark, callers, and tests | None | — |
+| `src/ace/services/coding_render.py` | Authored | P2 | Reviewed | Escaping, overlap, paragraph, sentence-offset flow, callers, and tests | TEXT-001 | — |
+| `src/ace/services/exporter.py` | Authored | P2 | Reviewed | Query order, metadata collision handling, merge grouping reproduction, callers, and tests | EXPORT-001 | — |
+| `src/ace/services/importer.py` | Authored | P2 | Reviewed | CSV/XLSX/text parsing, duplicate and empty handling, transaction reproduction, callers, and tests | IMPORT-001 | — |
+| `src/ace/services/notes_exporter.py` | Authored | P2 | Reviewed | Query, writer, Unicode, caller, and test review | None | — |
+| `src/ace/services/text_splitter.py` | Authored | P2 | Reviewed | pySBD, paragraph offsets, Unicode convention comparison, callers, and tests | TEXT-001 | — |
+| `src/ace/services/undo.py` | Authored | P2 | Reviewed | Operation/handler parity, transaction map, composite failure injection, callers, and tests | UNDO-001 | — |
 | `src/ace/static/agreement_methodology.md` | Documentation | P7 | Pending | — | — | — |
 | `src/ace/static/agreement_references.bib` | Documentation | P7 | Pending | — | — | — |
 | `src/ace/static/code_palette.json` | Configuration | P7 | Pending | — | — | — |
