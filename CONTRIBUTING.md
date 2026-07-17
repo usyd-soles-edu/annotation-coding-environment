@@ -67,13 +67,14 @@ We use semantic versioning. Bump the minor number for larger user-facing feature
 To release:
 
 1. Add a new section at the top of `CHANGELOG.md` describing what changed
-2. Bump the release number in `src/ace/__init__.py`, `desktop/launcher/Cargo.toml`, `desktop/launcher/Cargo.lock`, `desktop/launcher/Packager.toml`, `CITATION.cff`, the README citation, and the website citation on `website/index.qmd`
+2. Bump the release number in `src/ace/__init__.py`, `desktop/launcher/Cargo.toml`, `desktop/launcher/Cargo.lock`, `desktop/launcher/Packager.toml`, `.zenodo.json`, `CITATION.cff`, the README citation, and the website citation on `website/index.qmd`
 3. Check `CITATION.cff` has the intended `version`, `date-released`, DOI, authors, license, and repository URL. Zenodo reads citation metadata from the tagged archive, so stale or uncommitted metadata changes can appear on the DOI record.
-4. Commit it: `git commit -am "chore(release): bump version to X.Y.Z"`
-5. Push `main`: `git push origin main`
-6. Tag it from the release commit on `main`: `git tag vX.Y.Z`
-7. Push the tag: `git push origin vX.Y.Z`
-8. Confirm the `Release Desktop App` GitHub Actions workflow succeeds and publishes the draft GitHub release for the tag
+4. Run `uv run python scripts/check_release_metadata.py` and `uv lock --check`
+5. Commit it: `git commit -am "chore(release): bump version to X.Y.Z"`
+6. Push `main`: `git push origin main`
+7. Tag it from the release commit on `main`: `git tag vX.Y.Z`
+8. Push the tag: `git push origin vX.Y.Z`
+9. Confirm the `Release Desktop App` GitHub Actions workflow succeeds, audits the locked runtime dependencies, and publishes a draft GitHub release using the matching changelog section
 
 ### Writing the changelog
 

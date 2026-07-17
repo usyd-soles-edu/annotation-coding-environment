@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.6.1
+
+### Fixes
+
+- **Quick Resume** — dismissing the latest project now clears Quick Resume instead of revealing an older entry.
+- **Launcher shutdown** — the launcher now shuts down its server gracefully so ACE can complete cleanup and remove SQLite sidecar files.
+
 ## 1.6.0
 
 ### Changes

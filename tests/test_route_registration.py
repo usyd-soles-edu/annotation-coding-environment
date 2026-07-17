@@ -2,7 +2,7 @@ from ace.app import create_app
 
 
 def _paths() -> set[str]:
-    return {route.path for route in create_app().routes}
+    return set(create_app().openapi()["paths"])
 
 
 def test_api_route_split_preserves_core_routes():

@@ -28,8 +28,26 @@ jobs:
   # actually elevate (workflows cannot expand beyond the repo-level default).
   preflight:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: '3.12'
+      - name: Verify release metadata
+        run: uv run python scripts/check_release_metadata.py --tag "${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}"
+      - name: Audit locked runtime dependencies
+        shell: bash
+        run: |
+          uv export --locked --no-dev --no-emit-project \
+            --output-file "${RUNNER_TEMP}/ace-runtime-requirements.txt" \
+            > /dev/null
+          uvx --from pip-audit==2.10.1 pip-audit \
+            --requirement "${RUNNER_TEMP}/ace-runtime-requirements.txt" \
+            --disable-pip
       - name: Verify release API write access
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,6 +67,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
       - name: Create or reuse draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -65,6 +86,7 @@ jobs:
             TAG="${GITHUB_REF_NAME}"
           fi
           VERSION="${TAG#v}"
+          CHANGELOG_NOTES=$(python3 scripts/check_release_metadata.py --print-changelog "$VERSION")
           RELEASE_META=$(gh api /repos/${{ github.repository }}/releases \
             --jq ".[] | select(.tag_name == \"$TAG\") | \"\(.id) \(.draft)\"" | head -1)
           if [ -n "$RELEASE_META" ]; then
@@ -90,7 +112,11 @@ jobs:
           **macOS:** Open the \`.dmg\`, drag ACE to Applications.
           **Windows:** Run the installer. You may see a SmartScreen warning — click \"More info\" then \"Run anyway\".
 
-          Not code-signed yet — macOS and Windows will show \"unknown developer\" / SmartScreen warnings on install. Signing is planned for a future release." > /dev/null
+          Not code-signed yet — macOS and Windows will show \"unknown developer\" / SmartScreen warnings on install. Signing is planned for a future release.
+
+          ## What's changed
+
+          ${CHANGELOG_NOTES}" > /dev/null
 
   build:
     needs: [preflight, prepare_release]

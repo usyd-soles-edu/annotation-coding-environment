@@ -10,11 +10,11 @@ Scope: Whole tracked repository, following `CODEBASE_AUDIT_PLAN.md`
 | Priority | Open | Accepted | Rejected | Completed |
 |---|---:|---:|---:|---:|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 15 | 0 | 0 | 0 |
+| High | 13 | 2 | 0 | 0 |
 | Medium | 18 | 0 | 0 | 0 |
 | Low | 9 | 0 | 0 | 0 |
 
-No findings have been accepted yet. P0 records the baseline and coverage map; P1-P7 record the complete audit across architecture, persistence, models, services, routes, templates, HTMX, frontend, desktop, packaging, release, tests, documentation, dependencies, and repository assets.
+Batch 0 has been reviewed. `DEP-001` and `DOC-001` are accepted; the remaining findings are open. P0 records the baseline and coverage map; P1-P7 record the complete audit across architecture, persistence, models, services, routes, templates, HTMX, frontend, desktop, packaging, release, tests, documentation, dependencies, and repository assets.
 
 ## Proposed Implementation Sequence
 
@@ -270,7 +270,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 
 ### DEP-001. Replace the vulnerable locked runtime dependency set
 
-- Status: Open
+- Status: Accepted
 - Priority: High
 - Category: Correctness risk
 - Where: `pyproject.toml`; `uv.lock`; FastAPI/Starlette request handling and form parsing
@@ -281,13 +281,14 @@ This sequence is for review only. It does not accept any finding or authorise pr
 - Expected simplification or measured benefit: Return the runtime vulnerability audit to zero known advisories while keeping one resolver-owned dependency graph rather than accumulating manual transitive pins.
 - Tests required first: Preserve focused form, import, CSRF, Host/origin, error-response, lifespan, and launcher smoke contracts; add only advisory-relevant malformed/body-limit cases that exercise ACE-owned behaviour rather than duplicating upstream suites.
 - Verification: Re-export the locked runtime and require a zero-advisory audit, run all 1,158 Python tests in the supported browser matrix, run the six locked Rust tests, build launcher packages, and smoke-test project creation/import/open on macOS and Windows.
+- Progress: Implemented on `refactor/codebase-optimisation`. The exported runtime audit reports zero known vulnerabilities; all 459 browser tests, all 702 non-browser tests, all six Rust tests, and the macOS launcher package build pass. Windows packaging and smoke testing remain for CI.
 - Dependencies: None
 - Timing: Safe now
 - Confidence: High
 
 ### DOC-001. Make each release's archive, changelog, and scholarly metadata identify the same version
 
-- Status: Open
+- Status: Accepted
 - Priority: High
 - Category: Documentation
 - Where: `.zenodo.json`; `CITATION.cff`; `CHANGELOG.md`; `README.md`; `website/index.qmd`; `CONTRIBUTING.md`; the live Zenodo record for DOI `10.5281/zenodo.20488468`
@@ -298,6 +299,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 - Expected simplification or measured benefit: Replace the split manual release paths with one version contract and make the GitHub release, archived source, DOI, and citations mutually verifiable.
 - Tests required first: Add a read-only release-metadata contract test covering every version-bearing file and the changelog heading; keep live Zenodo verification as a release checklist because it is external state.
 - Verification: Validate CFF and JSON, render all 17 website pages, run the release preflight, inspect the draft release body/assets, and confirm the amended Zenodo page displays 1.6.1 beside the v1.6.1 archive and source link.
+- Progress: The repository metadata, v1.6.1 changelog, consistency validator, contract tests, and release-workflow integration are implemented on `refactor/codebase-optimisation`. CFF validation and all 17 website pages pass. Amending and confirming the published Zenodo record remains an external manual action.
 - Dependencies: None
 - Timing: Safe now
 - Confidence: High
