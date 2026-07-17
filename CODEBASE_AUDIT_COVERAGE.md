@@ -15,7 +15,7 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 | P3 | Routes, templates, and HTMX contracts | 18 | 18/18 | 7 | Complete |
 | P4 | Frontend JavaScript and CSS | 14 | 14/14 | 5 | Complete |
 | P5 | Desktop, packaging, and release engineering | 17 | 17/17 | 6 | Complete |
-| P6 | Tests and developer feedback loops | 76 | 0/76 | 0 | Pending |
+| P6 | Tests and developer feedback loops | 76 | 76/76 | 4 | Complete |
 | P7 | Docs, dependencies, and synthesis | 72 | 0/72 | 0 | Pending |
 
 ## P0 Baseline Checklist
@@ -71,6 +71,7 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 | P3 routes, templates, and HTMX | Pass | Focused route suite: 280 passed in 10.52 s. Agreement, import-picker, and setup E2E suite: 90 passed in 146.52 s across Chromium, Firefox, and WebKit |
 | P4 frontend JavaScript and CSS | Pass with generated-asset follow-up | The shallow script mode reported `headless-tree-contract-ok`; P5 later identified the separate bundle-parity failure as BUILD-001. Static asset and focused frontend E2E suites were split into three response-safe runs: 103 passed in 159.43 s, 132 passed in 222.70 s, and 33 passed in 59.62 s (268 total), across Chromium, Firefox, and WebKit |
 | P5 desktop, packaging, and release | Pass except documented bundle parity | Launcher/runtime/config suite: 41 passed in 26.39 s. Rust launcher: 6 passed with the lockfile. Package `--check` and 16 semantic config tests passed on the real manifests. The rebuild comparison failed as recorded in BUILD-001. Live GitHub checks found write permissions configured, eight recent release workflows successful, and complete DMG/NSIS/MSI assets for v1.6.0 and v1.6.1 |
+| P6 tests and developer feedback loops | Pass with enforcement and test-cost findings | Full baseline: 1,158 passed in 862.57 s. Collection review found 459 browser items from 153 functions, each with its own Playwright/browser launch and function-scoped ACE server; five additional Chromium-only browser tests sit outside `tests/e2e`. Tracked workflows run no Python or Rust tests, and live default-branch rules require no status checks |
 
 ### Slowest Baseline Tests
 
@@ -249,82 +250,82 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `src/ace/templates/import.html` | Authored | P3 | Reviewed | Wizard state/targets, OOB error recognition, native picker flow, keyboard behaviour, and three-engine E2E tests | HTMX-001, ROUTE-001 | — |
 | `src/ace/templates/landing.html` | Authored | P3 | Reviewed | Open/resume/dialog flow, localStorage filename escaping, keyboard shortcuts, rendered semantics, and E2E tests | None | — |
 | `src/ace/templates/new_project.html` | Authored | P3 | Reviewed | Name/folder/overwrite flow, dialog/error handling, keyboard behaviour, rendered semantics, and E2E tests | PROJECT-001 | — |
-| `tests/conftest.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/__init__.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/conftest.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_agreement_file_review.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_applied_code_removal.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_code_view_edit_mode.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_codebook_context_menu.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_codebook_cues.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_codebook_import_ledger.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_codebook_menu_a11y.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_codebook_sidebar_controller.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_codebook_zone_indicator.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_coding_keyboard_navigation.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_coding_notification_receipt.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_coding_text_preferences.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_headless_tree_preview.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_import_desktop_picker.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_landing_desktop_picker.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_note_drawer_status.py` | Authored | P6 | Pending | — | — | — |
-| `tests/e2e/test_setup_keyboard.py` | Authored | P6 | Pending | — | — | — |
-| `tests/fixtures/make_agreement_files.py` | Authored | P6 | Pending | — | — | — |
-| `tests/routes/test_code_cue_routes.py` | Authored | P6 | Pending | — | — | — |
-| `tests/routes/test_coding_annotations.py` | Authored | P6 | Pending | — | — | — |
-| `tests/routes/test_coding_codebook.py` | Authored | P6 | Pending | — | — | — |
-| `tests/routes/test_coding_notes.py` | Authored | P6 | Pending | — | — | — |
-| `tests/services/test_code_cues.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_agreement_computer.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_agreement_routes.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_agreement_verdict.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_app.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_browser_runtime.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_chord_keys_e2e.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_code_view.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_codebook_palette.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_coding_routes.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_cohens_kappa.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_db/__init__.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_db/test_chord_migration.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_db/test_connection.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_db/test_migrations.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_db/test_schema.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_desktop_config.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_e2e_plan_a.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_import.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_importer_lazy_openpyxl.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_launcher_lifecycle.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_launcher_packager_config.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_models/__init__.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_models/test_annotation.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_models/test_assignment.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_models/test_codebook.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_models/test_codebook_chord.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_models/test_codebook_folder.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_models/test_source.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_models/test_source_note.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_native_picker.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_project.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_render_colour_css.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_route_registration.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_runtime_routes.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/__init__.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_agreement_computer.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_agreement_e2e.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_agreement_loader.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_agreement_types.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_chord_assignment.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_coding_render.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_exporter.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_importer.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_notes_exporter.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_text_splitter.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_undo.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_services/test_undo_codebook.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_source_note_routes.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_static_asset_contracts.py` | Authored | P6 | Pending | — | — | — |
-| `tests/test_status_helpers.py` | Authored | P6 | Pending | — | — | — |
+| `tests/conftest.py` | Authored | P6 | Reviewed | Shared database, app-client, project, and import fixtures; fixture scopes and collected consumers | None | — |
+| `tests/e2e/__init__.py` | Authored | P6 | Reviewed | Browser-suite package and path-based discovery boundary | TEST-002, TEST-003 | — |
+| `tests/e2e/conftest.py` | Authored | P6 | Reviewed | Engine detection, three-engine parameters, function-scoped project/server setup, startup cost, and consumers | TEST-001, TEST-002, TEST-003 | — |
+| `tests/e2e/test_agreement_file_review.py` | Authored | P6 | Reviewed | Three-engine agreement lifecycle contracts, per-item browser/server setup, timing, and stale-result coverage | HTMX-002, TEST-001, TEST-003 | — |
+| `tests/e2e/test_applied_code_removal.py` | Authored | P6 | Reviewed | Three-engine applied-code removal contracts and per-item browser/server setup | TEST-001, TEST-003 | — |
+| `tests/e2e/test_code_view_edit_mode.py` | Authored | P6 | Reviewed | Three-engine code-view edit/save contracts, single-flight coverage, and per-item setup | TEST-001, TEST-003 | — |
+| `tests/e2e/test_codebook_context_menu.py` | Authored | P6 | Reviewed | Three-engine context-menu interaction contracts and per-item browser/server setup | TEST-001, TEST-003 | — |
+| `tests/e2e/test_codebook_cues.py` | Authored | P6 | Reviewed | Three-engine cue lifecycle/stale-response contracts, timings, and per-item setup | TEST-001, TEST-003 | — |
+| `tests/e2e/test_codebook_import_ledger.py` | Authored | P6 | Reviewed | Three-engine codebook import-ledger contracts and per-item browser/server setup | TEST-001, TEST-003 | — |
+| `tests/e2e/test_codebook_menu_a11y.py` | Authored | P6 | Reviewed | Three-engine menu keyboard/ARIA contract and per-item browser/server setup | TEST-001, TEST-003 | — |
+| `tests/e2e/test_codebook_sidebar_controller.py` | Authored | P6 | Reviewed | Three-engine tree/controller lifecycle contracts, collection weight, and per-item setup | TREE-001, TEST-001, TEST-003 | — |
+| `tests/e2e/test_codebook_zone_indicator.py` | Authored | P6 | Reviewed | Three-engine focus/rename/reorder contracts and per-item browser/server setup | CODEBOOK-001, TEST-001, TEST-003 | — |
+| `tests/e2e/test_coding_keyboard_navigation.py` | Authored | P6 | Reviewed | Three-engine keyboard/focus/navigation contracts, collection weight, and per-item setup | TEST-001, TEST-003 | — |
+| `tests/e2e/test_coding_notification_receipt.py` | Authored | P6 | Reviewed | Three-engine notification/undo receipt contracts and per-item browser/server setup | HTMX-001, TEST-001, TEST-003 | — |
+| `tests/e2e/test_coding_text_preferences.py` | Authored | P6 | Reviewed | Three-engine text-preference persistence contracts and per-item browser/server setup | TEST-001, TEST-003 | — |
+| `tests/e2e/test_headless_tree_preview.py` | Authored | P6 | Reviewed | Ninety-nine collected live tree/controller items, source/bundle use, and per-item setup | TREE-001, BUILD-001, TEST-001, TEST-003 | — |
+| `tests/e2e/test_import_desktop_picker.py` | Authored | P6 | Reviewed | Three-engine import-picker error/success contracts and per-item browser/server setup | TEST-001, TEST-003 | — |
+| `tests/e2e/test_landing_desktop_picker.py` | Authored | P6 | Reviewed | Three-engine landing picker contracts and per-item browser/server setup | TEST-001, TEST-003 | — |
+| `tests/e2e/test_note_drawer_status.py` | Authored | P6 | Reviewed | Three-engine note-status/autosave contracts, timing, and missing reverse-completion case | NOTE-001, TEST-001, TEST-003 | — |
+| `tests/e2e/test_setup_keyboard.py` | Authored | P6 | Reviewed | Forty-five collected setup/keyboard items and per-item browser/server setup | TEST-001, TEST-003 | — |
+| `tests/fixtures/make_agreement_files.py` | Authored | P6 | Reviewed | Agreement fixture schema/data construction and loader/computer consumers | AGREEMENT-001 | — |
+| `tests/routes/test_code_cue_routes.py` | Authored | P6 | Reviewed | Cue route request, response, and project/coder precondition contracts | None | — |
+| `tests/routes/test_coding_annotations.py` | Authored | P6 | Reviewed | Annotation/navigation/undo route matrix, transaction boundaries, and response headers | ANN-001, UNDO-001, HTMX-001 | — |
+| `tests/routes/test_coding_codebook.py` | Authored | P6 | Reviewed | Eighty collected codebook route contracts, rename refresh flow, undo, and imports | CODEBOOK-001, UNDO-001, HTMX-001 | — |
+| `tests/routes/test_coding_notes.py` | Authored | P6 | Reviewed | Note-aware coding and undo route contracts; client queue remains E2E-owned | NOTE-001 | — |
+| `tests/services/test_code_cues.py` | Authored | P6 | Reviewed | Cue ranking, tokenisation, stop-state, and scale smoke contracts | None | — |
+| `tests/test_agreement_computer.py` | Authored | P6 | Reviewed | Pooled/per-code/pairwise public computation contracts and overlap comparison | None | — |
+| `tests/test_agreement_routes.py` | Authored | P6 | Reviewed | Agreement upload/compute/export/result route contracts and private compatibility imports | ARCH-002, HTMX-002 | — |
+| `tests/test_agreement_verdict.py` | Authored | P6 | Reviewed | Threshold, pairwise, and guidance-text classification contracts | None | — |
+| `tests/test_app.py` | Authored | P6 | Reviewed | Lifespan, app-state initialisation, shutdown, origin, and stale-server contracts | ARCH-003, ARCH-004 | — |
+| `tests/test_browser_runtime.py` | Authored | P6 | Reviewed | Tracker/monitor concurrency, idle, heartbeat, shutdown, and lifecycle ownership | ARCH-003 | — |
+| `tests/test_chord_keys_e2e.py` | Authored | P6 | Reviewed | Five Chromium-only Playwright tests, bespoke module server, and exclusion from shared E2E path | TEST-002, TEST-003 | — |
+| `tests/test_code_view.py` | Authored | P6 | Reviewed | Code-view data assembly, ordering, source excerpts, and page contracts | None | — |
+| `tests/test_codebook_palette.py` | Authored | P6 | Reviewed | Palette defaults, uniqueness, cycling, and explicit colour contracts | None | — |
+| `tests/test_coding_routes.py` | Authored | P6 | Reviewed | Legacy/top-level coding route contracts, route-module overlap, and private compatibility imports | ARCH-002, ROUTE-001 | — |
+| `tests/test_cohens_kappa.py` | Authored | P6 | Reviewed | Private kappa helper edge cases and comparison with public agreement tests | None | — |
+| `tests/test_db/__init__.py` | Authored | P6 | Reviewed | Database-test package and discovery boundary | None | — |
+| `tests/test_db/test_chord_migration.py` | Authored | P6 | Reviewed | Chord migration forward/backfill and compatibility contracts | None | — |
+| `tests/test_db/test_connection.py` | Authored | P6 | Reviewed | Connection pragmas, schema version/application identity, open/create, and future-schema gap | DB-001 | — |
+| `tests/test_db/test_migrations.py` | Authored | P6 | Reviewed | Sequential migrations, legacy fixtures, schema versions, and rollback expectations | DB-001 | — |
+| `tests/test_db/test_schema.py` | Authored | P6 | Reviewed | Schema constraints, tables, indexes, triggers, and version contract | DB-001 | — |
+| `tests/test_desktop_config.py` | Authored | P6 | Reviewed | Semantic desktop manifest/version/format/icon/resource assertions and collected lane ownership | REL-001, REL-002, ICON-001, TEST-003 | — |
+| `tests/test_e2e_plan_a.py` | Authored | P6 | Reviewed | Three TestClient import/project flows; name and location are not browser E2E | TEST-003 | — |
+| `tests/test_import.py` | Authored | P6 | Reviewed | Import preview/commit route flows, identifier handling, and batch-rollback gaps | IMPORT-001 | — |
+| `tests/test_importer_lazy_openpyxl.py` | Authored | P6 | Reviewed | Optional spreadsheet dependency and lazy-import contracts | None | — |
+| `tests/test_launcher_lifecycle.py` | Authored | P6 | Reviewed | Launcher reachability, heartbeat, idle shutdown, subprocess timing, and release-lane ownership | TEST-003 | — |
+| `tests/test_launcher_packager_config.py` | Authored | P6 | Reviewed | Semantic packager configuration, shallow-command contrast, and release-lane ownership | PACK-001, REL-001, TEST-003 | — |
+| `tests/test_models/__init__.py` | Authored | P6 | Reviewed | Model-test package and discovery boundary | None | — |
+| `tests/test_models/test_annotation.py` | Authored | P6 | Reviewed | Annotation CRUD/merge/overlap contracts and missing cross-connection race case | ANN-001 | — |
+| `tests/test_models/test_assignment.py` | Authored | P6 | Reviewed | Assignment creation, lookup, uniqueness, and coder/source ownership contracts | None | — |
+| `tests/test_models/test_codebook.py` | Authored | P6 | Reviewed | Codebook CRUD/tree/import/export/delete/restore contracts and model adapter boundary | MODEL-001, UNDO-001 | — |
+| `tests/test_models/test_codebook_chord.py` | Authored | P6 | Reviewed | Chord allocation/backfill/collision/reserved-key model contracts | TEST-002 | — |
+| `tests/test_models/test_codebook_folder.py` | Authored | P6 | Reviewed | Folder invariants, depth cap, moves, ordering, and soft-delete contracts | None | — |
+| `tests/test_models/test_source.py` | Authored | P6 | Reviewed | Source/content CRUD, ordering, metadata, and assignment interactions | None | — |
+| `tests/test_models/test_source_note.py` | Authored | P6 | Reviewed | Atomic note upsert/delete and timestamp contracts; browser queue remains uncovered | NOTE-001 | — |
+| `tests/test_native_picker.py` | Authored | P6 | Reviewed | Platform picker dispatch, async thread offload, cancellation, and path contracts | None | — |
+| `tests/test_project.py` | Authored | P6 | Reviewed | Project create/open/overwrite validation and replacement-failure gap | PROJECT-001 | — |
+| `tests/test_render_colour_css.py` | Authored | P6 | Reviewed | Colour CSS filtering/escaping contracts and private compatibility import | ARCH-002 | — |
+| `tests/test_route_registration.py` | Authored | P6 | Reviewed | Router inclusion, unique route identity, and split-module registration contracts | ROUTE-001 | — |
+| `tests/test_runtime_routes.py` | Authored | P6 | Reviewed | Session heartbeat/close/shutdown route contracts and launcher-focused lane ownership | TEST-003 | — |
+| `tests/test_services/__init__.py` | Authored | P6 | Reviewed | Service-test package and fragmented test-layout comparison | None | — |
+| `tests/test_services/test_agreement_computer.py` | Authored | P6 | Reviewed | Sparse/public agreement metrics, overlap clipping, pairwise, and duplicate-name comparison | AGREEMENT-001 | — |
+| `tests/test_services/test_agreement_e2e.py` | Authored | P6 | Reviewed | Database-loader-computer integration across coders/sources and source-identity gap | AGREEMENT-001 | — |
+| `tests/test_services/test_agreement_loader.py` | Authored | P6 | Reviewed | Legacy schema probing, source matching, coder labels, and duplicate-content gap | AGREEMENT-001 | — |
+| `tests/test_services/test_agreement_types.py` | Authored | P6 | Reviewed | Agreement dataclass invariants, serialisation, and result-shape contracts | None | — |
+| `tests/test_services/test_chord_assignment.py` | Authored | P6 | Reviewed | Chord assignment capacity, reserved keys, collisions, and deterministic ordering | TEST-002 | — |
+| `tests/test_services/test_coding_render.py` | Authored | P6 | Reviewed | Sentence/annotation HTML, escaping, offset attributes, and Unicode contract gap | TEXT-001 | — |
+| `tests/test_services/test_exporter.py` | Authored | P6 | Reviewed | Annotation/codebook export ordering, grouping, filenames, and interleaved-coder gap | EXPORT-001 | — |
+| `tests/test_services/test_importer.py` | Authored | P6 | Reviewed | Text/document/spreadsheet import parsing, identifiers, errors, and atomicity gap | IMPORT-001 | — |
+| `tests/test_services/test_notes_exporter.py` | Authored | P6 | Reviewed | Note export ordering, escaping, empty data, and filename contracts | None | — |
+| `tests/test_services/test_text_splitter.py` | Authored | P6 | Reviewed | Sentence segmentation, whitespace, abbreviations, and Python/browser offset gap | TEXT-001 | — |
+| `tests/test_services/test_undo.py` | Authored | P6 | Reviewed | Annotation undo/redo/merge replay, stack recovery, and composite atomicity gap | UNDO-001 | — |
+| `tests/test_services/test_undo_codebook.py` | Authored | P6 | Reviewed | Codebook/folder undo composites, replay, ordering, and failure-injection gap | UNDO-001 | — |
+| `tests/test_source_note_routes.py` | Authored | P6 | Reviewed | Note PUT/GET/delete/export route contracts; autosave ordering remains browser-owned | NOTE-001 | — |
+| `tests/test_static_asset_contracts.py` | Authored | P6 | Reviewed | Static asset presence/markers, deliberately stale bundle fixture, and shallow parity acceptance | BUILD-001, FRONT-002, TEST-003 | — |
+| `tests/test_status_helpers.py` | Authored | P6 | Reviewed | OOB status/announce headers, escaping, private compatibility imports, and no-reswap gap | ARCH-002, HTMX-001 | — |
 | `uv.lock` | Lockfile | P7 | Pending | — | — | Generated dependency lock; verify manifest consistency and reproducibility |
 | `website/.gitignore` | Asset/support | P7 | Pending | — | — | — |
 | `website/_quarto.yml` | Configuration | P7 | Pending | — | — | — |

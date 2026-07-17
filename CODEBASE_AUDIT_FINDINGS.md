@@ -10,11 +10,11 @@ Scope: Whole tracked repository, following `CODEBASE_AUDIT_PLAN.md`
 | Priority | Open | Accepted | Rejected | Completed |
 |---|---:|---:|---:|---:|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 12 | 0 | 0 | 0 |
-| Medium | 10 | 0 | 0 | 0 |
+| High | 13 | 0 | 0 | 0 |
+| Medium | 13 | 0 | 0 | 0 |
 | Low | 8 | 0 | 0 | 0 |
 
-No findings have been accepted yet. P0 records the baseline and coverage map; P1-P5 record architecture, persistence, model, service, route, template, HTMX, frontend, desktop, packaging, and release findings.
+No findings have been accepted yet. P0 records the baseline and coverage map; P1-P6 record architecture, persistence, model, service, route, template, HTMX, frontend, desktop, packaging, release, test-suite, and feedback-loop findings.
 
 ## Rules
 
@@ -236,6 +236,23 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Timing: Safe now
 - Confidence: High
 
+### CI-002. Put the existing test suite on the path to merge and release
+
+- Status: Open
+- Priority: High
+- Category: Tooling
+- Where: `.github/workflows/pages.yml`; `.github/workflows/release.yml`; `pyproject.toml`; repository ruleset `default`
+- Evidence: The baseline collects 1,158 Python test items and the Rust launcher has six passing tests, but neither tracked workflow runs `pytest`, `cargo test`, the semantic package tests, or the real generated-bundle comparison. `pages.yml` builds the Quarto site on pull requests and the default branch; `release.yml` builds launcher packages for tags or manual dispatch. Live GitHub inspection on 2026-07-17 found no classic protection on `main`; the active `default` ruleset applies only `deletion` and `non_fast_forward` rules, with no pull-request, required-workflow, or required-status-check rule. A regression can therefore reach `main` or a release tag without any automated product-test result.
+- Current contract: Local test commands, Pages publication, tag-triggered draft releases, and the three-platform release matrix remain available and keep their current behaviour.
+- Why it matters: The repository has substantial regression coverage, but its signal depends entirely on a maintainer remembering and waiting for local checks. Release success currently proves that packaging completed, not that the application or launcher tests passed.
+- Recommendation: Add a dedicated verification workflow with explicit fast Python, Rust, static/configuration, and browser lanes. Make release preflight depend on the appropriate green checks or rerun the release-critical lanes at the tag. Once the workflow is stable, require at least the fast deterministic check through the default-branch ruleset; add the real bundle-parity check only after BUILD-001 is resolved.
+- Expected simplification or measured benefit: Replace an undocumented manual gate with one visible, repeatable result for pull requests, `main`, and release tags, while keeping expensive browser work separable from fast checks.
+- Tests required first: No new product behaviour test is required. First define complete, non-overlapping test lanes and prove their union collects the same 1,158 items; characterise browser isolation before changing its harness.
+- Verification: Run every workflow lane on a branch, confirm their collected-item union and Rust lockfile use, exercise a controlled failing check, then verify the required status blocks merging and a failed release-critical lane blocks publication.
+- Dependencies: TEST-001, TEST-003, and BUILD-001 for the final browser and bundle-parity lane design
+- Timing: Needs design
+- Confidence: High
+
 ## Medium-Priority Findings
 
 ### EXPORT-001. Group adjacent annotations independently of interleaved coders
@@ -408,6 +425,57 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Timing: Needs design
 - Confidence: High
 
+### TEST-001. Reuse browser infrastructure without weakening test isolation
+
+- Status: Open
+- Priority: Medium
+- Category: Performance
+- Where: `tests/e2e/conftest.py::ace_server`, `browser_params`; all 17 `tests/e2e/test_*.py` modules
+- Evidence: The browser suite contains 153 test functions; every function calls `sync_playwright()` and launches a browser, and every function is parametrised across Chromium, Firefox, and WebKit, producing 459 collected browser items and up to 459 browser launches. The function-scoped `ace_server` fixture also creates a fresh project and starts a fresh uvicorn process for each item; its own module note measures server startup at about 1.5-2 seconds per test. The representative full-suite baseline is 1,158 passes in 862.57 seconds, while the three focused P4 browser groups took 159.43, 222.70, and 59.62 seconds for 268 items. This finding concerns repeated infrastructure startup, not the substantive browser assertions.
+- Current contract: Every browser item receives a fresh project database, independent browser storage and DOM state, deterministic server state, and coverage in all three engines; failures must remain attributable to one test.
+- Why it matters: Hundreds of process launches dominate the feedback loop and make the complete local suite expensive enough to discourage routine use, while adding no product-state coverage by themselves.
+- Recommendation: Prototype session- or engine-scoped Playwright/browser processes with a fresh browser context per test. Reuse an ACE server only behind an explicit reset/open-project contract that clears project, coder, undo, agreement, and runtime state; do not introduce parallel execution while the application remains intentionally single-user and stateful.
+- Expected simplification or measured benefit: Centralise 153 repeated Playwright launch blocks and remove hundreds of browser/server startups. Measure the prototype against the 459-item baseline before adopting it; no speed-up target is assumed in advance.
+- Tests required first: Add isolation sentinels that deliberately leave project, undo, local-storage, session, and agreement state behind and prove the next test starts clean in every engine.
+- Verification: Run the complete browser matrix twice, including a randomised-order run, compare failures and wall time with the recorded baseline, then run all 1,158 Python tests.
+- Dependencies: None
+- Timing: Needs tests first
+- Confidence: High
+
+### TEST-002. Bring chord-key browser coverage into the shared three-engine matrix
+
+- Status: Open
+- Priority: Medium
+- Category: Tests
+- Where: `tests/test_chord_keys_e2e.py`; `tests/e2e/conftest.py`; `tests/e2e/`
+- Evidence: `tests/test_chord_keys_e2e.py` contains five real Playwright tests but sits outside the browser-test directory, starts its own module-scoped server, and launches Chromium directly rather than using `browser_params()`. Consequently, the normal `pytest tests/e2e` browser run does not collect these tests, and Firefox and WebKit never exercise chord application, chord allocation, dialog use, reserved-key behaviour, or case handling. The shared browser harness already provides installed-engine skips and parametrises every in-directory browser test across Chromium, Firefox, and WebKit.
+- Current contract: Chord assignment and application, reserved single-key shortcuts, case handling, and the code-creation dialog continue to behave exactly as the five tests specify.
+- Why it matters: ACE ships Chromium- and WebKit-based desktop surfaces and supports Firefox in the browser. A keyboard feature with browser-specific event handling currently has only Chromium regression coverage and is easy to omit from a focused browser run.
+- Recommendation: Move the five tests into `tests/e2e/`, replace the bespoke server/browser scaffolding with the shared fixtures and `browser_params()` contract, and keep their assertions unchanged unless cross-engine behaviour exposes a real product defect.
+- Expected simplification or measured benefit: Remove the second browser harness for this feature and turn five Chromium-only checks into fifteen consistently discovered matrix items.
+- Tests required first: The existing five tests are the characterisation suite; record their current Chromium result before moving them.
+- Verification: Run the migrated module in Chromium, Firefox, and WebKit, then run the complete `tests/e2e` collection and confirm all fifteen parametrised items are present.
+- Dependencies: TEST-001 if the shared harness is redesigned first
+- Timing: Safe now
+- Confidence: High
+
+### TEST-003. Define explicit fast, browser, and release verification lanes
+
+- Status: Open
+- Priority: Medium
+- Category: Tooling
+- Where: `pyproject.toml::tool.pytest.ini_options`; `tests/e2e/`; desktop and static-contract test modules
+- Evidence: Pytest configuration defines only `testpaths = ["tests"]` and `pythonpath = ["src"]`; it registers no markers or named lanes. The default command therefore mixes fast model/service tests, 459 browser items, launcher lifecycle waits, packaging checks, and generated-asset contracts into the 14-minute baseline. Focused audit checks had to use hand-maintained path lists, and `pytest tests/e2e` still misses the five browser tests in TEST-002. There is no supported command that both runs quickly and proves it selected the intended contract tier.
+- Current contract: `uv run pytest` continues to collect and run the complete suite, and no test is silently dropped from default discovery.
+- Why it matters: Contributors must know repository layout to choose feedback of the right cost. That makes quick checks inconsistent, complicates CI design, and increases the risk that a narrow local command omits a relevant contract.
+- Recommendation: Register a small marker or command vocabulary for fast Python, browser matrix, launcher/release, and generated-contract checks. Keep the all-tests default, document the exact lane union, and make collection-count assertions or CI reporting expose accidental omissions.
+- Expected simplification or measured benefit: Replace repeated bespoke path lists with stable commands whose cost and coverage are obvious, providing the foundation for CI-002 without changing product code.
+- Tests required first: Capture the current 1,158-item collection and classify every item exactly once for execution ownership, allowing intentionally overlapping smoke checks only when documented.
+- Verification: Compare `--collect-only` output for each lane with the baseline, assert the union has no unexplained gaps, run each lane independently, then run the unchanged full-suite command.
+- Dependencies: TEST-002 and CI-002
+- Timing: Needs design
+- Confidence: High
+
 ## Low-Priority Findings
 
 ### ARCH-002. Remove test-only compatibility exports from the API router aggregator
@@ -562,6 +630,8 @@ Record investigated candidates here when evidence does not support a change, or 
 - **Reuse the existing server when a launcher receives an `.ace` path:** The Rust launcher deliberately starts a fresh server for every file-open invocation, even before a heartbeat, and lifecycle tests assert that contract. This avoids retargeting the process behind a tab that has opened but has not registered yet. Any resource optimisation would need a stronger session handshake, not deletion of the apparent `active_tabs` branch in isolation.
 - **Add code signing during this refactor:** Current DMG, NSIS, and MSI releases intentionally disclose that they are unsigned. Signing would materially improve installation trust, but it requires certificates, secret custody, platform accounts, and an external operating decision beyond a code-structure refactor. Keep it as a separately authorised release-security project; do not let it block the audit findings above.
 - **Add checksum files without a signing/provenance model:** A checksum hosted beside an unsigned binary protects against accidental corruption but not compromise of the release account that serves both files. Revisit checksums together with signing or artifact attestations so the trust model and user verification instructions are explicit.
+- **Merge all agreement tests because two modules reuse test names:** The duplicate `test_perfect_agreement` and `test_no_agreement` names exercise different layers: the private Cohen-kappa helper and the public sparse agreement computation. The remaining agreement modules cover pooled metrics, loader-to-computer integration, and verdict contracts without whole-file duplication. Consolidating them would blur those boundaries rather than remove repeated behaviour.
+- **Rearrange the entire test tree before fixing its feedback loops:** Tests currently span top-level modules, `tests/routes`, `tests/services`, and `tests/test_services`, and `test_e2e_plan_a.py` is an integration-flow name rather than a browser test. Those labels are untidy, but moving dozens of stable modules produces review churn without fixing collection cost or coverage. Rename or relocate a module only when TEST-002, TEST-003, or an owning production change already touches it.
 
 ## Finding Template
 
