@@ -10,11 +10,26 @@ Scope: Whole tracked repository, following `CODEBASE_AUDIT_PLAN.md`
 | Priority | Open | Accepted | Rejected | Completed |
 |---|---:|---:|---:|---:|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 13 | 0 | 0 | 0 |
-| Medium | 13 | 0 | 0 | 0 |
-| Low | 8 | 0 | 0 | 0 |
+| High | 15 | 0 | 0 | 0 |
+| Medium | 18 | 0 | 0 | 0 |
+| Low | 9 | 0 | 0 | 0 |
 
-No findings have been accepted yet. P0 records the baseline and coverage map; P1-P6 record architecture, persistence, model, service, route, template, HTMX, frontend, desktop, packaging, release, test-suite, and feedback-loop findings.
+No findings have been accepted yet. P0 records the baseline and coverage map; P1-P7 record the complete audit across architecture, persistence, models, services, routes, templates, HTMX, frontend, desktop, packaging, release, tests, documentation, dependencies, and repository assets.
+
+## Proposed Implementation Sequence
+
+This sequence is for review only. It does not accept any finding or authorise production changes.
+
+| Batch | Theme | Finding IDs | Reason for order |
+|---:|---|---|---|
+| 0 | Immediate dependency and public-record repair | DEP-001, DOC-001 | Remove known vulnerable locked packages and correct the live release/citation mismatch before structural work |
+| 1 | Data-integrity characterisation and fixes | DB-001, ANN-001, IMPORT-001, TEXT-001, UNDO-001, AGREEMENT-001, PROJECT-001, EXPORT-001, DATA-001 | Establish failure, concurrency, Unicode, import, and source-identity contracts before moving their owners |
+| 2 | Response and browser correctness | HTMX-001, NOTE-001, TREE-001, HTMX-002, A11Y-001, CODEBOOK-001, ROUTE-002 | Repair concrete user-facing lifecycle, accessibility, and response defects with focused three-engine coverage |
+| 3 | Test, generated-build, and CI foundation | TEST-002, TEST-003, TEST-001, BUILD-001, CI-002 | Make the full contract discoverable and affordable, then enforce it; preserve isolation before reusing infrastructure |
+| 4 | Main architectural refactor | ARCH-001, MODEL-001, ROUTE-001, FRONT-001, ARCH-002 | Move context, CSV-adapter, route, and frontend-entry ownership only after the behavioural gates are dependable |
+| 5 | Release and packaging hardening | PACK-001, REL-001, REL-002, CI-001, ICON-001 | Establish semantic package validation, then make tag/version, draft notes, permissions, and Windows assets one reproducible release contract |
+| 6 | User and contributor documentation | DOC-002, DOC-003, DOC-004, DOC-005 | Update commands, screenshots, alternative text, and project-file guidance after their owning workflows settle |
+| 7 | Low-risk retirement and cleanup | ARCH-003, ARCH-004, FRONT-002, CSS-001, REPO-001 | Remove obsolete state, watchdog, Sortable compatibility, unresolved styling, and local-ignore residue last |
 
 ## Rules
 
@@ -164,7 +179,7 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Give project replacement one commit point and remove the destructive gap between deleting the old file and creating the new one.
 - Tests required first: Add failure injection before and after temporary project creation, assert byte-for-byte preservation of the original, assert temporary-file cleanup, and retain the existing confirmation/success tests.
 - Verification: Run project route tests, setup E2E tests in Chromium, Firefox, and WebKit, the full suite, and a manual overwrite smoke test on macOS and Windows packages.
-- Dependencies: DB-001 should define validation of the newly created project before replacement; ARCH-003 if obsolete lifecycle state is removed in the same batch
+- Dependencies: DB-001
 - Timing: Needs tests first
 - Confidence: High
 
@@ -198,7 +213,7 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Replace one mutable promise that does not represent all outstanding work with one explicit single-flight state machine whose flush contract is testable.
 - Tests required first: Add deterministic reversed-completion, edit-during-save, navigation-during-save, swap-during-save, failure/retry, and source-identity cases; retain current debounce, empty-note deletion, warning, and saved-status coverage.
 - Verification: Run source-note model and route tests, note drawer and coding-navigation E2E tests in Chromium, Firefox, and WebKit, and `uv run pytest`.
-- Dependencies: FRONT-001 if note ownership moves to a page-scoped entrypoint in the same work
+- Dependencies: None
 - Timing: Needs tests first
 - Confidence: High
 
@@ -215,7 +230,7 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Establish one owner for each tree generation and remove response-order dependence from the controller lifecycle.
 - Tests required first: Add a deterministic two-mount reverse-completion browser test, a detached-mount case, and an assertion that actions and focus remain bound to the newer tree.
 - Verification: Run the headless-tree synchronisation check, codebook controller/zone/context-menu E2E suites across Chromium, Firefox, and WebKit, and `uv run pytest`.
-- Dependencies: FRONT-001 if controller mounting changes in the same batch
+- Dependencies: None
 - Timing: Needs tests first
 - Confidence: High
 
@@ -249,8 +264,42 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Replace an undocumented manual gate with one visible, repeatable result for pull requests, `main`, and release tags, while keeping expensive browser work separable from fast checks.
 - Tests required first: No new product behaviour test is required. First define complete, non-overlapping test lanes and prove their union collects the same 1,158 items; characterise browser isolation before changing its harness.
 - Verification: Run every workflow lane on a branch, confirm their collected-item union and Rust lockfile use, exercise a controlled failing check, then verify the required status blocks merging and a failed release-critical lane blocks publication.
-- Dependencies: TEST-001, TEST-003, and BUILD-001 for the final browser and bundle-parity lane design
+- Dependencies: TEST-003 and BUILD-001
 - Timing: Needs design
+- Confidence: High
+
+### DEP-001. Replace the vulnerable locked runtime dependency set
+
+- Status: Open
+- Priority: High
+- Category: Correctness risk
+- Where: `pyproject.toml`; `uv.lock`; FastAPI/Starlette request handling and form parsing
+- Evidence: `uv lock --check` resolves 36 packages, but a 2026-07-17 `pip-audit` query against a `uv export --no-dev --no-emit-project` snapshot reports 12 unique published advisories: Click 8.3.1 (`CVE-2026-7246`), IDNA 3.11 (`CVE-2026-45409`), python-multipart 0.0.22 (`CVE-2026-40347`, `CVE-2026-53538`, `CVE-2026-53539`, `CVE-2026-53540`, `CVE-2026-42561`), and Starlette 0.52.1 (`CVE-2026-48710`, `CVE-2026-54282`, `CVE-2026-54283`, `CVE-2026-48818`, `CVE-2026-48817`). The python-multipart and Starlette packages are directly on ACE's form/request path. ACE binds to loopback and applies Origin/CSRF checks, which reduces remote exposure but does not make vulnerable parsers a safe release dependency. A compatible overlay using FastAPI 0.139.2, Starlette 1.3.1, python-multipart 0.0.32, Click 8.3.3, and IDNA 3.15 resolves successfully and passes 234 focused app, route, import, picker, project, note, and runtime tests in 9.07 seconds.
+- Current contract: ACE remains loopback-only, preserves its Origin/CSRF policy, parses existing URL-encoded and multipart requests, accepts current imports, and produces the same route responses on Python 3.11 and newer.
+- Why it matters: Shipped desktop bundles freeze the vulnerable versions into a local HTTP application. Several advisories concern parser denial of service, parser differentials, malformed requests, or request reconstruction, which are more relevant to ACE than a merely outdated library version.
+- Recommendation: Upgrade the direct FastAPI and python-multipart constraints and regenerate `uv.lock` so the resolved Starlette, Click, and IDNA versions include the listed fixes; avoid adding permanent direct pins for transitives unless the resolver needs them. Add a reproducible exported-lock vulnerability audit to the verification workflow because `pip-audit --locked .` does not understand `uv.lock` directly.
+- Expected simplification or measured benefit: Return the runtime vulnerability audit to zero known advisories while keeping one resolver-owned dependency graph rather than accumulating manual transitive pins.
+- Tests required first: Preserve focused form, import, CSRF, Host/origin, error-response, lifespan, and launcher smoke contracts; add only advisory-relevant malformed/body-limit cases that exercise ACE-owned behaviour rather than duplicating upstream suites.
+- Verification: Re-export the locked runtime and require a zero-advisory audit, run all 1,158 Python tests in the supported browser matrix, run the six locked Rust tests, build launcher packages, and smoke-test project creation/import/open on macOS and Windows.
+- Dependencies: None
+- Timing: Safe now
+- Confidence: High
+
+### DOC-001. Make each release's archive, changelog, and scholarly metadata identify the same version
+
+- Status: Open
+- Priority: High
+- Category: Documentation
+- Where: `.zenodo.json`; `CITATION.cff`; `CHANGELOG.md`; `README.md`; `website/index.qmd`; `CONTRIBUTING.md`; the live Zenodo record for DOI `10.5281/zenodo.20488468`
+- Evidence: The current repository tag is v1.6.1. Its release commit changed only the Python, Cargo, Cargo lock, and Packager versions, whereas the v1.6.0 release commit also updated `.zenodo.json`, `CHANGELOG.md`, `CITATION.cff`, the README, and website citation. Those five tracked public surfaces still say 1.6.0 and the changelog has an empty `Unreleased` section with no 1.6.1 entry. The live DOI record currently labels itself `Version 1.6.0` but serves `annotation-coding-environment-v1.6.1.zip`, links to the v1.6.1 GitHub tree, and identifies the external release as v1.6.1. `cffconvert --validate` confirms the CFF syntax is valid, so this is semantic release drift rather than malformed metadata.
+- Current contract: Every tag has one user-facing changelog entry; package manifests, release assets, citations, DOI metadata, dates, and source archive all identify the same released version and preserve the existing concept DOI.
+- Why it matters: Researchers following the citation cannot tell whether the DOI denotes 1.6.0 or 1.6.1, and the released archive is publicly described with the wrong version. The same omission also caused the initial v1.6.1 GitHub draft to lack a repository-backed changelog.
+- Recommendation: Correct the v1.6.1 metadata in the repository and manually amend the already-published Zenodo record. Then define one release-metadata checklist or validator that compares the tag with package versions, `.zenodo.json`, CFF, changelog heading, README citation, and website citation before tagging; have release notes consume the matching changelog section.
+- Expected simplification or measured benefit: Replace the split manual release paths with one version contract and make the GitHub release, archived source, DOI, and citations mutually verifiable.
+- Tests required first: Add a read-only release-metadata contract test covering every version-bearing file and the changelog heading; keep live Zenodo verification as a release checklist because it is external state.
+- Verification: Validate CFF and JSON, render all 17 website pages, run the release preflight, inspect the draft release body/assets, and confirm the amended Zenodo page displays 1.6.1 beside the v1.6.1 archive and source link.
+- Dependencies: None
+- Timing: Safe now
 - Confidence: High
 
 ## Medium-Priority Findings
@@ -302,7 +351,7 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Replace per-response script execution and mixed listener ownership with one explicit lifecycle that is safe across repeated swaps.
 - Tests required first: Add three-engine cases for two consecutive computes, expand/collapse after recompute, sort after history back/forward, and exactly-one-toggle behaviour.
 - Verification: Run agreement route/service tests, agreement file-review E2E tests in Chromium, Firefox, and WebKit, and `uv run pytest`.
-- Dependencies: ROUTE-001 if agreement rendering helpers move at the same time
+- Dependencies: None
 - Timing: Needs tests first
 - Confidence: High
 
@@ -353,7 +402,7 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Remove one request from every inline rename, one side-channel client helper, and a 51-line legacy endpoint without claiming an unmeasured latency improvement.
 - Tests required first: Add a browser assertion that one inline rename issues one mutation request and preserves focus/audit mode; retarget or remove legacy-route registration tests.
 - Verification: Run codebook route/model/undo tests, headless-tree synchronisation, codebook E2E tests across all engines, and `uv run pytest`.
-- Dependencies: HTMX-001 for safe error responses; ROUTE-001 if response helpers move concurrently
+- Dependencies: HTMX-001
 - Timing: Needs tests first
 - Confidence: High
 
@@ -404,7 +453,7 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Establish one authoritative generated-asset contract and remove the misleading distinction between a green marker check and an optional real sync check.
 - Tests required first: Preserve a fast unit fixture proving stale content fails, add dependency-lock validation, and retain restoration-on-build-failure coverage so the check never dirties the worktree.
 - Verification: Run the parity check from a clean checkout twice, confirm byte-identical output and a clean `git status`, then run static asset and codebook E2E suites in all three engines.
-- Dependencies: TREE-001 must be implemented in the authored source before the bundle is regenerated; FRONT-002 may change the same generated dependency surface
+- Dependencies: TREE-001
 - Timing: Safe now
 - Confidence: High
 
@@ -455,7 +504,7 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Remove the second browser harness for this feature and turn five Chromium-only checks into fifteen consistently discovered matrix items.
 - Tests required first: The existing five tests are the characterisation suite; record their current Chromium result before moving them.
 - Verification: Run the migrated module in Chromium, Firefox, and WebKit, then run the complete `tests/e2e` collection and confirm all fifteen parametrised items are present.
-- Dependencies: TEST-001 if the shared harness is redesigned first
+- Dependencies: None
 - Timing: Safe now
 - Confidence: High
 
@@ -472,8 +521,93 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Replace repeated bespoke path lists with stable commands whose cost and coverage are obvious, providing the foundation for CI-002 without changing product code.
 - Tests required first: Capture the current 1,158-item collection and classify every item exactly once for execution ownership, allowing intentionally overlapping smoke checks only when documented.
 - Verification: Compare `--collect-only` output for each lane with the baseline, assert the union has no unexplained gaps, run each lane independently, then run the unchanged full-suite command.
-- Dependencies: TEST-002 and CI-002
+- Dependencies: TEST-002
 - Timing: Needs design
+- Confidence: High
+
+### DATA-001. Keep the two sample-data import routes byte-identical
+
+- Status: Open
+- Priority: Medium
+- Category: Correctness risk
+- Where: `examples/ace-guide-manchester-folk-methods/sources.csv`; `examples/ace-guide-manchester-folk-methods/sources/P01.txt`; `sources/P19.txt`; sample-data documentation
+- Evidence: The sample README and website state that `sources.csv` and `sources/` contain the same 19 transcripts. Parsing the CSV with Python's `csv.DictReader` and comparing each `text` field with its UTF-8 file finds 17 exact matches, but P01 is 56,409 characters in the text file and 56,410 in CSV because CSV has one trailing space; P19 is 37,092 versus 37,093 because CSV has one trailing newline. `_combine_text_columns` and `_read_text_file` preserve these characters, `source_content` hashes exact content, and agreement matches sources across projects by `content_hash`. If coders choose different advertised import routes, P01 and P19 can therefore be classified as unmatched source texts.
+- Current contract: CSV and folder imports of the guide sample create P01-P19 with identical display IDs, content text, hashes, sentence offsets, and agreement eligibility.
+- Why it matters: The sample is meant to teach interchangeable import routes and collaborative comparison. A one-character generation drift is invisible during reading but changes the identity ACE deliberately uses for agreement.
+- Recommendation: Choose the text files as the canonical source and generate the CSV text column from them, or generate both from one canonical dataset. Normalise only in that generation step; do not silently strip arbitrary user imports to repair a sample-data defect.
+- Expected simplification or measured benefit: Give the sample one source of truth and eliminate two route-dependent source identities without changing importer behaviour.
+- Tests required first: Add a sample-integrity test that parses the CSV and asserts exact text equality, ordered IDs P01-P19, UTF-8 decoding, and the expected codebook header/count.
+- Verification: Import the CSV and folder into separate fresh projects, compare all 19 stored display IDs/content hashes, and run agreement loader validation to confirm all 19 texts match.
+- Dependencies: None
+- Timing: Safe now
+- Confidence: High
+
+### DOC-002. Replace obsolete developer and desktop instructions with the current architecture
+
+- Status: Open
+- Priority: Medium
+- Category: Documentation
+- Where: `CONTRIBUTING.md`; `website/install.qmd`; current split route modules, headless-tree frontend, and `desktop/launcher/`
+- Evidence: The website tells developers that the desktop app is a Tauri wrapper and to run `cd desktop; cargo tauri dev`, but the tracked desktop implementation is the Rust `desktop/launcher` packaged with cargo-packager and the repository has no Tauri manifest. `CONTRIBUTING.md` still presents `api.py` as the sole HTMX endpoint owner, names Sortable as the vendored drag library, and uses a `group_name` codebook example even though routes are split, the headless-tree controller owns drag/reorder, Sortable is unused, and folders use `kind`/`parent_id`. Its only test instruction is the 14-minute all-tests command, and its release checklist was not followed by v1.6.1. These are concrete false commands and ownership claims, not requests to document every internal detail.
+- Current contract: A new contributor can start the web app, choose the correct desktop development path, run an appropriately scoped verification lane, find the actual owner of a change, and follow one release checklist that produces the documented result.
+- Why it matters: The current desktop command cannot work in this checkout, and stale layout/library guidance sends changes toward compatibility surfaces the audit is proposing to remove.
+- Recommendation: Make one concise contributor guide the authoritative source for development, testing, project ownership, generated assets, and release steps; have the website link to it instead of restating volatile internals. Update ownership and commands after the approved route/frontend/test/release batches so the guide describes the resulting architecture once.
+- Expected simplification or measured benefit: Remove contradictory setup/release narratives and prevent contributors from learning the retired Tauri, Sortable, group-name, and monolithic-router designs.
+- Tests required first: No product test is needed; add command/file-existence checks for literal developer commands where practical and reuse release/test contract validators rather than testing prose copies.
+- Verification: Execute every documented command on a clean checkout, render all 17 website pages, validate links, and have a second reviewer follow the setup/test/release path without undocumented repository knowledge.
+- Dependencies: ROUTE-001, TEST-003, REL-001, and REL-002
+- Timing: Wait
+- Confidence: High
+
+### DOC-003. Recapture public screenshots without personal paths or obsolete UI
+
+- Status: Open
+- Priority: Medium
+- Category: Documentation
+- Where: `website/assets/guide/new-project-folder-selected.png`; `website/assets/ace-landing-page-2026-06.png`; `website/user-guide/import.qmd`; `website/index.qmd`
+- Evidence: Visual inspection of all seven referenced PNGs found that the new-project guide image publishes the full local path `/Users/jhar8696/Sydney Uni Dropbox/Januar Harianto/projects/...` in both the selected folder and project-file preview. The website home hero is a separate June screenshot of the retired purple-gradient landing design and omits current destinations shown by the newer `guide/landing.png`. Asset-reference mapping confirms both images are rendered on public pages; the remaining guide images are referenced and broadly reflect current workflows.
+- Current contract: Public documentation screenshots show the workflow accurately, contain no developer-specific paths or unrelated local information, and use the public sample data only where content is visible.
+- Why it matters: A published local filesystem path leaks unnecessary personal/workplace context and teaches users from a UI that no longer matches the app.
+- Recommendation: Recapture the two images from a deterministic documentation profile using a neutral synthetic home/project path, or crop/redact path fields when the path itself is not instructional. Keep a short capture checklist with viewport, sample project, route, and required redactions so future updates are repeatable.
+- Expected simplification or measured benefit: Remove one privacy leak and one obsolete duplicate landing representation while retaining the seven-image guide structure.
+- Tests required first: No production characterisation is needed; record the current use sites and intended visual state before replacing the binaries.
+- Verification: Inspect the replacement images at original resolution, render the website, confirm every asset is referenced once or intentionally reused, and search rendered image text manually/OCR for usernames and absolute local roots.
+- Dependencies: None
+- Timing: Safe now
+- Confidence: High
+
+### DOC-004. Give instructional website images meaningful alternative text
+
+- Status: Open
+- Priority: Medium
+- Category: Documentation
+- Where: `website/index.qmd`; `website/getting-started.qmd`; `website/sample-data.qmd`; `website/workflow.qmd`; `website/user-guide/codebooks.qmd`, `coding.qmd`, and `import.qmd`
+- Evidence: The 17-page website renders successfully, all local image references resolve, and all seven PNG assets have valid signatures. However, 10 of the 11 Markdown image uses have an empty `![](...)` label; only `user-guide/audit.qmd` describes its screenshot. The empty images are instructional views of landing, import choices/review, new-project path selection, coding, and the website hero rather than decorative spacers, and no adjacent figure attributes supply replacement text.
+- Current contract: A reader who cannot see the screenshots receives the same workflow-relevant information without forcing decorative detail into the reading order; repeated images use context-appropriate descriptions.
+- Why it matters: The public guide currently removes information from screen-reader and text-only users at the exact points where screenshots demonstrate controls and layout.
+- Recommendation: Add concise, purpose-led alternative text at each use site. Mark an image decorative only when the surrounding prose already conveys everything and the image adds no instructional information.
+- Expected simplification or measured benefit: Close ten explicit image-accessibility gaps without changing layout or adding a separate caption system.
+- Tests required first: Add a small rendered-site assertion that instructional `img` elements have non-empty `alt` values, with an explicit allowlist for truly decorative images.
+- Verification: Render all pages, inspect the generated `img` elements, run an accessibility scan, and read the affected pages with images disabled or a screen reader.
+- Dependencies: DOC-003 for replacement image content
+- Timing: Safe now
+- Confidence: High
+
+### DOC-005. Explain WAL and SHM sidecars in project-file and cloud-sync guidance
+
+- Status: Open
+- Priority: Medium
+- Category: Documentation
+- Where: `website/reference/file-format.qmd`; `website/reference/faq.qmd`; `website/workflow.qmd`; `src/ace/db/connection.py::open_project`, `create_project`, and `checkpoint_and_close`; `src/ace/app.py` shutdown
+- Evidence: Public guidance says ACE stores each project in one `.ace` file and advises users to choose a backed-up or cloud-synced location, but never mentions SQLite sidecars. Every project connection enables WAL mode, which normally creates `<project>.ace-wal` and `<project>.ace-shm` beside the main file while ACE is open. On a clean application shutdown, `checkpoint_and_close` runs `wal_checkpoint(TRUNCATE)`, switches to DELETE journal mode, and closes; application shutdown calls it for the active project. Forced termination or a sync occurring while the project is open can still expose the sidecars, and they must not be treated as independent documents or deleted during use.
+- Current contract: The `.ace` file remains the durable project artifact; WAL/SHM files are expected SQLite working files, clean shutdown consolidates committed data, and recovery semantics are not weakened.
+- Why it matters: Users seeing unfamiliar files in OneDrive may delete, move, share, or open only part of an active SQLite database. The current “one file” wording and cloud-folder advice omit the operational rule needed to avoid that mistake.
+- Recommendation: Document what the two sidecars are, that OneDrive or another sync client creates neither file but may sync them, and that users should close ACE before copying, moving, sharing, or opening the project elsewhere. State that sidecars may remain after a crash and should be left beside the `.ace` file until ACE has reopened and closed it cleanly; do not promise that every forced exit removes them.
+- Expected simplification or measured benefit: Replace support-by-explanation with one accurate project-file contract and give users a safe response to the exact files they can observe.
+- Tests required first: No implementation test is required for the documentation change; retain `checkpoint_and_close` WAL truncation/removal tests and lifecycle shutdown tests as the behavioural source of truth.
+- Verification: Render the website, verify the file-format/FAQ/workflow pages agree, and manually create/open/close a project in a synced test folder to confirm the documented clean and forced-exit states.
+- Dependencies: None
+- Timing: Safe now
 - Confidence: High
 
 ## Low-Priority Findings
@@ -542,7 +676,7 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Make project ownership a precondition of the shared download helper instead of an implicit `sqlite3.connect` type requirement.
 - Tests required first: Add no-project, valid-download, Unicode content, filename sanitisation, and response-header route cases.
 - Verification: Run app/project/exporter/notes route tests and `uv run pytest`.
-- Dependencies: ARCH-001 or ROUTE-001 only if the shared project guard moves as part of those changes
+- Dependencies: None
 - Timing: Safe now
 - Confidence: High
 
@@ -593,7 +727,7 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Remove two competing definitions of a valid launcher package and make every green preflight carry the same meaning.
 - Tests required first: Add invalid TOML, commented field names, version drift, missing resource, wrong-host format, and config-only versus package-ready cases.
 - Verification: Run the validator fixtures, desktop/packager tests, `--check`, Rust tests, and the platform packaging workflows.
-- Dependencies: REL-001 should provide the version comparison
+- Dependencies: None
 - Timing: Safe now
 - Confidence: High
 
@@ -610,6 +744,23 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Expected simplification or measured benefit: Make every platform icon derive from one reviewed source and remove the need for manual Windows visual guesswork during each release.
 - Tests required first: Parse the ICO directory and assert required dimensions/bit depth; keep existence and Packager.toml reference checks.
 - Verification: Run icon/config tests, build NSIS and MSI in CI, and inspect the executable, installer, Start menu, taskbar, shortcut, and `.ace` association on Windows at normal and high DPI.
+- Dependencies: None
+- Timing: Safe now
+- Confidence: High
+
+### REPO-001. Stop the repository ignore file from hiding the whole docs tree
+
+- Status: Open
+- Priority: Low
+- Category: Simplification
+- Where: `.gitignore` entries `.superpowers/` and `docs/`; local/global ignore policy for audit and planning artifacts
+- Evidence: The repository ignore file excludes the entire `docs/` tree plus the retired-looking `.superpowers/` root. No file under either path is tracked, and the current local planning material lives under globally ignored/local-only paths. Ignoring all of `docs/` means `git status` cannot reveal an accidentally created legitimate documentation file anywhere under that conventional root; it is broader than the stated local-only `docs/superpowers/` boundary.
+- Current contract: `AGENTS.md`, audit plans, Superpowers specifications/plans, `.Codex/`, and other local agent artifacts remain untracked and never enter commits; public documentation continues to live in the tracked root and `website/` unless the project deliberately changes that layout.
+- Why it matters: A repository-wide ignore rule silently hides future documentation and leaves two competing mechanisms for the same local-only policy.
+- Recommendation: Remove the obsolete `.superpowers/` rule and the broad `docs/` rule, relying on the configured global/local exclude for agent artifacts; if the repository must protect collaborators without that configuration, narrow the repository rule to the exact local-only subtree after confirming the policy with maintainers.
+- Expected simplification or measured benefit: Replace two broad historical ignores with one explicit ownership rule and make accidental legitimate `docs/` files visible to normal git review.
+- Tests required first: Use `git check-ignore -v` on representative agent-plan and legitimate-doc paths before changing the rules so the retained local exclusion is proven.
+- Verification: Confirm local plans remain ignored, `git status` exposes a temporary legitimate `docs/example.md`, no existing tracked/generated path changes classification, and the two audit trackers remain the only committed audit artifacts.
 - Dependencies: None
 - Timing: Safe now
 - Confidence: High
@@ -632,6 +783,10 @@ Record investigated candidates here when evidence does not support a change, or 
 - **Add checksum files without a signing/provenance model:** A checksum hosted beside an unsigned binary protects against accidental corruption but not compromise of the release account that serves both files. Revisit checksums together with signing or artifact attestations so the trust model and user verification instructions are explicit.
 - **Merge all agreement tests because two modules reuse test names:** The duplicate `test_perfect_agreement` and `test_no_agreement` names exercise different layers: the private Cohen-kappa helper and the public sparse agreement computation. The remaining agreement modules cover pooled metrics, loader-to-computer integration, and verdict contracts without whole-file duplication. Consolidating them would blur those boundaries rather than remove repeated behaviour.
 - **Rearrange the entire test tree before fixing its feedback loops:** Tests currently span top-level modules, `tests/routes`, `tests/services`, and `tests/test_services`, and `test_e2e_plan_a.py` is an integration-flow name rather than a browser test. Those labels are untidy, but moving dozens of stable modules produces review churn without fixing collection cost or coverage. Rename or relocate a module only when TEST-002, TEST-003, or an owning production change already touches it.
+- **Delete duplicate logo files solely because their hashes match:** `brand/logo.svg`, `src/ace/static/logo.svg`, and `website/assets/logo.svg` are byte-identical, as are the brand/application favicon and light-logo pairs. They belong to separate brand-source, Python-package, and Quarto-site roots with direct consumers, and no observed release has drifted between them. Keep the explicit copies unless a later asset build can own and verify regeneration without adding a more fragile dependency.
+- **Upgrade every package reported as merely outdated:** The dependency scan found newer versions for several runtime and developer packages, but age alone is not a defect. DEP-001 is limited to the locked packages with published advisories and a tested compatible resolution; evaluate unrelated major/minor upgrades separately with their own release notes and contract tests.
+- **Rewrite historical changelog terminology:** Older entries accurately describe the UI and implementation shipped at those versions, including groups, SortableJS, alpha, and kappa. Correct current contributor/user guidance and new release metadata, but preserve historical entries unless a factual error prevents understanding that release.
+- **Strip trailing whitespace from all user imports to repair the sample:** ACE currently preserves source text exactly, and offsets and exports rely on that contract. DATA-001 is a generation defect in two controlled sample representations; fix the sample source of truth instead of silently changing arbitrary research data during import.
 
 ## Finding Template
 

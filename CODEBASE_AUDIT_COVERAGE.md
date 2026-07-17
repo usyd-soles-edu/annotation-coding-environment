@@ -16,7 +16,7 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 | P4 | Frontend JavaScript and CSS | 14 | 14/14 | 5 | Complete |
 | P5 | Desktop, packaging, and release engineering | 17 | 17/17 | 6 | Complete |
 | P6 | Tests and developer feedback loops | 76 | 76/76 | 4 | Complete |
-| P7 | Docs, dependencies, and synthesis | 72 | 0/72 | 0 | Pending |
+| P7 | Docs, dependencies, and synthesis | 72 | 72/72 | 8 | Complete |
 
 ## P0 Baseline Checklist
 
@@ -72,6 +72,7 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 | P4 frontend JavaScript and CSS | Pass with generated-asset follow-up | The shallow script mode reported `headless-tree-contract-ok`; P5 later identified the separate bundle-parity failure as BUILD-001. Static asset and focused frontend E2E suites were split into three response-safe runs: 103 passed in 159.43 s, 132 passed in 222.70 s, and 33 passed in 59.62 s (268 total), across Chromium, Firefox, and WebKit |
 | P5 desktop, packaging, and release | Pass except documented bundle parity | Launcher/runtime/config suite: 41 passed in 26.39 s. Rust launcher: 6 passed with the lockfile. Package `--check` and 16 semantic config tests passed on the real manifests. The rebuild comparison failed as recorded in BUILD-001. Live GitHub checks found write permissions configured, eight recent release workflows successful, and complete DMG/NSIS/MSI assets for v1.6.0 and v1.6.1 |
 | P6 tests and developer feedback loops | Pass with enforcement and test-cost findings | Full baseline: 1,158 passed in 862.57 s. Collection review found 459 browser items from 153 functions, each with its own Playwright/browser launch and function-scoped ACE server; five additional Chromium-only browser tests sit outside `tests/e2e`. Tracked workflows run no Python or Rust tests, and live default-branch rules require no status checks |
+| P7 docs, dependencies, assets, and synthesis | Pass with documented metadata, dependency, sample, and accessibility gaps | Quarto rendered 17 pages; CFF validated; `uv lock --check` resolved 36 packages; 234 focused tests passed under the secure dependency overlay. All local links and 11 image use sites were checked; seven PNGs, eight SVGs, two JSON files, the 12-entry bibliography, and the 19-source sample were validated. The live DOI, vulnerability service, import parity, screenshots, and documentation were checked against current repository behaviour |
 
 ### Slowest Baseline Tests
 
@@ -129,20 +130,20 @@ These timings prioritise later feedback-loop review; they are not performance fi
 |---|---|---|---|---|---|---|
 | `.github/workflows/pages.yml` | Configuration | P5 | Reviewed | Trigger/path matrix, PR/deploy conditions, workflow-wide permissions, concurrency, action pins, and live Pages ownership | CI-001 | — |
 | `.github/workflows/release.yml` | Configuration | P5 | Reviewed | Tag/manual triggers, stateful preflight, version/draft body flow, build matrix, artifact discovery/upload, permissions, live runs, releases, assets, and repository settings | REL-001, REL-002, CI-001 | — |
-| `.gitignore` | Configuration | P7 | Pending | — | — | — |
-| `.zenodo.json` | Configuration | P7 | Pending | — | — | — |
-| `CHANGELOG.md` | Documentation | P7 | Pending | — | — | — |
-| `CITATION.cff` | Asset/support | P7 | Pending | — | — | — |
-| `CODEBASE_AUDIT_COVERAGE.md` | Documentation | P7 | Pending | Audit tracker created after the 226-file baseline; coverage self-checks run after every pass | None | Audit artifact; review completeness and internal consistency during synthesis |
-| `CODEBASE_AUDIT_FINDINGS.md` | Documentation | P7 | Pending | Audit tracker created after the 226-file baseline; schema and summary checks run after every pass | None | Audit artifact; review evidence and decision status during synthesis |
-| `CONTRIBUTING.md` | Documentation | P7 | Pending | — | — | — |
-| `INSTALL.md` | Documentation | P7 | Pending | — | — | — |
-| `LICENSE` | Documentation | P7 | Pending | — | — | — |
-| `README.md` | Documentation | P7 | Pending | — | — | — |
-| `brand/favicon.svg` | Asset/support | P7 | Pending | — | — | — |
-| `brand/logo-hex.svg` | Asset/support | P7 | Pending | — | — | — |
-| `brand/logo-light.svg` | Asset/support | P7 | Pending | — | — | — |
-| `brand/logo.svg` | Asset/support | P7 | Pending | — | — | — |
+| `.gitignore` | Configuration | P7 | Reviewed | Repository/global ignore boundaries, WAL/SHM patterns, generated/test output ownership, and over-broad local docs rules | REPO-001 | — |
+| `.zenodo.json` | Configuration | P7 | Reviewed | Valid JSON, authors/licence/DOI/repository fields, v1.6.0 value, tag history, and live v1.6.1 archive mismatch | DOC-001 | — |
+| `CHANGELOG.md` | Documentation | P7 | Reviewed | Release headings, empty Unreleased section, v1.6.1 omission, historical terminology, and release-note consumers | DOC-001, REL-002 | — |
+| `CITATION.cff` | Asset/support | P7 | Reviewed | CFF 1.2.0 schema validation, authors/licence/DOI/date, and stale v1.6.0 release value | DOC-001 | — |
+| `CODEBASE_AUDIT_COVERAGE.md` | Documentation | P7 | Reviewed | 228-path one-to-one ledger, pass/status arithmetic, evidence completeness, provenance, and final P0-P7 consistency | None | Audit artifact; all tracked paths reviewed and validated during synthesis |
+| `CODEBASE_AUDIT_FINDINGS.md` | Documentation | P7 | Reviewed | Finding schema, severity/status arithmetic, ID/reference integrity, rejected candidates, dependencies, and proposed sequence | None | Audit artifact; complete review package with no accepted findings |
+| `CONTRIBUTING.md` | Documentation | P7 | Reviewed | Setup/testing/release commands, changelog policy, architecture map, live tag history, and comparison with route/frontend/launcher owners | DOC-001, DOC-002, TEST-003 | — |
+| `INSTALL.md` | Documentation | P7 | Reviewed | Git/uv/source-install commands, platform steps, local links, and current `uv run ace` entrypoint | None | — |
+| `LICENSE` | Documentation | P7 | Reviewed | MIT licence text, copyright, and consistency with CFF/Zenodo metadata | None | — |
+| `README.md` | Documentation | P7 | Reviewed | Feature/download/install/docs links, current asset naming, unsigned-build guidance, and stale v1.6.0 citation | DOC-001 | — |
+| `brand/favicon.svg` | Asset/support | P7 | Reviewed | SVG structure, checksum, exact application-copy relationship, and use-site/provenance map | None | Intentional brand source mirrored into the Python package |
+| `brand/logo-hex.svg` | Asset/support | P7 | Reviewed | SVG structure, checksum, unique hex-logo role, and repository use/provenance map | None | Distinct brand variant retained as source asset |
+| `brand/logo-light.svg` | Asset/support | P7 | Reviewed | SVG structure, checksum, exact application-copy relationship, and use-site/provenance map | None | Intentional brand source mirrored into the Python package |
+| `brand/logo.svg` | Asset/support | P7 | Reviewed | SVG structure, checksum, exact application/website-copy relationships, and use-site/provenance map | None | Intentional brand source mirrored into package and website roots |
 | `desktop/.gitignore` | Asset/support | P5 | Reviewed | Generated launcher target/resources boundaries and tracked-file comparison | None | — |
 | `desktop/launcher/Cargo.lock` | Lockfile | P5 | Reviewed | Locked metadata, root version, dependency resolution, and `cargo test --locked` | REL-001 | Generated dependency lock is consistent; 6 Rust tests pass with `--locked` |
 | `desktop/launcher/Cargo.toml` | Configuration | P5 | Reviewed | Package/version contract, dependency/target matrix, locked metadata, Rust call graph, and tests | REL-001 | — |
@@ -154,29 +155,29 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `desktop/launcher/icons/icon.ico` | Binary asset | P5 | Reviewed | ICO directory/type/dimensions/checksum, manifest reference, Windows packaging owner, live installer evidence, and test gap | ICON-001 | 495-byte ICO contains only one 16×16 representation |
 | `desktop/launcher/icons/icon.png` | Binary asset | P5 | Reviewed | Binary type/dimensions/alpha/checksum, manifest reference, and source-set comparison | ICON-001 | 1024×1024 RGBA source available for reproducible platform icon generation |
 | `desktop/launcher/src/main.rs` | Authored | P5 | Reviewed | Twenty-nine-function process/runtime/lock/path/security map, structural search, six Rust tests, and 41-test launcher/runtime suite | None | — |
-| `examples/ace-guide-manchester-folk-methods/README.md` | Documentation | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/codebook.csv` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources.csv` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P01.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P02.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P03.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P04.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P05.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P06.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P07.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P08.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P09.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P10.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P11.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P12.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P13.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P14.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P15.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P16.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P17.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P18.txt` | Asset/support | P7 | Pending | — | — | — |
-| `examples/ace-guide-manchester-folk-methods/sources/P19.txt` | Asset/support | P7 | Pending | — | — | — |
-| `pyproject.toml` | Configuration | P7 | Pending | — | — | — |
+| `examples/ace-guide-manchester-folk-methods/README.md` | Documentation | P7 | Reviewed | Import routes, flattening rules, ID normalisation, DOI attribution, CC BY 4.0 licence, and same-content claim | DATA-001 | — |
+| `examples/ace-guide-manchester-folk-methods/codebook.csv` | Asset/support | P7 | Reviewed | UTF-8 parse, `name,group,definition` import contract, 132 data lines, folder mapping, and README attribution | None | Derived CC BY 4.0 codebook with import-compatible flattened hierarchy |
+| `examples/ace-guide-manchester-folk-methods/sources.csv` | Asset/support | P7 | Reviewed | CSV parse, P01-P19 IDs, 19 multiline transcript rows, text-file parity, encoding, and trailing-character differences | DATA-001 | Derived CC BY 4.0 transcripts; two rows drift from folder copies |
+| `examples/ace-guide-manchester-folk-methods/sources/P01.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV comparison | DATA-001 | CSV representation adds one trailing space |
+| `examples/ace-guide-manchester-folk-methods/sources/P02.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P03.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P04.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P05.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P06.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P07.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P08.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P09.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P10.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P11.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P12.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P13.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P14.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P15.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P16.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P17.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P18.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV text parity | None | Derived CC BY 4.0 transcript; matches CSV exactly |
+| `examples/ace-guide-manchester-folk-methods/sources/P19.txt` | Asset/support | P7 | Reviewed | UTF-8 readability, filename/ID order, CC BY attribution, and exact CSV comparison | DATA-001 | CSV representation adds one trailing newline |
+| `pyproject.toml` | Configuration | P7 | Reviewed | Runtime/dev dependency ownership, AST import/use map, Python/build/entrypoint metadata, test config, freshness, and advisory resolution | DEP-001, TEST-003 | — |
 | `scripts/build_codebook_tree.sh` | Authored | P5 | Reviewed | Dependency/build command, generated-output owner, rebuild execution, normalised bundle diff, and lock/reproducibility review | BUILD-001 | — |
 | `scripts/build_launcher_package.py` | Authored | P5 | Reviewed | Host format selection, temporary config, cleanup/error paths, semantic false-positive injection, callers, local check, and live platform builds | REL-001, PACK-001 | — |
 | `scripts/build_sidecar.py` | Authored | P5 | Reviewed | Host triples, Nuitka standalone/onefile modes, output validation/copy, manifest consumers, and successful live macOS/Windows builds | None | — |
@@ -219,14 +220,14 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `src/ace/services/notes_exporter.py` | Authored | P2 | Reviewed | Query, writer, Unicode, caller, and test review | None | — |
 | `src/ace/services/text_splitter.py` | Authored | P2 | Reviewed | pySBD, paragraph offsets, Unicode convention comparison, callers, and tests | TEXT-001 | — |
 | `src/ace/services/undo.py` | Authored | P2 | Reviewed | Operation/handler parity, transaction map, composite failure injection, callers, and tests | UNDO-001 | — |
-| `src/ace/static/agreement_methodology.md` | Documentation | P7 | Pending | — | — | — |
-| `src/ace/static/agreement_references.bib` | Documentation | P7 | Pending | — | — | — |
-| `src/ace/static/code_palette.json` | Configuration | P7 | Pending | — | — | — |
+| `src/ace/static/agreement_methodology.md` | Documentation | P7 | Reviewed | AC1 rationale, pooled verdict thresholds, prevalence rule, insufficient-data threshold, and implementation/test comparison | None | — |
+| `src/ace/static/agreement_references.bib` | Documentation | P7 | Reviewed | Twelve unique BibTeX keys, methodology coverage, template consumer, and bibliographic structure | None | — |
+| `src/ace/static/code_palette.json` | Configuration | P7 | Reviewed | Valid JSON, 36-entry palette, colour format/uniqueness tests, and application consumer | None | — |
 | `src/ace/static/css/ace.css` | Authored | P4 | Reviewed | Token definitions, cascade layers, shared components, responsive rules, and reduced-motion contract | None | — |
 | `src/ace/static/css/agreement.css` | Authored | P4 | Reviewed | Agreement layout, result-table states, focus styles, responsive rules, token use, and template interaction trace | A11Y-001, HTMX-002 | — |
 | `src/ace/static/css/code_view.css` | Authored | P4 | Reviewed | Audit-view layout, state selectors, focus treatment, token use, and code-view controller trace | None | — |
 | `src/ace/static/css/coding.css` | Authored | P4 | Reviewed | Coding layout/state selectors, custom-property definition/use scan, responsive rules, and reduced-motion contract | CSS-001 | — |
-| `src/ace/static/favicon.svg` | Asset/support | P7 | Pending | — | — | — |
+| `src/ace/static/favicon.svg` | Asset/support | P7 | Reviewed | SVG structure, checksum, template use, and exact brand-source relationship | None | Intentional package copy of `brand/favicon.svg` |
 | `src/ace/static/js/Sortable.min.js` | Vendored | P4 | Reviewed | Version marker, template/import/load scan, adapter call graph, replacement owner, and test references | FRONT-002 | Third-party asset; version 1.15.6 is tracked but not loaded by current templates or bundles |
 | `src/ace/static/js/ace_notes.js` | Authored | P4 | Reviewed | Drawer state machine, debounce/flush ownership, controlled reverse-completion reproduction, failure path, and test gaps | NOTE-001, FRONT-001 | — |
 | `src/ace/static/js/bridge.js` | Authored | P4 | Reviewed | Function/listener/request inventory, page-global registration trace, HTMX/OOB ownership, stale-DOM guards, innerHTML escaping, and call graph | TEXT-001, HTMX-001, CODEBOOK-001, NOTE-001, TREE-001, FRONT-001, FRONT-002 | — |
@@ -237,8 +238,8 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `src/ace/static/js/fuzzysort.min.js` | Vendored | P4 | Reviewed | Version marker, template load, production reference, and replacement-path scan | None | Third-party asset; version 3.0.2 is loaded and used by current codebook search |
 | `src/ace/static/js/htmx.min.js` | Vendored | P4 | Reviewed | Version marker, template load, extension removal contract, OOB/programmatic-swap use, and replacement-path scan | HTMX-001 | Third-party asset; version 2.0.4 is loaded and used throughout route interactions |
 | `src/ace/static/js/runtime.js` | Authored | P4 | Reviewed | Browser-session heartbeat/shutdown lifecycle, token handling, page guards, request failures, and runtime route/launcher tests | None | — |
-| `src/ace/static/logo-light.svg` | Asset/support | P7 | Pending | — | — | — |
-| `src/ace/static/logo.svg` | Asset/support | P7 | Pending | — | — | — |
+| `src/ace/static/logo-light.svg` | Asset/support | P7 | Reviewed | SVG structure, checksum, template use, and exact brand-source relationship | None | Intentional package copy of `brand/logo-light.svg` |
+| `src/ace/static/logo.svg` | Asset/support | P7 | Reviewed | SVG structure, checksum, template use, and exact brand/website relationship | None | Intentional package copy of `brand/logo.svg` |
 | `src/ace/templates/_cheatsheet_coded_text_view.html` | Authored | P3 | Reviewed | Dialog semantics, ID references, focus/action contract, inclusion map, and rendered-page checks | None | — |
 | `src/ace/templates/_sidebar_codebook.html` | Authored | P3 | Reviewed | Shared include contexts, headless-tree mount/actions, menu/export controls, ID/ARIA checks, and route traces | CODEBOOK-001 | — |
 | `src/ace/templates/agreement.html` | Authored | P3 | Reviewed | Selection/compute sequencing, HTMX swap and progress contracts, history restoration, and three-engine E2E tests | HTMX-002 | — |
@@ -326,32 +327,32 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `tests/test_source_note_routes.py` | Authored | P6 | Reviewed | Note PUT/GET/delete/export route contracts; autosave ordering remains browser-owned | NOTE-001 | — |
 | `tests/test_static_asset_contracts.py` | Authored | P6 | Reviewed | Static asset presence/markers, deliberately stale bundle fixture, and shallow parity acceptance | BUILD-001, FRONT-002, TEST-003 | — |
 | `tests/test_status_helpers.py` | Authored | P6 | Reviewed | OOB status/announce headers, escaping, private compatibility imports, and no-reswap gap | ARCH-002, HTMX-001 | — |
-| `uv.lock` | Lockfile | P7 | Pending | — | — | Generated dependency lock; verify manifest consistency and reproducibility |
-| `website/.gitignore` | Asset/support | P7 | Pending | — | — | — |
-| `website/_quarto.yml` | Configuration | P7 | Pending | — | — | — |
-| `website/assets/ace-landing-page-2026-06.png` | Binary asset | P7 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `website/assets/guide/coding-view-with-codebook.png` | Binary asset | P7 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `website/assets/guide/folder-import-review.png` | Binary asset | P7 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `website/assets/guide/import-options.png` | Binary asset | P7 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `website/assets/guide/landing.png` | Binary asset | P7 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `website/assets/guide/new-project-folder-selected.png` | Binary asset | P7 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `website/assets/guide/review-coded-text.png` | Binary asset | P7 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `website/assets/logo.svg` | Asset/support | P7 | Pending | — | — | — |
-| `website/getting-started.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/index.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/install.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/reference/faq.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/reference/file-format.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/reference/index.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/reference/shortcuts.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/review-export.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/sample-data.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/styles.css` | Authored | P7 | Pending | — | — | — |
-| `website/user-guide/agreement.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/user-guide/audit.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/user-guide/codebooks.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/user-guide/coding.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/user-guide/export.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/user-guide/import.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/user-guide/notes.qmd` | Documentation | P7 | Pending | — | — | — |
-| `website/workflow.qmd` | Documentation | P7 | Pending | — | — | — |
+| `uv.lock` | Lockfile | P7 | Reviewed | `uv lock --check`, 36-package graph, manifest consistency, direct/transitive owners, outdated scan, advisory audit, and secure overlay | DEP-001 | Generated dependency lock is reproducible but contains 12 unique published advisories |
+| `website/.gitignore` | Asset/support | P7 | Reviewed | Quarto output/cache ownership and comparison with repository ignore rules | None | Website-only generated output boundary |
+| `website/_quarto.yml` | Configuration | P7 | Reviewed | Seventeen-page navigation, output directory, theme/CSS/logo references, local link map, and successful render | None | — |
+| `website/assets/ace-landing-page-2026-06.png` | Binary asset | P7 | Reviewed | PNG signature/dimensions/checksum, visual inspection, homepage use, and comparison with current landing screenshot | DOC-003 | Referenced 3002×1703 legacy landing screenshot |
+| `website/assets/guide/coding-view-with-codebook.png` | Binary asset | P7 | Reviewed | PNG signature/dimensions/checksum, visual inspection, public-sample provenance, and three guide use sites | DOC-004 | Referenced 1365×900 instructional screenshot |
+| `website/assets/guide/folder-import-review.png` | Binary asset | P7 | Reviewed | PNG signature/dimensions/checksum, visual inspection, public-sample provenance, and three guide use sites | DOC-004 | Referenced 1365×900 instructional screenshot |
+| `website/assets/guide/import-options.png` | Binary asset | P7 | Reviewed | PNG signature/dimensions/checksum, visual inspection, workflow accuracy, and quick-start use site | DOC-004 | Referenced 1365×900 instructional screenshot |
+| `website/assets/guide/landing.png` | Binary asset | P7 | Reviewed | PNG signature/dimensions/checksum, visual inspection, current landing destinations, and quick-start use site | DOC-004 | Referenced 1365×900 instructional screenshot |
+| `website/assets/guide/new-project-folder-selected.png` | Binary asset | P7 | Reviewed | PNG signature/dimensions/checksum, visual inspection, import-guide use, and exposed absolute developer path | DOC-003, DOC-004 | Referenced 1365×900 screenshot containing local path data |
+| `website/assets/guide/review-coded-text.png` | Binary asset | P7 | Reviewed | PNG signature/dimensions/checksum, visual inspection, audit-view accuracy, public-sample provenance, and described use site | None | Referenced 1365×900 screenshot with meaningful alternative text |
+| `website/assets/logo.svg` | Asset/support | P7 | Reviewed | SVG structure, checksum, Quarto navbar use, and exact brand/package relationship | None | Intentional website copy of `brand/logo.svg` |
+| `website/getting-started.qmd` | Documentation | P7 | Reviewed | New/open/import/codebook/coding/export sequence, current controls, image references, links, and empty alternatives | DOC-004 | — |
+| `website/index.qmd` | Documentation | P7 | Reviewed | Homepage links, stale v1.6.0 citation, legacy hero use, empty alternative, and successful render | DOC-001, DOC-003, DOC-004 | — |
+| `website/install.qmd` | Documentation | P7 | Reviewed | Release assets, unsigned-build warnings, source commands, current entrypoint, and obsolete Tauri desktop command | DOC-002 | — |
+| `website/reference/faq.qmd` | Documentation | P7 | Reviewed | Local/cloud/privacy/collaboration/cue/agreement claims, issue link, and missing WAL/cloud operational guidance | DOC-005 | — |
+| `website/reference/file-format.qmd` | Documentation | P7 | Reviewed | Stored-data, backup/privacy claims, SQLite connection/shutdown comparison, and missing WAL/SHM sidecar guidance | DOC-005 | — |
+| `website/reference/index.qmd` | Documentation | P7 | Reviewed | Reference-page links, labels, and rendered navigation | None | — |
+| `website/reference/shortcuts.qmd` | Documentation | P7 | Reviewed | Source/applied/codebook/search/audit shortcut tables compared with current keyboard contracts and render | None | — |
+| `website/review-export.qmd` | Documentation | P7 | Reviewed | Review/agreement/export workflow claims and links to current audit/agreement/export owners | None | — |
+| `website/sample-data.qmd` | Documentation | P7 | Reviewed | Import instructions, 19-source/132-code claims, DOI/licence, route-equivalence claim, image use, and empty alternative | DATA-001, DOC-004 | — |
+| `website/styles.css` | Authored | P7 | Reviewed | Website selectors/tokens, Quarto integration, asset use, and successful 17-page render | None | — |
+| `website/user-guide/agreement.qmd` | Documentation | P7 | Reviewed | Source/coder eligibility, AC1 bands, insufficient threshold, workflow, export, methodology, and implementation comparison | None | — |
+| `website/user-guide/audit.qmd` | Documentation | P7 | Reviewed | Code-view modes, source tracks, edits/saves/undo, shortcuts, return flows, links, and the sole meaningful screenshot alternative | None | — |
+| `website/user-guide/codebooks.qmd` | Documentation | P7 | Reviewed | Codes/folders/reorder/import/share claims, CSV schema aliases, cue links, image use, and empty alternative | DOC-004 | — |
+| `website/user-guide/coding.qmd` | Documentation | P7 | Reviewed | Navigation/cues/apply/merge/inspector/undo claims, SQLite FTS references, image use, and empty alternative | DOC-004 | — |
+| `website/user-guide/export.qmd` | Documentation | P7 | Reviewed | Annotation/codebook/note/agreement export scope and preservation checklist compared with current exporters | None | — |
+| `website/user-guide/import.qmd` | Documentation | P7 | Reviewed | CSV/folder requirements, new-project flow, preview checks, archive advice, two image uses, local-path exposure, and empty alternatives | DOC-003, DOC-004 | — |
+| `website/user-guide/notes.qmd` | Documentation | P7 | Reviewed | Source-note scope, open/edit/delete/export claims, persistence, and current note model/route comparison | None | — |
+| `website/workflow.qmd` | Documentation | P7 | Reviewed | Project/import/codebook/note sequence, one-file/cloud claims, image use, links, and missing sidecar guidance | DOC-004, DOC-005 | — |
