@@ -10,11 +10,11 @@ Scope: Whole tracked repository, following `CODEBASE_AUDIT_PLAN.md`
 | Priority | Open | Accepted | Rejected | Completed |
 |---|---:|---:|---:|---:|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 7 | 0 | 0 | 0 |
-| Medium | 2 | 0 | 0 | 0 |
-| Low | 3 | 0 | 0 | 0 |
+| High | 9 | 0 | 0 | 0 |
+| Medium | 6 | 0 | 0 | 0 |
+| Low | 4 | 0 | 0 | 0 |
 
-No findings have been accepted yet. P0 records the baseline and coverage map; P1-P2 record architecture, persistence, model, and service findings.
+No findings have been accepted yet. P0 records the baseline and coverage map; P1-P3 record architecture, persistence, model, service, route, template, and HTMX findings.
 
 ## Rules
 
@@ -151,6 +151,40 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Timing: Needs design
 - Confidence: High
 
+### PROJECT-001. Replace an existing project only after its replacement is durable
+
+- Status: Open
+- Priority: High
+- Category: Correctness risk
+- Where: `src/ace/routes/api_project_import.py::project_create`; `POST /api/project/create` with `overwrite=true`
+- Evidence: The overwrite branch calls `file_path.unlink()` before `create_project(...)`. In a route-level failure injection where the target contained known bytes and `create_project` raised a simulated disk error, the response displayed the friendly failure message but `target_exists=False` and `original_preserved=False`. Current overwrite tests cover the successful replacement and confirmation dialog only.
+- Current contract: Overwrite remains an explicit confirmed action, produces a fresh valid ACE project at the selected path, redirects to import on success, and leaves the existing project recoverable if replacement creation fails.
+- Why it matters: A disk, permission, schema-creation, or unexpected failure after unlinking irreversibly deletes the project the user was trying to replace, even though no replacement exists.
+- Recommendation: Create and fully initialise the replacement at a unique temporary path in the same directory, close and validate it, then atomically replace the target with `os.replace`. Clean up the temporary file on every failure and clear path-keyed undo/transient import state only after the replacement succeeds.
+- Expected simplification or measured benefit: Give project replacement one commit point and remove the destructive gap between deleting the old file and creating the new one.
+- Tests required first: Add failure injection before and after temporary project creation, assert byte-for-byte preservation of the original, assert temporary-file cleanup, and retain the existing confirmation/success tests.
+- Verification: Run project route tests, setup E2E tests in Chromium, Firefox, and WebKit, the full suite, and a manual overwrite smoke test on macOS and Windows packages.
+- Dependencies: DB-001 should define validation of the newly created project before replacement; ARCH-003 if obsolete lifecycle state is removed in the same batch
+- Timing: Needs tests first
+- Confidence: High
+
+### HTMX-001. Mark every OOB-only status response as a no-primary-swap response
+
+- Status: Open
+- Priority: High
+- Category: Correctness risk
+- Where: `src/ace/routes/api_support.py::_oob_status`; direct `_oob_status` returns throughout `api_codebook.py` and `api_project_import.py`; programmatic swaps in `codebook_headless_tree_source.js` and `bridge.js`
+- Evidence: `_oob_status` returns only three OOB fragments but no `HX-Reswap` header. HTMX removes those fragments from the response before applying the requested primary swap, leaving an empty fragment. In a live Chromium reproduction on the coding page, `htmx.ajax('POST', '/api/codes', {target:'#code-sidebar', swap:'outerHTML', values:{name:' '}})` received the intended 200 status response and changed `#code-sidebar` count from 1 to 0 while updating the status bar. Existing tests explicitly assert `HX-Reswap: none` for annotation-only and undo/redo paths but not for `_oob_status`; duplicate-name races and other 200 validation paths can reach this response in normal multi-tab use.
+- Current contract: Validation and operational errors update the global status, coding receipt, and live region without replacing the sidebar, text panel, modal, or wizard step that initiated the request.
+- Why it matters: A recoverable validation conflict can erase a primary workspace region until reload, turning a friendly error path into apparent data/UI loss.
+- Recommendation: Make `_oob_status` return `HX-Reswap: none` by default, then audit its callers for the rare response that intentionally owns a primary target and give that path an explicit primary fragment instead.
+- Expected simplification or measured benefit: Encode the OOB-only contract once instead of relying on each caller to remember a response header; protect more than 30 direct error returns with one invariant.
+- Tests required first: Add a helper-level header assertion, route tests for blank/duplicate/invalid codebook inputs, and a browser test proving the sidebar and text panel retain element identity after a 200 OOB validation response.
+- Verification: Run route tests, coding notification and codebook E2E tests in all three engines, the headless-tree synchronisation check, and `uv run pytest`.
+- Dependencies: None
+- Timing: Safe now
+- Confidence: High
+
 ## Medium-Priority Findings
 
 ### EXPORT-001. Group adjacent annotations independently of interleaved coders
@@ -185,6 +219,74 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Verification: Run codebook model/service/route tests, codebook import E2E coverage in all engines, and `uv run pytest`.
 - Dependencies: UNDO-001 if shared no-commit codebook primitives are changed in the same batch
 - Timing: Needs design
+- Confidence: High
+
+### HTMX-002. Give agreement-result interactions one repeatable lifecycle
+
+- Status: Open
+- Priority: Medium
+- Category: Correctness risk
+- Where: `src/ace/templates/agreement_results.html:248-360`; `src/ace/templates/agreement.html` result swaps and history restoration
+- Evidence: Each HTMX result insertion executes the partial's inline IIFE and adds another anonymous `document` click listener for row expansion, while sort listeners attach directly to the current table headers. A Chromium DOM reproduction evaluated the real result script twice: one row click ran both delegates and left the detail row hidden with `aria-expanded=false`. In a separate history-style `innerHTML` restoration, a live header click sorted `['B', 'A']` to `['A', 'B']`, but the restored header click left `['B', 'A']` and its icon unchanged because manual `innerHTML` does not execute or rebind the script. The 90 passing three-engine agreement/setup E2E tests do not exercise result-row expansion or sorting.
+- Current contract: Recomputing, going back/forward, expanding guidance rows, and sorting columns continue to work once per action without accumulating handlers or losing keyboard/focus state.
+- Why it matters: A normal second computation can make guidance rows appear unresponsive, and browser-history restoration silently disables sorting.
+- Recommendation: Move agreement-result behaviour into an idempotent page-level controller. Use one delegated handler for replaceable result markup, keep sort state scoped to the current table, and call the same initialiser after HTMX swaps and history restoration rather than shipping executable script inside the partial.
+- Expected simplification or measured benefit: Replace per-response script execution and mixed listener ownership with one explicit lifecycle that is safe across repeated swaps.
+- Tests required first: Add three-engine cases for two consecutive computes, expand/collapse after recompute, sort after history back/forward, and exactly-one-toggle behaviour.
+- Verification: Run agreement route/service tests, agreement file-review E2E tests in Chromium, Firefox, and WebKit, and `uv run pytest`.
+- Dependencies: ROUTE-001 if agreement rendering helpers move at the same time
+- Timing: Needs tests first
+- Confidence: High
+
+### A11Y-001. Make agreement-result rows and sort controls keyboard operable
+
+- Status: Open
+- Priority: Medium
+- Category: Correctness risk
+- Where: `src/ace/templates/agreement_results.html:57-105` and its inline interaction script
+- Evidence: The caption instructs users to click a row for guidance; expansion is attached to `.ace-code-row` `<tr>` elements and sorting to `.col-sortable` `<th>` elements. Neither element contains a button, has `tabindex`, nor has an Enter/Space keyboard handler. Static rendered-page checks found no missing ID/ARIA references, so the defect is specifically operability rather than broken labelling. Current agreement E2E tests contain no selector or assertion for result rows, sortable headers, or expanded rows.
+- Current contract: Mouse behaviour, table semantics, visible sort direction, grouped-row ordering, expanded guidance, and screen-reader announcements remain understandable while every interactive action is reachable by keyboard.
+- Why it matters: Keyboard and switch users cannot reveal per-code guidance or sort the main results table, despite ACE otherwise treating keyboard access as a core workflow.
+- Recommendation: Put real buttons inside sortable headers and provide a focusable row disclosure control, or implement an equivalent semantic pattern with correct roles, `aria-expanded`, `aria-controls`, and Enter/Space handling. Prefer native buttons so focus and activation do not need to be recreated.
+- Expected simplification or measured benefit: Align interaction semantics with the existing click behaviour and remove pointer-only controls.
+- Tests required first: Add keyboard tab/Enter/Space tests, focus-visible assertions, `aria-sort` updates, expansion-state assertions, and a mouse-parity case in all engines.
+- Verification: Run agreement E2E tests across Chromium, Firefox, and WebKit, inspect the accessibility tree, and complete a manual keyboard-only pass.
+- Dependencies: HTMX-002 should establish the controller lifecycle before or alongside the keyboard handlers
+- Timing: Needs design
+- Confidence: High
+
+### ROUTE-001. Split route support along the domains it already serves
+
+- Status: Open
+- Priority: Medium
+- Category: Simplification
+- Where: `src/ace/routes/api_support.py`; imports from `api_agreement.py`, `api_codebook.py`, `api_coding.py`, and `api_project_import.py`
+- Evidence: `api_support.py` contains 71 functions across 1,776 lines. Call and import maps show distinct clusters for native pickers/import markup (lines 70-627), shared downloads/project connections (630-694), coding/codebook fragments and undo/audit responses (697-1464), and agreement state, workers, and rendering (1467-1776). Each domain router imports a broad private surface, while three coding render helpers also lazily import page-owned `_coding_context`. All support functions are referenced, so this is not a dead-code or file-size finding; the evidence is the number of independent owners and reverse dependency seam collected in ARCH-001.
+- Current contract: Route paths, error/status fragments, exact OOB ordering, import previews, audit headers, agreement generation guards, and template contexts remain byte/behaviour compatible.
+- Why it matters: Unrelated import, coding, undo, and agreement changes share one private namespace and make ownership, dependency direction, and focused tests harder to see.
+- Recommendation: After extracting the neutral coding context from ARCH-001, split support into small domain modules with a deliberately tiny shared HTTP layer for `_project_db`, downloads, status fragments, and header composition. Move the 143-line import mapping renderer to an import-owned template/renderer rather than introducing a generic support framework.
+- Expected simplification or measured benefit: Replace one 71-function grab bag with domain-owned APIs, remove the page-router reverse imports, and make each child router's dependency surface explicit.
+- Tests required first: Characterise the exact status/download headers, fragment roots/order, import mapping HTML, coding OOB payloads, undo/audit headers, and agreement stale-generation behaviour before moving symbols.
+- Verification: Run the 280-test focused route suite, the full suite, import/agreement/coding E2E tests in all engines, and the headless-tree synchronisation check.
+- Dependencies: ARCH-001 first; MODEL-001 for final codebook import ownership; avoid combining with behavioural fixes unless their tests land separately
+- Timing: Needs design
+- Confidence: High
+
+### CODEBOOK-001. Remove the no-op reorder request used only to refresh a rename
+
+- Status: Open
+- Priority: Medium
+- Category: Simplification
+- Where: `src/ace/static/js/bridge.js::_codeAction`, `_refreshSidebar`, and its sole inline-rename caller; `src/ace/routes/api_codebook.py::reorder_codes_route`
+- Evidence: Structural call scans find one `_codeAction` call, for inline rename. `_codeAction` sends a raw `PUT /api/codes/{id}`, discards the route's already-rendered response, then `_refreshSidebar` sends `POST /api/codes/reorder` with `code_ids='[]'`. That 51-line route reads every active code's ordering before and after invoking the reorder model, records nothing because the list is unchanged, and renders the sidebar. `_refreshSidebar` is the only production caller of the legacy route; the current update route already returns the correct coding or audit mutation response.
+- Current contract: Inline rename retains its validation, undo entry, audit metadata, focused row, sidebar counts/order, status handling, and coding/audit response modes.
+- Why it matters: Every inline rename performs two requests and retains a legacy mutation endpoint whose empty-list side effect is actually rendering, obscuring the real response contract.
+- Recommendation: Process the `PUT` response through `htmx.ajax` with the existing mutation swap options, remove `_refreshSidebar` and `_codeAction`, then remove `/api/codes/reorder` once tests and any compatibility consumers are confirmed absent.
+- Expected simplification or measured benefit: Remove one request from every inline rename, one side-channel client helper, and a 51-line legacy endpoint without claiming an unmeasured latency improvement.
+- Tests required first: Add a browser assertion that one inline rename issues one mutation request and preserves focus/audit mode; retarget or remove legacy-route registration tests.
+- Verification: Run codebook route/model/undo tests, headless-tree synchronisation, codebook E2E tests across all engines, and `uv run pytest`.
+- Dependencies: HTMX-001 for safe error responses; ROUTE-001 if response helpers move concurrently
+- Timing: Needs tests first
 - Confidence: High
 
 ## Low-Priority Findings
@@ -240,6 +342,23 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Timing: Needs design
 - Confidence: Medium
 
+### ROUTE-002. Give annotation export the same missing-project guard as other project routes
+
+- Status: Open
+- Priority: Low
+- Category: Correctness risk
+- Where: `src/ace/routes/api_project_import.py::export_annotations`; `src/ace/routes/api_support.py::_csv_download` and `_project_db`; `GET /api/export/annotations`
+- Evidence: The annotation export route calls `_csv_download`, which enters `_project_db` and passes `request.app.state.project_path` directly to `sqlite3.connect`. With a fresh application and no project open, a `TestClient` request to `/api/export/annotations` returns `500 Internal Server Error`. `/api/export/notes` and codebook exports fail through explicit project/coder guards instead. The annotation route appears only in registration tests; no route test covers its missing-project or download headers.
+- Current contract: A valid open project still downloads the same timestamped UTF-8 CSV with its sanitised filename and all-coder contents; a missing project produces a deliberate redirect or user-facing client error rather than a server error.
+- Why it matters: A stale bookmark, direct URL, or restored browser action reaches an avoidable 500 and bypasses ACE's normal project-opening guidance.
+- Recommendation: Add an explicit project-required guard at the shared connection/download boundary, choosing the established redirect contract for browser downloads, and test the annotation and notes export routes together.
+- Expected simplification or measured benefit: Make project ownership a precondition of the shared download helper instead of an implicit `sqlite3.connect` type requirement.
+- Tests required first: Add no-project, valid-download, Unicode content, filename sanitisation, and response-header route cases.
+- Verification: Run app/project/exporter/notes route tests and `uv run pytest`.
+- Dependencies: ARCH-001 or ROUTE-001 only if the shared project guard moves as part of those changes
+- Timing: Safe now
+- Confidence: High
+
 ## Rejected or Deferred Candidates
 
 Record investigated candidates here when evidence does not support a change, or when work should wait. This prevents repeated rediscovery.
@@ -249,6 +368,8 @@ Record investigated candidates here when evidence does not support a change, or 
 - **Persist or cache the code-cue FTS index:** The current request rebuilds a temporary FTS table, but direct measurements were small: median 0.50 ms for 31 codes, 1.18 ms for 300, and 8.52 ms for 3,000 on the baseline machine. The focused 1,000-code smoke test takes 0.13 s including setup. A persistent index would add schema/cache invalidation complexity without evidence of a user-visible bottleneck.
 - **Optimise agreement computation:** The sparse event-based implementation completed a synthetic 50-source/10-code/1,000-annotation workload in 2.45 ms and a 200-source/30-code/12,000-annotation workload in 38.80 ms. The browser workflow's multi-second tests are dominated by browser/polling behaviour, not this pure computation, so no algorithm rewrite is justified by current evidence.
 - **Narrow every broad exception in model and undo transactions:** All broad model catches found in P2 roll back and immediately re-raise. `UndoManager._replay` deliberately re-pushes the entry, logs, and re-raises. The concrete problem is commits inside composite handlers (UNDO-001), not exception breadth by itself.
+- **Introduce one declarative dependency/response framework for all routes:** The route matrix found consistent coder/project guards on coder-owned coding and codebook mutations, and the 280-test focused route suite passes. The concrete outliers are the annotation-export precondition and OOB-only response header; fix those contracts directly rather than wrapping FastAPI in a new framework layer.
+- **Create a generic template component system:** Every tracked template is referenced, rendered coding/audit pages had unique IDs with resolvable ARIA references, and conditional duplicate literals did not coexist in output. Domain-owned Jinja fragments are appropriate for the large import mapping builder, but a repository-wide component abstraction is not justified.
 
 ## Finding Template
 

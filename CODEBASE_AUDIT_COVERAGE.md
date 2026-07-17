@@ -12,7 +12,7 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 | P0 | Baseline and inventory | Repository-wide | 228/228 inventoried | 0 | Complete |
 | P1 | Architecture and integration seams | 6 | 6/6 | 4 | Complete |
 | P2 | Persistence, models, and services | 25 | 25/25 | 8 | Complete |
-| P3 | Routes, templates, and HTMX contracts | 18 | 0/18 | 0 | Pending |
+| P3 | Routes, templates, and HTMX contracts | 18 | 18/18 | 7 | Complete |
 | P4 | Frontend JavaScript and CSS | 14 | 0/14 | 0 | Pending |
 | P5 | Desktop, packaging, and release engineering | 17 | 0/17 | 0 | Pending |
 | P6 | Tests and developer feedback loops | 76 | 0/76 | 0 | Pending |
@@ -189,13 +189,13 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `src/ace/models/source_note.py` | Authored | P2 | Reviewed | Upsert/delete/read/export queries, constraints, callers, and tests | None | — |
 | `src/ace/routes/__init__.py` | Authored | P1 | Reviewed | Empty package marker; import and registration map | None | — |
 | `src/ace/routes/api.py` | Authored | P1 | Reviewed | Structural router composition; 63-route registration check; import/name-use and test call-site scans | ARCH-002 | — |
-| `src/ace/routes/api_agreement.py` | Authored | P3 | Pending | — | — | — |
-| `src/ace/routes/api_codebook.py` | Authored | P3 | Pending | — | — | — |
-| `src/ace/routes/api_coding.py` | Authored | P3 | Pending | — | — | — |
-| `src/ace/routes/api_project_import.py` | Authored | P3 | Pending | — | — | — |
-| `src/ace/routes/api_support.py` | Authored | P3 | Pending | P1 seam scan: three lazy imports of page-owned `_coding_context`; full P3 review pending | ARCH-001 | — |
-| `src/ace/routes/pages.py` | Authored | P3 | Pending | P1 seam scan: `_coding_context` responsibility, dependency, call-site, and template-key maps; full P3 review pending | ARCH-001 | — |
-| `src/ace/routes/runtime.py` | Authored | P3 | Pending | — | — | — |
+| `src/ace/routes/api_agreement.py` | Authored | P3 | Reviewed | Eight-route state/generation/export matrix, response and error paths, focused tests, and three-engine E2E traces | HTMX-002, ROUTE-001 | — |
+| `src/ace/routes/api_codebook.py` | Authored | P3 | Reviewed | Fourteen-route guard/mutation/undo/response map, OOB validation reproduction, legacy refresh call graph, and tests | HTMX-001, CODEBOOK-001, ROUTE-001 | — |
+| `src/ace/routes/api_coding.py` | Authored | P3 | Reviewed | Twelve-route guard, OOB ordering, undo/redo, note/export, sentence-action, error-path, and test review | HTMX-001, ROUTE-001 | — |
+| `src/ace/routes/api_project_import.py` | Authored | P3 | Reviewed | Picker/create/open/import/export route matrix, overwrite failure injection, missing-project reproduction, and tests | PROJECT-001, HTMX-001, ROUTE-001, ROUTE-002 | — |
+| `src/ace/routes/api_support.py` | Authored | P3 | Reviewed | Seventy-one-function domain/call map, fragment and header contracts, live OOB reproduction, agreement lifecycle trace, and tests | ARCH-001, HTMX-001, HTMX-002, ROUTE-001, ROUTE-002 | — |
+| `src/ace/routes/pages.py` | Authored | P3 | Reviewed | Page-route redirects/guards, context and template-key contracts, render outputs, ID/ARIA checks, and tests | ARCH-001 | — |
+| `src/ace/routes/runtime.py` | Authored | P3 | Reviewed | Five endpoint token/session/shutdown contracts, caller map, and runtime route tests | None | — |
 | `src/ace/services/__init__.py` | Authored | P2 | Reviewed | Package-boundary and import scan | None | — |
 | `src/ace/services/agreement_computer.py` | Authored | P2 | Reviewed | Sparse event algorithm, metric contracts, benchmark, Unicode-offset dependency, and tests | TEXT-001, AGREEMENT-001 | — |
 | `src/ace/services/agreement_loader.py` | Authored | P2 | Reviewed | Read-only loading, schema probes, matching logic, duplicate-hash reproduction, and tests | AGREEMENT-001 | — |
@@ -230,17 +230,17 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `src/ace/static/js/runtime.js` | Authored | P4 | Pending | — | — | — |
 | `src/ace/static/logo-light.svg` | Asset/support | P7 | Pending | — | — | — |
 | `src/ace/static/logo.svg` | Asset/support | P7 | Pending | — | — | — |
-| `src/ace/templates/_cheatsheet_coded_text_view.html` | Authored | P3 | Pending | — | — | — |
-| `src/ace/templates/_sidebar_codebook.html` | Authored | P3 | Pending | — | — | — |
-| `src/ace/templates/agreement.html` | Authored | P3 | Pending | — | — | — |
-| `src/ace/templates/agreement_results.html` | Authored | P3 | Pending | — | — | — |
-| `src/ace/templates/agreement_review.html` | Authored | P3 | Pending | — | — | — |
-| `src/ace/templates/base.html` | Authored | P3 | Pending | — | — | — |
-| `src/ace/templates/code_view.html` | Authored | P3 | Pending | — | — | — |
-| `src/ace/templates/coding.html` | Authored | P3 | Pending | — | — | — |
-| `src/ace/templates/import.html` | Authored | P3 | Pending | — | — | — |
-| `src/ace/templates/landing.html` | Authored | P3 | Pending | — | — | — |
-| `src/ace/templates/new_project.html` | Authored | P3 | Pending | — | — | — |
+| `src/ace/templates/_cheatsheet_coded_text_view.html` | Authored | P3 | Reviewed | Dialog semantics, ID references, focus/action contract, inclusion map, and rendered-page checks | None | — |
+| `src/ace/templates/_sidebar_codebook.html` | Authored | P3 | Reviewed | Shared include contexts, headless-tree mount/actions, menu/export controls, ID/ARIA checks, and route traces | CODEBOOK-001 | — |
+| `src/ace/templates/agreement.html` | Authored | P3 | Reviewed | Selection/compute sequencing, HTMX swap and progress contracts, history restoration, and three-engine E2E tests | HTMX-002 | — |
+| `src/ace/templates/agreement_results.html` | Authored | P3 | Reviewed | Result semantics, inline listener ownership, repeated-initialisation/history Chromium reproductions, and keyboard audit | HTMX-002, A11Y-001 | — |
+| `src/ace/templates/agreement_review.html` | Authored | P3 | Reviewed | Review markup, escaped JSON path payload, pending-removal state, and three-engine E2E tests | None | — |
+| `src/ace/templates/base.html` | Authored | P3 | Reviewed | Block/script order, global status and live-region roots, referenced assets, and rendered-page checks | None | — |
+| `src/ace/templates/code_view.html` | Authored | P3 | Reviewed | Shared sidebar, editor/data payload, dialog inclusion, rendered ID/ARIA checks, and route tests | CODEBOOK-001 | — |
+| `src/ace/templates/coding.html` | Authored | P3 | Reviewed | Fragment block roots, OOB targets, data payloads, note/inspector layout, rendered ID/ARIA checks, and route tests | HTMX-001 | — |
+| `src/ace/templates/import.html` | Authored | P3 | Reviewed | Wizard state/targets, OOB error recognition, native picker flow, keyboard behaviour, and three-engine E2E tests | HTMX-001, ROUTE-001 | — |
+| `src/ace/templates/landing.html` | Authored | P3 | Reviewed | Open/resume/dialog flow, localStorage filename escaping, keyboard shortcuts, rendered semantics, and E2E tests | None | — |
+| `src/ace/templates/new_project.html` | Authored | P3 | Reviewed | Name/folder/overwrite flow, dialog/error handling, keyboard behaviour, rendered semantics, and E2E tests | PROJECT-001 | — |
 | `tests/conftest.py` | Authored | P6 | Pending | — | — | — |
 | `tests/e2e/__init__.py` | Authored | P6 | Pending | — | — | — |
 | `tests/e2e/conftest.py` | Authored | P6 | Pending | — | — | — |
