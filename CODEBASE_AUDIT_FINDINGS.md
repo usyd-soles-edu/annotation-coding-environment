@@ -10,11 +10,11 @@ Scope: Whole tracked repository, following `CODEBASE_AUDIT_PLAN.md`
 | Priority | Open | Accepted | Rejected | Completed |
 |---|---:|---:|---:|---:|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 11 | 0 | 0 | 0 |
-| Medium | 7 | 0 | 0 | 0 |
-| Low | 6 | 0 | 0 | 0 |
+| High | 12 | 0 | 0 | 0 |
+| Medium | 10 | 0 | 0 | 0 |
+| Low | 8 | 0 | 0 | 0 |
 
-No findings have been accepted yet. P0 records the baseline and coverage map; P1-P4 record architecture, persistence, model, service, route, template, HTMX, JavaScript, and CSS findings.
+No findings have been accepted yet. P0 records the baseline and coverage map; P1-P5 record architecture, persistence, model, service, route, template, HTMX, frontend, desktop, packaging, and release findings.
 
 ## Rules
 
@@ -219,6 +219,23 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Timing: Needs tests first
 - Confidence: High
 
+### REL-001. Refuse to publish when the tag and packaged versions disagree
+
+- Status: Open
+- Priority: High
+- Category: Correctness risk
+- Where: `.github/workflows/release.yml`; `src/ace/__init__.py`; `desktop/launcher/Cargo.toml`; `desktop/launcher/Packager.toml`; `scripts/build_launcher_package.py`
+- Evidence: ACE's version is repeated in the Python package, launcher crate, and packager manifest; all three currently read `1.6.1`, and one test compares only Cargo with Packager. The release workflow accepts any `v*` tag, or any existing tag supplied to `workflow_dispatch`, derives `VERSION="${TAG#v}"` only for the release name, and never reads or compares the three packaged versions. Tagging the current commit as `v1.6.2` would therefore create `ACE v1.6.2` while cargo-packager and the sidecar still identify the payload as 1.6.1. The live v1.6.1 release is aligned, but that alignment is manual rather than enforced.
+- Current contract: A release tag, GitHub release name, Python package version, launcher binary metadata, installer filenames, and installed application version all describe the same valid semantic version before any draft or binary is published.
+- Why it matters: A single missed bump or tag typo can publish misleading installers that cannot be reliably diagnosed, upgraded, or reproduced from their release label.
+- Recommendation: Choose one authoritative version or implement one shared semantic validator. Run it before the stateful release preflight and before local packaging; require an exact `v<version>` tag match, validate all manifests, and make both tag-push and manual-dispatch paths use the same checked value.
+- Expected simplification or measured benefit: Replace three manually coordinated values and an unchecked tag-derived fourth value with one explicit release invariant used by tests, local builds, and CI.
+- Tests required first: Add version-parser tests for equal values, one-file drift, malformed tags, missing `v`, prerelease versions if supported, and manual-dispatch/tag-push parity.
+- Verification: Run the version contract locally, package configuration tests, a non-publishing workflow test or action fixture for matching and mismatching tags, launcher/package checks, and the full suite.
+- Dependencies: PACK-001 should reuse the same semantic validator rather than create another version parser
+- Timing: Safe now
+- Confidence: High
+
 ## Medium-Priority Findings
 
 ### EXPORT-001. Group adjacent annotations independently of interleaved coders
@@ -340,6 +357,57 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Timing: Needs design
 - Confidence: High
 
+### REL-002. Build the draft release notes from the real version, assets, and changelog
+
+- Status: Open
+- Priority: Medium
+- Category: Documentation
+- Where: `.github/workflows/release.yml::prepare_release` and artifact upload; GitHub release publication workflow
+- Evidence: The workflow creates a draft body with literal `ACE_x.x.x_aarch64.dmg` and `ACE_x.x.x_x64-setup.exe` placeholders, omits the MSI that the Windows job uploads, and provides no changelog input or generated-notes step. Live GitHub evidence shows v1.6.0 still carries those incorrect placeholders despite assets named `ACE_1.6.0_aarch64.dmg`, `ace-launcher_1.6.0_x64-setup.exe`, and `ace-launcher_1.6.0_x64_en-US.msi`. The v1.6.1 release has corrected filenames and two changelog entries, but those details are absent from the workflow template and were supplied during the 25-minute draft-review window after the successful build.
+- Current contract: Every draft is reviewable before publication and lists the exact uploaded files, platform/install guidance, signing warning, and a curated user-facing changelog for the tagged changes.
+- Why it matters: The normal automated path repeatedly produces an incomplete release page, so publication quality depends on remembering undocumented manual repair; the wrong filename can send users looking for an asset that does not exist.
+- Recommendation: Make release-note preparation an explicit, testable step. Generate the asset table from the validated version and expected platform formats, seed a changelog from a committed release-note fragment or GitHub generated notes, and fail the publish hand-off if placeholders remain or the changelog is empty. Keep final human review of the draft.
+- Expected simplification or measured benefit: Replace ad hoc post-build editing with one repeatable draft contract while retaining editorial review.
+- Tests required first: Add a renderer/fixture for a version with DMG, NSIS, and MSI assets; assert exact filenames, no placeholders, non-empty changelog, and safe reruns of an existing draft.
+- Verification: Exercise the renderer locally, run a dry-run workflow against a test tag or fixture, confirm the draft body and three assets, and verify rerunning does not erase curated notes.
+- Dependencies: REL-001 supplies the validated version; final artifact names should come from the packaging contract
+- Timing: Needs design
+- Confidence: High
+
+### BUILD-001. Make source-to-bundle parity the default headless-tree check
+
+- Status: Open
+- Priority: Medium
+- Category: Correctness risk
+- Where: `scripts/check_headless_tree_sync.py`; `scripts/build_codebook_tree.sh`; `tests/test_static_asset_contracts.py`; `src/ace/static/js/codebook_headless_tree_source.js` and generated `codebook_headless_tree.js`
+- Evidence: The default check verifies only that three files exist and that the generated bundle contains a source-path comment; the test named `test_headless_tree_distribution_matches_source` calls that shallow mode without `--rebuild`. A controlled fixture with deliberately unrelated source and bundle content returned 0 and printed `headless-tree-contract-ok`. On the real checkout, the default check passes but `uv run python scripts/check_headless_tree_sync.py --rebuild` fails. A temporary-output comparison found a 114,273-byte committed bundle versus a 127,312-byte rebuild; after normalising bundler wrappers, the committed source section still calls `flashStatus("Saved")` in two paths and defines the timer helper, while the authored source calls `setStatus("")` and has no helper. The check restores the tracked file correctly, so the audit left production unchanged.
+- Current contract: The committed distribution is a reproducible build of the reviewed source and declared dependency versions; tests fail whenever source, dependency output, or the generated artifact drifts.
+- Why it matters: Browsers execute the generated file, while developers review and edit the source. A green test can currently ship behaviour that the authored source no longer contains and can hide future security or correctness fixes.
+- Recommendation: Make a deterministic rebuild-and-compare the only meaning of the parity test, run it in CI, and give the cheap existence/marker probe a different name if it remains useful. Track an npm lockfile or equivalent immutable dependency resolution for the build, and regenerate the bundle in the eventual implementation commit.
+- Expected simplification or measured benefit: Establish one authoritative generated-asset contract and remove the misleading distinction between a green marker check and an optional real sync check.
+- Tests required first: Preserve a fast unit fixture proving stale content fails, add dependency-lock validation, and retain restoration-on-build-failure coverage so the check never dirties the worktree.
+- Verification: Run the parity check from a clean checkout twice, confirm byte-identical output and a clean `git status`, then run static asset and codebook E2E suites in all three engines.
+- Dependencies: TREE-001 must be implemented in the authored source before the bundle is regenerated; FRONT-002 may change the same generated dependency surface
+- Timing: Safe now
+- Confidence: High
+
+### CI-001. Give publishing credentials only to publishing jobs
+
+- Status: Open
+- Priority: Medium
+- Category: Correctness risk
+- Where: top-level `permissions` in `.github/workflows/pages.yml` and `.github/workflows/release.yml`
+- Evidence: The Pages workflow grants `pages: write` and `id-token: write` at workflow scope, so its pull-request build job receives the same requested capability even though upload/deploy steps are skipped on pull requests. The release workflow grants `contents: write` to every matrix build step that checks out and executes repository build code, although only the API preflight, draft preparation, and release upload need it. Live repository settings currently grant the workflow token write permission, so the release workflow's broad request is effective rather than merely declarative.
+- Current contract: Pull requests can render documentation without publishing; release builds can compile untrusted-by-the-publisher source inputs without release-write authority; only narrowly scoped jobs can mutate Pages or GitHub releases.
+- Why it matters: Broad workflow permissions increase the impact of a compromised dependency, action, or build script and make read-only validation jobs harder to reason about.
+- Recommendation: Default both workflows to `contents: read`. Grant `pages: write` and `id-token: write` only on the Pages deploy job. Split release compilation from publication: build with read access, pass installers through Actions artifacts, and let a small publisher job with `contents: write` upload them to the validated draft.
+- Expected simplification or measured benefit: Make credential ownership match job responsibility and isolate state-changing GitHub API calls from repository build execution.
+- Tests required first: Add workflow-policy checks that assert job-level permissions and dependency flow; retain pull-request rendering, tag builds, manual dispatch, draft reuse, and asset upload behaviour.
+- Verification: Validate workflow syntax, run a Pages pull request and deployment, run a test-tag release, and query the effective workflow permissions after deployment.
+- Dependencies: REL-001 and REL-002 define the preflight and publisher inputs
+- Timing: Needs design
+- Confidence: High
+
 ## Low-Priority Findings
 
 ### ARCH-002. Remove test-only compatibility exports from the API router aggregator
@@ -444,6 +512,40 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Timing: Safe now
 - Confidence: High
 
+### PACK-001. Replace the substring package check with the existing semantic validation
+
+- Status: Open
+- Priority: Low
+- Category: Simplification
+- Where: `scripts/build_launcher_package.py::_check`; `tests/test_launcher_packager_config.py`; `tests/test_desktop_config.py`
+- Evidence: `_check` treats `Packager.toml` as text and succeeds when the five field names appear anywhere, then checks only that Cargo.toml, main.rs, and the icons directory exist. Running the real function under ACE's Python 3.12 against an invalid TOML file whose comment contained `product-name identifier version binaries resources`, plus empty Cargo/Rust files, printed `Check passed` and returned successfully. The repository already has 16 focused tests that parse the real TOML, compare Cargo and Packager versions, and inspect formats, resources, sections, and icon paths; those tests pass, so the shallow command is duplicated weaker validation rather than the sole defence.
+- Current contract: `--check` remains a cheap no-build preflight, but success means the manifests parse and agree, required paths are valid for the host, and configuration is ready for the requested package mode.
+- Why it matters: A command presented and recorded as package validation can give a false green result for a configuration that cargo-packager cannot parse.
+- Recommendation: Extract one semantic validator using `tomllib` and explicit path/version checks, call it from both tests and `--check`, or remove the redundant command and make the focused tests the documented preflight. Distinguish configuration validity from payload/build readiness in its output and exit status.
+- Expected simplification or measured benefit: Remove two competing definitions of a valid launcher package and make every green preflight carry the same meaning.
+- Tests required first: Add invalid TOML, commented field names, version drift, missing resource, wrong-host format, and config-only versus package-ready cases.
+- Verification: Run the validator fixtures, desktop/packager tests, `--check`, Rust tests, and the platform packaging workflows.
+- Dependencies: REL-001 should provide the version comparison
+- Timing: Safe now
+- Confidence: High
+
+### ICON-001. Generate a multi-resolution Windows application icon
+
+- Status: Open
+- Priority: Low
+- Category: Correctness risk
+- Where: `desktop/launcher/icons/icon.ico`; icon sources and `desktop/launcher/Packager.toml`
+- Evidence: The packager explicitly consumes `icons/icon.ico`. Binary inspection reports a 495-byte Windows icon resource containing exactly one 16×16 PNG image, while the same tracked icon set includes a 1024×1024 RGBA source PNG and 32, 128, and 256 px PNGs. Existing desktop tests assert only that icon paths exist; the successful live Windows releases prove packaging accepts the ICO but do not validate its rendered quality at taskbar, Start menu, installer, or high-DPI sizes.
+- Current contract: The installed Windows executable, NSIS installer, MSI, taskbar, shortcuts, and file association use a crisp ACE icon at the sizes Windows requests; macOS icon output remains unchanged.
+- Why it matters: A single 16 px representation must be upscaled or substituted on common Windows surfaces, producing avoidable blur and making the released application look unfinished.
+- Recommendation: Generate `icon.ico` reproducibly from the high-resolution source with the standard small and high-DPI representations, document the source/provenance command, and validate the ICO directory rather than file existence alone.
+- Expected simplification or measured benefit: Make every platform icon derive from one reviewed source and remove the need for manual Windows visual guesswork during each release.
+- Tests required first: Parse the ICO directory and assert required dimensions/bit depth; keep existence and Packager.toml reference checks.
+- Verification: Run icon/config tests, build NSIS and MSI in CI, and inspect the executable, installer, Start menu, taskbar, shortcut, and `.ace` association on Windows at normal and high DPI.
+- Dependencies: None
+- Timing: Safe now
+- Confidence: High
+
 ## Rejected or Deferred Candidates
 
 Record investigated candidates here when evidence does not support a change, or when work should wait. This prevents repeated rediscovery.
@@ -457,6 +559,9 @@ Record investigated candidates here when evidence does not support a change, or 
 - **Create a generic template component system:** Every tracked template is referenced, rendered coding/audit pages had unique IDs with resolvable ARIA references, and conditional duplicate literals did not coexist in output. Domain-owned Jinja fragments are appropriate for the large import mapping builder, but a repository-wide component abstraction is not justified.
 - **Rewrite code-view metadata autosave:** `code_view.js` already serialises metadata writes with one in-flight envelope and one coalesced queued envelope. The queued save starts only after the active request settles, and existing three-engine tests exercise single-flight latest-draft behaviour. The note race in NOTE-001 is not shared by this implementation.
 - **Rebind every frontend listener after every HTMX swap:** Focused review found existing per-node dataset guards for grid resize, coding text controls, and undo affordances, plus a single global guard for coding text controls. The concrete stale lifecycle is the asynchronous tree initialisation in TREE-001; a blanket rebinding framework would obscure working ownership rather than simplify it.
+- **Reuse the existing server when a launcher receives an `.ace` path:** The Rust launcher deliberately starts a fresh server for every file-open invocation, even before a heartbeat, and lifecycle tests assert that contract. This avoids retargeting the process behind a tab that has opened but has not registered yet. Any resource optimisation would need a stronger session handshake, not deletion of the apparent `active_tabs` branch in isolation.
+- **Add code signing during this refactor:** Current DMG, NSIS, and MSI releases intentionally disclose that they are unsigned. Signing would materially improve installation trust, but it requires certificates, secret custody, platform accounts, and an external operating decision beyond a code-structure refactor. Keep it as a separately authorised release-security project; do not let it block the audit findings above.
+- **Add checksum files without a signing/provenance model:** A checksum hosted beside an unsigned binary protects against accidental corruption but not compromise of the release account that serves both files. Revisit checksums together with signing or artifact attestations so the trust model and user verification instructions are explicit.
 
 ## Finding Template
 

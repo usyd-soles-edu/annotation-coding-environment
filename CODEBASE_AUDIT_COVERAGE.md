@@ -14,7 +14,7 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 | P2 | Persistence, models, and services | 25 | 25/25 | 8 | Complete |
 | P3 | Routes, templates, and HTMX contracts | 18 | 18/18 | 7 | Complete |
 | P4 | Frontend JavaScript and CSS | 14 | 14/14 | 5 | Complete |
-| P5 | Desktop, packaging, and release engineering | 17 | 0/17 | 0 | Pending |
+| P5 | Desktop, packaging, and release engineering | 17 | 17/17 | 6 | Complete |
 | P6 | Tests and developer feedback loops | 76 | 0/76 | 0 | Pending |
 | P7 | Docs, dependencies, and synthesis | 72 | 0/72 | 0 | Pending |
 
@@ -54,7 +54,7 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 
 | Check | Result | Evidence |
 |---|---|---|
-| Generated headless-tree synchronisation | Pass | `uv run python scripts/check_headless_tree_sync.py` → `headless-tree-contract-ok` |
+| Generated headless-tree marker check | Pass but shallow | `uv run python scripts/check_headless_tree_sync.py` → `headless-tree-contract-ok`; P5 proved this mode does not compare source with the bundle, and the real `--rebuild` comparison currently fails (BUILD-001) |
 | Launcher package configuration | Pass with expected pre-build note | `uv run python scripts/build_launcher_package.py --check`; launcher resources are generated only during the full sidecar build |
 | Rust launcher | Pass | `cargo check --manifest-path desktop/launcher/Cargo.toml` |
 | Website | Pass | `quarto render website`; 17 pages rendered to `website/_site/index.html` |
@@ -69,7 +69,8 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 | Pass | Result | Evidence |
 |---|---|---|
 | P3 routes, templates, and HTMX | Pass | Focused route suite: 280 passed in 10.52 s. Agreement, import-picker, and setup E2E suite: 90 passed in 146.52 s across Chromium, Firefox, and WebKit |
-| P4 frontend JavaScript and CSS | Pass | `scripts/check_headless_tree_sync.py` reported `headless-tree-contract-ok`. Static asset and focused frontend E2E suites were split into three response-safe runs: 103 passed in 159.43 s, 132 passed in 222.70 s, and 33 passed in 59.62 s (268 total), across Chromium, Firefox, and WebKit |
+| P4 frontend JavaScript and CSS | Pass with generated-asset follow-up | The shallow script mode reported `headless-tree-contract-ok`; P5 later identified the separate bundle-parity failure as BUILD-001. Static asset and focused frontend E2E suites were split into three response-safe runs: 103 passed in 159.43 s, 132 passed in 222.70 s, and 33 passed in 59.62 s (268 total), across Chromium, Firefox, and WebKit |
+| P5 desktop, packaging, and release | Pass except documented bundle parity | Launcher/runtime/config suite: 41 passed in 26.39 s. Rust launcher: 6 passed with the lockfile. Package `--check` and 16 semantic config tests passed on the real manifests. The rebuild comparison failed as recorded in BUILD-001. Live GitHub checks found write permissions configured, eight recent release workflows successful, and complete DMG/NSIS/MSI assets for v1.6.0 and v1.6.1 |
 
 ### Slowest Baseline Tests
 
@@ -125,8 +126,8 @@ These timings prioritise later feedback-loop review; they are not performance fi
 
 | Path | Kind | Audit pass | Status | Evidence reviewed | Finding IDs | Exclusion or provenance reason |
 |---|---|---|---|---|---|---|
-| `.github/workflows/pages.yml` | Configuration | P5 | Pending | — | — | — |
-| `.github/workflows/release.yml` | Configuration | P5 | Pending | — | — | — |
+| `.github/workflows/pages.yml` | Configuration | P5 | Reviewed | Trigger/path matrix, PR/deploy conditions, workflow-wide permissions, concurrency, action pins, and live Pages ownership | CI-001 | — |
+| `.github/workflows/release.yml` | Configuration | P5 | Reviewed | Tag/manual triggers, stateful preflight, version/draft body flow, build matrix, artifact discovery/upload, permissions, live runs, releases, assets, and repository settings | REL-001, REL-002, CI-001 | — |
 | `.gitignore` | Configuration | P7 | Pending | — | — | — |
 | `.zenodo.json` | Configuration | P7 | Pending | — | — | — |
 | `CHANGELOG.md` | Documentation | P7 | Pending | — | — | — |
@@ -141,17 +142,17 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `brand/logo-hex.svg` | Asset/support | P7 | Pending | — | — | — |
 | `brand/logo-light.svg` | Asset/support | P7 | Pending | — | — | — |
 | `brand/logo.svg` | Asset/support | P7 | Pending | — | — | — |
-| `desktop/.gitignore` | Asset/support | P5 | Pending | — | — | — |
-| `desktop/launcher/Cargo.lock` | Lockfile | P5 | Pending | — | — | Generated dependency lock; verify manifest consistency and reproducibility |
-| `desktop/launcher/Cargo.toml` | Configuration | P5 | Pending | — | — | — |
-| `desktop/launcher/Packager.toml` | Configuration | P5 | Pending | — | — | — |
-| `desktop/launcher/icons/128x128.png` | Binary asset | P5 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `desktop/launcher/icons/128x128@2x.png` | Binary asset | P5 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `desktop/launcher/icons/32x32.png` | Binary asset | P5 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `desktop/launcher/icons/icon.icns` | Binary asset | P5 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `desktop/launcher/icons/icon.ico` | Binary asset | P5 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `desktop/launcher/icons/icon.png` | Binary asset | P5 | Pending | — | — | Verify provenance, use sites, duplication, and packaging |
-| `desktop/launcher/src/main.rs` | Authored | P5 | Pending | — | — | — |
+| `desktop/.gitignore` | Asset/support | P5 | Reviewed | Generated launcher target/resources boundaries and tracked-file comparison | None | — |
+| `desktop/launcher/Cargo.lock` | Lockfile | P5 | Reviewed | Locked metadata, root version, dependency resolution, and `cargo test --locked` | REL-001 | Generated dependency lock is consistent; 6 Rust tests pass with `--locked` |
+| `desktop/launcher/Cargo.toml` | Configuration | P5 | Reviewed | Package/version contract, dependency/target matrix, locked metadata, Rust call graph, and tests | REL-001 | — |
+| `desktop/launcher/Packager.toml` | Configuration | P5 | Reviewed | Semantic TOML parse, versions, formats, resources, associations, icon references, platform sections, live artifact names, and tests | REL-001, REL-002, PACK-001, ICON-001 | — |
+| `desktop/launcher/icons/128x128.png` | Binary asset | P5 | Reviewed | Binary type/dimensions/checksum, manifest reference, source-set comparison, and tests | None | 128×128 RGB PNG referenced by cargo-packager |
+| `desktop/launcher/icons/128x128@2x.png` | Binary asset | P5 | Reviewed | Binary type/dimensions/checksum, manifest reference, source-set comparison, and tests | None | 256×256 RGB PNG referenced by cargo-packager |
+| `desktop/launcher/icons/32x32.png` | Binary asset | P5 | Reviewed | Binary type/dimensions/checksum, manifest reference, source-set comparison, and tests | None | 32×32 RGB PNG referenced by cargo-packager |
+| `desktop/launcher/icons/icon.icns` | Binary asset | P5 | Reviewed | Binary container type/checksum, manifest reference, macOS packaging owner, and live DMG evidence | None | macOS ICNS referenced by cargo-packager |
+| `desktop/launcher/icons/icon.ico` | Binary asset | P5 | Reviewed | ICO directory/type/dimensions/checksum, manifest reference, Windows packaging owner, live installer evidence, and test gap | ICON-001 | 495-byte ICO contains only one 16×16 representation |
+| `desktop/launcher/icons/icon.png` | Binary asset | P5 | Reviewed | Binary type/dimensions/alpha/checksum, manifest reference, and source-set comparison | ICON-001 | 1024×1024 RGBA source available for reproducible platform icon generation |
+| `desktop/launcher/src/main.rs` | Authored | P5 | Reviewed | Twenty-nine-function process/runtime/lock/path/security map, structural search, six Rust tests, and 41-test launcher/runtime suite | None | — |
 | `examples/ace-guide-manchester-folk-methods/README.md` | Documentation | P7 | Pending | — | — | — |
 | `examples/ace-guide-manchester-folk-methods/codebook.csv` | Asset/support | P7 | Pending | — | — | — |
 | `examples/ace-guide-manchester-folk-methods/sources.csv` | Asset/support | P7 | Pending | — | — | — |
@@ -175,10 +176,10 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `examples/ace-guide-manchester-folk-methods/sources/P18.txt` | Asset/support | P7 | Pending | — | — | — |
 | `examples/ace-guide-manchester-folk-methods/sources/P19.txt` | Asset/support | P7 | Pending | — | — | — |
 | `pyproject.toml` | Configuration | P7 | Pending | — | — | — |
-| `scripts/build_codebook_tree.sh` | Authored | P5 | Pending | — | — | — |
-| `scripts/build_launcher_package.py` | Authored | P5 | Pending | — | — | — |
-| `scripts/build_sidecar.py` | Authored | P5 | Pending | — | — | — |
-| `scripts/check_headless_tree_sync.py` | Authored | P5 | Pending | — | — | — |
+| `scripts/build_codebook_tree.sh` | Authored | P5 | Reviewed | Dependency/build command, generated-output owner, rebuild execution, normalised bundle diff, and lock/reproducibility review | BUILD-001 | — |
+| `scripts/build_launcher_package.py` | Authored | P5 | Reviewed | Host format selection, temporary config, cleanup/error paths, semantic false-positive injection, callers, local check, and live platform builds | REL-001, PACK-001 | — |
+| `scripts/build_sidecar.py` | Authored | P5 | Reviewed | Host triples, Nuitka standalone/onefile modes, output validation/copy, manifest consumers, and successful live macOS/Windows builds | None | — |
+| `scripts/check_headless_tree_sync.py` | Authored | P5 | Reviewed | Default/rebuild control flow, stale fixture, real rebuild failure, restoration behaviour, callers, and tests | BUILD-001 | — |
 | `src/ace/__init__.py` | Authored | P1 | Reviewed | Version source and packaging call sites | None | — |
 | `src/ace/__main__.py` | Authored | P1 | Reviewed | CLI-to-`run` argument map; launcher invocation; call-site and history scans | ARCH-004 | — |
 | `src/ace/app.py` | Authored | P1 | Reviewed | Factory, middleware, lifespan, DB ownership, app-state inventory, server/runtime call graph, lifecycle tests | ARCH-003, ARCH-004 | — |
@@ -229,8 +230,8 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `src/ace/static/js/ace_notes.js` | Authored | P4 | Reviewed | Drawer state machine, debounce/flush ownership, controlled reverse-completion reproduction, failure path, and test gaps | NOTE-001, FRONT-001 | — |
 | `src/ace/static/js/bridge.js` | Authored | P4 | Reviewed | Function/listener/request inventory, page-global registration trace, HTMX/OOB ownership, stale-DOM guards, innerHTML escaping, and call graph | TEXT-001, HTMX-001, CODEBOOK-001, NOTE-001, TREE-001, FRONT-001, FRONT-002 | — |
 | `src/ace/static/js/code_view.js` | Authored | P4 | Reviewed | Listener/key ownership, JSON rendering/escaping, navigation cache, metadata single-flight queue, and three-engine tests | None | — |
-| `src/ace/static/js/codebook_headless_tree.js` | Generated | P4 | Reviewed | Generated/source synchronisation check plus controlled two-mount reverse-completion reproduction | TREE-001, FRONT-002 | Built from `codebook_headless_tree_source.js`; synchronisation check passes |
-| `src/ace/static/js/codebook_headless_tree_source.js` | Authored | P4 | Reviewed | Controller lifecycle, fetch/mount ownership, event/action map, reverse-completion reproduction, and legacy adapter scan | TREE-001, FRONT-002 | — |
+| `src/ace/static/js/codebook_headless_tree.js` | Generated | P4 | Reviewed | Shallow marker check, failing rebuild comparison and normalised diff, plus controlled two-mount reverse-completion reproduction | TREE-001, FRONT-002, BUILD-001 | Built from `codebook_headless_tree_source.js`; actual rebuild comparison currently fails |
+| `src/ace/static/js/codebook_headless_tree_source.js` | Authored | P4 | Reviewed | Controller lifecycle, fetch/mount ownership, event/action map, reverse-completion reproduction, generated parity, and legacy adapter scan | TREE-001, FRONT-002, BUILD-001 | — |
 | `src/ace/static/js/coding_keyboard.js` | Authored | P4 | Reviewed | Zone/shortcut state machine, listener ownership, editable-target guards, bridge overlap map, and tests | FRONT-001 | — |
 | `src/ace/static/js/fuzzysort.min.js` | Vendored | P4 | Reviewed | Version marker, template load, production reference, and replacement-path scan | None | Third-party asset; version 3.0.2 is loaded and used by current codebook search |
 | `src/ace/static/js/htmx.min.js` | Vendored | P4 | Reviewed | Version marker, template load, extension removal contract, OOB/programmatic-swap use, and replacement-path scan | HTMX-001 | Third-party asset; version 2.0.4 is loaded and used throughout route interactions |
