@@ -9,14 +9,14 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 
 | Pass | Scope | Assigned files | Reviewed | Findings | Status |
 |---|---|---:|---:|---:|---|
-| P0 | Baseline and inventory | Repository-wide | 226/226 inventoried | 0 | Complete |
-| P1 | Architecture and integration seams | 6 | 0/6 | 0 | Pending |
+| P0 | Baseline and inventory | Repository-wide | 228/228 inventoried | 0 | Complete |
+| P1 | Architecture and integration seams | 6 | 6/6 | 4 | Complete |
 | P2 | Persistence, models, and services | 25 | 0/25 | 0 | Pending |
 | P3 | Routes, templates, and HTMX contracts | 18 | 0/18 | 0 | Pending |
 | P4 | Frontend JavaScript and CSS | 14 | 0/14 | 0 | Pending |
 | P5 | Desktop, packaging, and release engineering | 17 | 0/17 | 0 | Pending |
 | P6 | Tests and developer feedback loops | 76 | 0/76 | 0 | Pending |
-| P7 | Docs, dependencies, and synthesis | 70 | 0/70 | 0 | Pending |
+| P7 | Docs, dependencies, and synthesis | 72 | 0/72 | 0 | Pending |
 
 ## P0 Baseline Checklist
 
@@ -61,7 +61,7 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 | Browser availability | Pass | Chromium, Firefox, and WebKit executables are installed locally |
 | Python dependency lock | Pass | `uv lock --check`; 36 packages resolved without changing `uv.lock` |
 | Rust dependency lock | Pass | `cargo metadata --manifest-path desktop/launcher/Cargo.toml --locked --no-deps --format-version 1`; launcher version 1.6.1 resolved from the committed lock |
-| Coverage and provenance classification | Pass | 226/226 tracked paths represented once; no missing, extra, duplicate, or unreasoned generated/vendored/lock/binary rows. Vendored version markers: Sortable 1.15.6, fuzzysort 3.0.2, htmx 2.0.4 |
+| Coverage and provenance classification | Pass | All 226 baseline paths plus the two subsequently committed audit trackers are represented once; no missing, extra, duplicate, or unreasoned generated/vendored/lock/binary rows. Vendored version markers: Sortable 1.15.6, fuzzysort 3.0.2, htmx 2.0.4 |
 | Full pytest baseline and durations | Pass | `uv run pytest --durations=25 -q`; 1,158 passed in 862.57 s (14:22) |
 
 ### Slowest Baseline Tests
@@ -124,6 +124,8 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `.zenodo.json` | Configuration | P7 | Pending | — | — | — |
 | `CHANGELOG.md` | Documentation | P7 | Pending | — | — | — |
 | `CITATION.cff` | Asset/support | P7 | Pending | — | — | — |
+| `CODEBASE_AUDIT_COVERAGE.md` | Documentation | P7 | Pending | Audit tracker created after the 226-file baseline; coverage self-checks run after every pass | None | Audit artifact; review completeness and internal consistency during synthesis |
+| `CODEBASE_AUDIT_FINDINGS.md` | Documentation | P7 | Pending | Audit tracker created after the 226-file baseline; schema and summary checks run after every pass | None | Audit artifact; review evidence and decision status during synthesis |
 | `CONTRIBUTING.md` | Documentation | P7 | Pending | — | — | — |
 | `INSTALL.md` | Documentation | P7 | Pending | — | — | — |
 | `LICENSE` | Documentation | P7 | Pending | — | — | — |
@@ -170,9 +172,9 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `scripts/build_launcher_package.py` | Authored | P5 | Pending | — | — | — |
 | `scripts/build_sidecar.py` | Authored | P5 | Pending | — | — | — |
 | `scripts/check_headless_tree_sync.py` | Authored | P5 | Pending | — | — | — |
-| `src/ace/__init__.py` | Authored | P1 | Pending | — | — | — |
-| `src/ace/__main__.py` | Authored | P1 | Pending | — | — | — |
-| `src/ace/app.py` | Authored | P1 | Pending | — | — | — |
+| `src/ace/__init__.py` | Authored | P1 | Reviewed | Version source and packaging call sites | None | — |
+| `src/ace/__main__.py` | Authored | P1 | Reviewed | CLI-to-`run` argument map; launcher invocation; call-site and history scans | ARCH-004 | — |
+| `src/ace/app.py` | Authored | P1 | Reviewed | Factory, middleware, lifespan, DB ownership, app-state inventory, server/runtime call graph, lifecycle tests | ARCH-003, ARCH-004 | — |
 | `src/ace/db/__init__.py` | Authored | P2 | Pending | — | — | — |
 | `src/ace/db/connection.py` | Authored | P2 | Pending | — | — | — |
 | `src/ace/db/migrations.py` | Authored | P2 | Pending | — | — | — |
@@ -185,21 +187,21 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `src/ace/models/project.py` | Authored | P2 | Pending | — | — | — |
 | `src/ace/models/source.py` | Authored | P2 | Pending | — | — | — |
 | `src/ace/models/source_note.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/routes/__init__.py` | Authored | P1 | Pending | — | — | — |
-| `src/ace/routes/api.py` | Authored | P1 | Pending | — | — | — |
+| `src/ace/routes/__init__.py` | Authored | P1 | Reviewed | Empty package marker; import and registration map | None | — |
+| `src/ace/routes/api.py` | Authored | P1 | Reviewed | Structural router composition; 63-route registration check; import/name-use and test call-site scans | ARCH-002 | — |
 | `src/ace/routes/api_agreement.py` | Authored | P3 | Pending | — | — | — |
 | `src/ace/routes/api_codebook.py` | Authored | P3 | Pending | — | — | — |
 | `src/ace/routes/api_coding.py` | Authored | P3 | Pending | — | — | — |
 | `src/ace/routes/api_project_import.py` | Authored | P3 | Pending | — | — | — |
-| `src/ace/routes/api_support.py` | Authored | P3 | Pending | — | — | — |
-| `src/ace/routes/pages.py` | Authored | P3 | Pending | — | — | — |
+| `src/ace/routes/api_support.py` | Authored | P3 | Pending | P1 seam scan: three lazy imports of page-owned `_coding_context`; full P3 review pending | ARCH-001 | — |
+| `src/ace/routes/pages.py` | Authored | P3 | Pending | P1 seam scan: `_coding_context` responsibility, dependency, call-site, and template-key maps; full P3 review pending | ARCH-001 | — |
 | `src/ace/routes/runtime.py` | Authored | P3 | Pending | — | — | — |
 | `src/ace/services/__init__.py` | Authored | P2 | Pending | — | — | — |
 | `src/ace/services/agreement_computer.py` | Authored | P2 | Pending | — | — | — |
 | `src/ace/services/agreement_loader.py` | Authored | P2 | Pending | — | — | — |
 | `src/ace/services/agreement_types.py` | Authored | P2 | Pending | — | — | — |
 | `src/ace/services/agreement_verdict.py` | Authored | P2 | Pending | — | — | — |
-| `src/ace/services/browser_runtime.py` | Authored | P1 | Pending | — | — | — |
+| `src/ace/services/browser_runtime.py` | Authored | P1 | Reviewed | Tracker/monitor responsibility and thread-safety map; runtime route, JavaScript, launcher, and lifecycle-test traces | None | — |
 | `src/ace/services/chord_assignment.py` | Authored | P2 | Pending | — | — | — |
 | `src/ace/services/code_cues.py` | Authored | P2 | Pending | — | — | — |
 | `src/ace/services/coding_render.py` | Authored | P2 | Pending | — | — | — |
