@@ -10,11 +10,11 @@ Scope: Whole tracked repository, following `CODEBASE_AUDIT_PLAN.md`
 | Priority | Open | Accepted | Rejected | Completed |
 |---|---:|---:|---:|---:|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 9 | 0 | 0 | 0 |
-| Medium | 6 | 0 | 0 | 0 |
-| Low | 4 | 0 | 0 | 0 |
+| High | 11 | 0 | 0 | 0 |
+| Medium | 7 | 0 | 0 | 0 |
+| Low | 6 | 0 | 0 | 0 |
 
-No findings have been accepted yet. P0 records the baseline and coverage map; P1-P3 record architecture, persistence, model, service, route, template, and HTMX findings.
+No findings have been accepted yet. P0 records the baseline and coverage map; P1-P4 record architecture, persistence, model, service, route, template, HTMX, JavaScript, and CSS findings.
 
 ## Rules
 
@@ -185,6 +185,40 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Timing: Safe now
 - Confidence: High
 
+### NOTE-001. Serialise note autosaves and make navigation wait for the complete save queue
+
+- Status: Open
+- Priority: High
+- Category: Correctness risk
+- Where: `src/ace/static/js/ace_notes.js::_doSaveNote` and `aceFlushNoteIfDirty`; `src/ace/static/js/bridge.js::aceNavigate`
+- Evidence: `_doSaveNote` starts every `fetch` immediately and replaces the single `_noteInFlight` reference. If a debounced save is already in flight, a later edit followed by `aceFlushNoteIfDirty()` starts a second request and navigation awaits only that newer promise. A Chromium reproduction using the real `ace_notes.js` and a controlled `fetch` recorded requests for `['older', 'newer']`; resolving `newer` first allowed the navigation flush to resolve while `older` remained pending, then resolving `older` last left the simulated server value as `older`. The catch path also suppresses every non-abort save failure without restoring dirty state or presenting a sticky error. Existing model, route, and three-engine note tests cover successful persistence and status messages, not reversed completion or retry after failure.
+- Current contract: The latest textarea value for the current source and coder is the value that survives debounce, HTMX swaps, source navigation, reload, and export. Navigation does not tear down the page until every earlier save that can still write has settled, and a failed save remains visible and retryable.
+- Why it matters: A slower earlier request can overwrite a newer note after ACE has already allowed the user to leave the source, causing silent user-data loss with no remaining dirty indicator.
+- Recommendation: Give note persistence a serialised, coalescing save queue. Keep at most one write in flight, retain only the latest queued draft, make flush await the complete queue, verify source identity before updating UI state, and keep failed content dirty with a sticky error and explicit retry path.
+- Expected simplification or measured benefit: Replace one mutable promise that does not represent all outstanding work with one explicit single-flight state machine whose flush contract is testable.
+- Tests required first: Add deterministic reversed-completion, edit-during-save, navigation-during-save, swap-during-save, failure/retry, and source-identity cases; retain current debounce, empty-note deletion, warning, and saved-status coverage.
+- Verification: Run source-note model and route tests, note drawer and coding-navigation E2E tests in Chromium, Firefox, and WebKit, and `uv run pytest`.
+- Dependencies: FRONT-001 if note ownership moves to a page-scoped entrypoint in the same work
+- Timing: Needs tests first
+- Confidence: High
+
+### TREE-001. Ignore stale headless-tree initialisation after the sidebar mount changes
+
+- Status: Open
+- Priority: High
+- Category: Correctness risk
+- Where: `src/ace/static/js/codebook_headless_tree_source.js::init`; generated `codebook_headless_tree.js`; sidebar OOB replacement paths in `bridge.js`
+- Evidence: `init` stores a module-global `mountedElement`, then awaits `GET /api/codes/tree` without an abort controller, generation token, or mount-identity check before replacing the global `items`, `tree`, controller, and rendered DOM. A Chromium reproduction using the real generated bundle mounted two successive sidebar elements and controlled the two fetches. Resolving the newer request first rendered `New`; resolving the older request last replaced the current global/UI state with `Old` and left the live mount showing `Old1`. The generated-source synchronisation check passes, so this is a source-design defect rather than bundle drift. Existing codebook E2E tests do not reverse two initialisation responses.
+- Current contract: After an OOB sidebar replacement or rapid reinitialisation, only the newest live mount can own tree data, focus, drag state, and actions; detached mounts and their network completions cannot mutate current state.
+- Why it matters: A slow response for a removed sidebar can roll the visible codebook back to stale data and attach controller state to the wrong generation, exposing users to incorrect rename, move, delete, or apply targets until another refresh.
+- Recommendation: Abort the previous initialisation when a new mount starts and assign a monotonically increasing generation. Before applying fetched data or exposing a controller, require both the current generation and the same connected mount element; treat aborts and stale completions as silent no-ops.
+- Expected simplification or measured benefit: Establish one owner for each tree generation and remove response-order dependence from the controller lifecycle.
+- Tests required first: Add a deterministic two-mount reverse-completion browser test, a detached-mount case, and an assertion that actions and focus remain bound to the newer tree.
+- Verification: Run the headless-tree synchronisation check, codebook controller/zone/context-menu E2E suites across Chromium, Firefox, and WebKit, and `uv run pytest`.
+- Dependencies: FRONT-001 if controller mounting changes in the same batch
+- Timing: Needs tests first
+- Confidence: High
+
 ## Medium-Priority Findings
 
 ### EXPORT-001. Group adjacent annotations independently of interleaved coders
@@ -289,6 +323,23 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Timing: Needs tests first
 - Confidence: High
 
+### FRONT-001. Load coding controllers from an explicit page entrypoint
+
+- Status: Open
+- Priority: Medium
+- Category: Simplification
+- Where: `src/ace/templates/base.html`; `src/ace/static/js/bridge.js`, `ace_notes.js`, and `coding_keyboard.js`; coding and code-view templates
+- Evidence: `base.html` loads the runtime, note, keyboard, and bridge scripts on every page. Instrumenting `EventTarget.prototype.addEventListener` before the real scripts ran showed `bridge.js` registering 52 listeners on both the landing and agreement pages, including 10 `keydown`, 8 `click`, three `htmx:beforeSwap`, two `htmx:afterSettle`, codebook custom-event, resize, and scroll handlers; the coding page registered 72. Many handlers guard internally on missing elements, so current behaviour passes, but unrelated pages still initialise a 5,604-line coding/codebook controller and expose its document-level keyboard ownership. The concrete request-order and lifecycle defects in NOTE-001, TREE-001, HTMX-002, and CODEBOOK-001 show that controller ownership is already a maintenance boundary, not merely a file-size concern.
+- Current contract: Shared status/runtime behaviour remains available on every relevant page; coding, codebook, note, audit-view, landing, import, and agreement shortcuts fire exactly once only in their documented zones and survive HTMX replacement where required.
+- Why it matters: Page-specific state machines share the global document lifecycle, which makes listener conflicts, stale DOM ownership, and repeat initialisation harder to constrain and test.
+- Recommendation: Keep a small shared runtime/status entrypoint in the base template and load explicit page controllers from the templates that own them. Split by lifecycle and responsibility, not arbitrary line count: coding navigation/rendering, notes, codebook/tree, and audit view should each expose an idempotent mount/unmount contract with only deliberately shared globals.
+- Expected simplification or measured benefit: Remove coding/codebook listener registration from unrelated landing, import, and agreement pages and give each replaceable controller one visible lifecycle owner. Do not claim a performance gain without a browser benchmark.
+- Tests required first: Inventory template-to-global calls, characterise page-specific keyboard and HTMX-event ownership, and add assertions that repeated mount/unmount cycles register one effective handler while unrelated pages register none.
+- Verification: Run static asset and route tests, the headless-tree synchronisation check, all page-specific E2E suites in Chromium, Firefox, and WebKit, and `uv run pytest`.
+- Dependencies: HTMX-002 for agreement lifecycle; NOTE-001 and TREE-001 should retain their correctness fixes across the split
+- Timing: Needs design
+- Confidence: High
+
 ## Low-Priority Findings
 
 ### ARCH-002. Remove test-only compatibility exports from the API router aggregator
@@ -359,6 +410,40 @@ No findings have been accepted yet. P0 records the baseline and coverage map; P1
 - Timing: Safe now
 - Confidence: High
 
+### FRONT-002. Remove the retired SortableJS asset and compatibility adapter
+
+- Status: Open
+- Priority: Low
+- Category: Simplification
+- Where: `src/ace/static/js/Sortable.min.js`; `bridge.js::_initSortable`; `codebook_headless_tree_source.js::initSortable`; `CONTRIBUTING.md`
+- Evidence: The tracked vendored asset identifies itself as SortableJS 1.15.6, but repository-wide template/import scans find no script load or module import for it. Excluding the asset itself, production references are the bridge adapter that passes `typeof Sortable === 'undefined' ? undefined : Sortable` and the headless-tree controller's no-op `initSortable` method; the remaining reference is a stale vendored-library note in `CONTRIBUTING.md`. Current drag and drop is implemented by `@headless-tree/core` in the generated bundle, and no test refers to Sortable or `initSortable`.
+- Current contract: Headless-tree pointer and keyboard reordering, folder moves, focus restoration, OOB reinitialisation, and persisted order remain unchanged.
+- Why it matters: The dead asset and adapter imply two drag-and-drop implementations and preserve reinitialisation branches that no current controller uses.
+- Recommendation: Confirm the packaging/dependency pass finds no external bundling reference, then delete the vendored asset, remove the no-op adapter/callback and stale comments, and update contributor documentation to name the actual tree dependency.
+- Expected simplification or measured benefit: Remove one unused third-party asset and the compatibility seam for a drag implementation that is no longer loaded.
+- Tests required first: Existing headless-tree drag/reorder tests are the retained contract; add no new compatibility test for an unowned asset.
+- Verification: Run static asset tests, the generated-bundle synchronisation check, codebook drag/reorder E2E suites in all three engines, packaging checks, and `uv run pytest`.
+- Dependencies: P5 and P7 must confirm packaging and documentation references before implementation
+- Timing: Safe after P5/P7 confirmation
+- Confidence: High
+
+### CSS-001. Replace or define the unresolved inspector background token
+
+- Status: Open
+- Priority: Low
+- Category: Correctness risk
+- Where: `src/ace/static/css/coding.css` rules for `.ace-right-inspector` and `.ace-applied-codes-panel`; shared tokens in `ace.css`
+- Evidence: A repository-wide custom-property definition/use comparison found `--ace-bg-soft` used for two coding-panel background declarations but never defined and given no fallback. The neighbouring design system defines `--ace-bg` and `--ace-bg-muted`; dynamic `--undo-duration` and `--undo-progress` uses were excluded because JavaScript sets them and CSS supplies fallbacks. An unresolved `var()` invalidates the complete background declaration, so these panels currently render transparently rather than with an explicit design token.
+- Current contract: The right inspector and applied-codes panel retain their intended visual hierarchy, contrast, sticky layout, focus states, and monochrome token system in every supported engine.
+- Why it matters: The current appearance is an accidental cascade result that can change when the underlying container changes, and the undefined token makes an apparently valid style silently ineffective.
+- Recommendation: Compare the intended panel treatment against the live design, then either replace both uses with the correct existing token or define `--ace-bg-soft` centrally with an explicit semantic role. Do not guess the colour during the audit.
+- Expected simplification or measured benefit: Restore a fully resolved token graph and make the two panel backgrounds intentional rather than inherited by declaration failure.
+- Tests required first: Add a lightweight custom-property resolution check or focused computed-style assertion that permits documented JavaScript-provided variables but rejects unresolved authored tokens without fallbacks.
+- Verification: Run static asset tests and visually verify the coding layout in Chromium, Firefox, WebKit, and real Safari before committing the implementation.
+- Dependencies: None
+- Timing: Safe now
+- Confidence: High
+
 ## Rejected or Deferred Candidates
 
 Record investigated candidates here when evidence does not support a change, or when work should wait. This prevents repeated rediscovery.
@@ -370,6 +455,8 @@ Record investigated candidates here when evidence does not support a change, or 
 - **Narrow every broad exception in model and undo transactions:** All broad model catches found in P2 roll back and immediately re-raise. `UndoManager._replay` deliberately re-pushes the entry, logs, and re-raises. The concrete problem is commits inside composite handlers (UNDO-001), not exception breadth by itself.
 - **Introduce one declarative dependency/response framework for all routes:** The route matrix found consistent coder/project guards on coder-owned coding and codebook mutations, and the 280-test focused route suite passes. The concrete outliers are the annotation-export precondition and OOB-only response header; fix those contracts directly rather than wrapping FastAPI in a new framework layer.
 - **Create a generic template component system:** Every tracked template is referenced, rendered coding/audit pages had unique IDs with resolvable ARIA references, and conditional duplicate literals did not coexist in output. Domain-owned Jinja fragments are appropriate for the large import mapping builder, but a repository-wide component abstraction is not justified.
+- **Rewrite code-view metadata autosave:** `code_view.js` already serialises metadata writes with one in-flight envelope and one coalesced queued envelope. The queued save starts only after the active request settles, and existing three-engine tests exercise single-flight latest-draft behaviour. The note race in NOTE-001 is not shared by this implementation.
+- **Rebind every frontend listener after every HTMX swap:** Focused review found existing per-node dataset guards for grid resize, coding text controls, and undo affordances, plus a single global guard for coding text controls. The concrete stale lifecycle is the asynchronous tree initialisation in TREE-001; a blanket rebinding framework would obscure working ownership rather than simplify it.
 
 ## Finding Template
 

@@ -13,7 +13,7 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 | P1 | Architecture and integration seams | 6 | 6/6 | 4 | Complete |
 | P2 | Persistence, models, and services | 25 | 25/25 | 8 | Complete |
 | P3 | Routes, templates, and HTMX contracts | 18 | 18/18 | 7 | Complete |
-| P4 | Frontend JavaScript and CSS | 14 | 0/14 | 0 | Pending |
+| P4 | Frontend JavaScript and CSS | 14 | 14/14 | 5 | Complete |
 | P5 | Desktop, packaging, and release engineering | 17 | 0/17 | 0 | Pending |
 | P6 | Tests and developer feedback loops | 76 | 0/76 | 0 | Pending |
 | P7 | Docs, dependencies, and synthesis | 72 | 0/72 | 0 | Pending |
@@ -63,6 +63,13 @@ Plan: local uncommitted `CODEBASE_AUDIT_PLAN.md`
 | Rust dependency lock | Pass | `cargo metadata --manifest-path desktop/launcher/Cargo.toml --locked --no-deps --format-version 1`; launcher version 1.6.1 resolved from the committed lock |
 | Coverage and provenance classification | Pass | All 226 baseline paths plus the two subsequently committed audit trackers are represented once; no missing, extra, duplicate, or unreasoned generated/vendored/lock/binary rows. Vendored version markers: Sortable 1.15.6, fuzzysort 3.0.2, htmx 2.0.4 |
 | Full pytest baseline and durations | Pass | `uv run pytest --durations=25 -q`; 1,158 passed in 862.57 s (14:22) |
+
+## Focused Pass Verification
+
+| Pass | Result | Evidence |
+|---|---|---|
+| P3 routes, templates, and HTMX | Pass | Focused route suite: 280 passed in 10.52 s. Agreement, import-picker, and setup E2E suite: 90 passed in 146.52 s across Chromium, Firefox, and WebKit |
+| P4 frontend JavaScript and CSS | Pass | `scripts/check_headless_tree_sync.py` reported `headless-tree-contract-ok`. Static asset and focused frontend E2E suites were split into three response-safe runs: 103 passed in 159.43 s, 132 passed in 222.70 s, and 33 passed in 59.62 s (268 total), across Chromium, Firefox, and WebKit |
 
 ### Slowest Baseline Tests
 
@@ -213,21 +220,21 @@ These timings prioritise later feedback-loop review; they are not performance fi
 | `src/ace/static/agreement_methodology.md` | Documentation | P7 | Pending | — | — | — |
 | `src/ace/static/agreement_references.bib` | Documentation | P7 | Pending | — | — | — |
 | `src/ace/static/code_palette.json` | Configuration | P7 | Pending | — | — | — |
-| `src/ace/static/css/ace.css` | Authored | P4 | Pending | — | — | — |
-| `src/ace/static/css/agreement.css` | Authored | P4 | Pending | — | — | — |
-| `src/ace/static/css/code_view.css` | Authored | P4 | Pending | — | — | — |
-| `src/ace/static/css/coding.css` | Authored | P4 | Pending | — | — | — |
+| `src/ace/static/css/ace.css` | Authored | P4 | Reviewed | Token definitions, cascade layers, shared components, responsive rules, and reduced-motion contract | None | — |
+| `src/ace/static/css/agreement.css` | Authored | P4 | Reviewed | Agreement layout, result-table states, focus styles, responsive rules, token use, and template interaction trace | A11Y-001, HTMX-002 | — |
+| `src/ace/static/css/code_view.css` | Authored | P4 | Reviewed | Audit-view layout, state selectors, focus treatment, token use, and code-view controller trace | None | — |
+| `src/ace/static/css/coding.css` | Authored | P4 | Reviewed | Coding layout/state selectors, custom-property definition/use scan, responsive rules, and reduced-motion contract | CSS-001 | — |
 | `src/ace/static/favicon.svg` | Asset/support | P7 | Pending | — | — | — |
-| `src/ace/static/js/Sortable.min.js` | Vendored | P4 | Pending | — | — | Third-party asset; verify version, integrity, loading, and replacement path |
-| `src/ace/static/js/ace_notes.js` | Authored | P4 | Pending | — | — | — |
-| `src/ace/static/js/bridge.js` | Authored | P4 | Pending | — | — | — |
-| `src/ace/static/js/code_view.js` | Authored | P4 | Pending | — | — | — |
-| `src/ace/static/js/codebook_headless_tree.js` | Generated | P4 | Pending | — | — | Built from `codebook_headless_tree_source.js`; verify synchronisation |
-| `src/ace/static/js/codebook_headless_tree_source.js` | Authored | P4 | Pending | — | — | — |
-| `src/ace/static/js/coding_keyboard.js` | Authored | P4 | Pending | — | — | — |
-| `src/ace/static/js/fuzzysort.min.js` | Vendored | P4 | Pending | — | — | Third-party asset; verify version, integrity, loading, and replacement path |
-| `src/ace/static/js/htmx.min.js` | Vendored | P4 | Pending | — | — | Third-party asset; verify version, integrity, loading, and replacement path |
-| `src/ace/static/js/runtime.js` | Authored | P4 | Pending | — | — | — |
+| `src/ace/static/js/Sortable.min.js` | Vendored | P4 | Reviewed | Version marker, template/import/load scan, adapter call graph, replacement owner, and test references | FRONT-002 | Third-party asset; version 1.15.6 is tracked but not loaded by current templates or bundles |
+| `src/ace/static/js/ace_notes.js` | Authored | P4 | Reviewed | Drawer state machine, debounce/flush ownership, controlled reverse-completion reproduction, failure path, and test gaps | NOTE-001, FRONT-001 | — |
+| `src/ace/static/js/bridge.js` | Authored | P4 | Reviewed | Function/listener/request inventory, page-global registration trace, HTMX/OOB ownership, stale-DOM guards, innerHTML escaping, and call graph | TEXT-001, HTMX-001, CODEBOOK-001, NOTE-001, TREE-001, FRONT-001, FRONT-002 | — |
+| `src/ace/static/js/code_view.js` | Authored | P4 | Reviewed | Listener/key ownership, JSON rendering/escaping, navigation cache, metadata single-flight queue, and three-engine tests | None | — |
+| `src/ace/static/js/codebook_headless_tree.js` | Generated | P4 | Reviewed | Generated/source synchronisation check plus controlled two-mount reverse-completion reproduction | TREE-001, FRONT-002 | Built from `codebook_headless_tree_source.js`; synchronisation check passes |
+| `src/ace/static/js/codebook_headless_tree_source.js` | Authored | P4 | Reviewed | Controller lifecycle, fetch/mount ownership, event/action map, reverse-completion reproduction, and legacy adapter scan | TREE-001, FRONT-002 | — |
+| `src/ace/static/js/coding_keyboard.js` | Authored | P4 | Reviewed | Zone/shortcut state machine, listener ownership, editable-target guards, bridge overlap map, and tests | FRONT-001 | — |
+| `src/ace/static/js/fuzzysort.min.js` | Vendored | P4 | Reviewed | Version marker, template load, production reference, and replacement-path scan | None | Third-party asset; version 3.0.2 is loaded and used by current codebook search |
+| `src/ace/static/js/htmx.min.js` | Vendored | P4 | Reviewed | Version marker, template load, extension removal contract, OOB/programmatic-swap use, and replacement-path scan | HTMX-001 | Third-party asset; version 2.0.4 is loaded and used throughout route interactions |
+| `src/ace/static/js/runtime.js` | Authored | P4 | Reviewed | Browser-session heartbeat/shutdown lifecycle, token handling, page guards, request failures, and runtime route/launcher tests | None | — |
 | `src/ace/static/logo-light.svg` | Asset/support | P7 | Pending | — | — | — |
 | `src/ace/static/logo.svg` | Asset/support | P7 | Pending | — | — | — |
 | `src/ace/templates/_cheatsheet_coded_text_view.html` | Authored | P3 | Reviewed | Dialog semantics, ID references, focus/action contract, inclusion map, and rendered-page checks | None | — |
