@@ -5,8 +5,24 @@ import sqlite3
 import pytest
 
 from ace.db.connection import create_project, open_project
-from ace.db.migrations import _migrate_v6_to_v7, _migrate_v9_to_v10, check_and_migrate
+from ace.db.migrations import (
+    NewerSchemaVersionError,
+    _migrate_v6_to_v7,
+    _migrate_v9_to_v10,
+    check_and_migrate,
+)
 from ace.db.schema import ACE_APPLICATION_ID, SCHEMA_VERSION
+
+
+def test_check_and_migrate_rejects_newer_schema():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+
+    with pytest.raises(NewerSchemaVersionError):
+        check_and_migrate(conn)
+
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION + 1
+    conn.close()
 
 
 def test_v1_to_v2_migration_adds_group_name(tmp_path):

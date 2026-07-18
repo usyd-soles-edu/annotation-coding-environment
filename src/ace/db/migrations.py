@@ -7,6 +7,19 @@ from typing import Callable
 
 from ace.db.schema import SCHEMA_VERSION
 
+
+class NewerSchemaVersionError(ValueError):
+    """Raised when a project requires a newer ACE schema."""
+
+    def __init__(self, file_version: int, supported_version: int):
+        self.file_version = file_version
+        self.supported_version = supported_version
+        super().__init__(
+            f"Project schema {file_version} is newer than supported schema "
+            f"{supported_version}"
+        )
+
+
 def _migrate_v1_to_v2(conn: sqlite3.Connection) -> None:
     """Add group_name column to codebook_code."""
     conn.execute("ALTER TABLE codebook_code ADD COLUMN group_name TEXT")
@@ -390,6 +403,8 @@ def check_and_migrate(conn: sqlite3.Connection) -> int:
     Returns the current schema version after any migrations.
     """
     current = conn.execute("PRAGMA user_version").fetchone()[0]
+    if current > SCHEMA_VERSION:
+        raise NewerSchemaVersionError(current, SCHEMA_VERSION)
 
     while current < SCHEMA_VERSION:
         next_version = current + 1

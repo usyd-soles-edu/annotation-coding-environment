@@ -10,11 +10,11 @@ Scope: Whole tracked repository, following `CODEBASE_AUDIT_PLAN.md`
 | Priority | Open | Accepted | Rejected | Completed |
 |---|---:|---:|---:|---:|
 | Critical | 0 | 0 | 0 | 0 |
-| High | 13 | 2 | 0 | 0 |
-| Medium | 18 | 0 | 0 | 0 |
+| High | 6 | 9 | 0 | 0 |
+| Medium | 16 | 2 | 0 | 0 |
 | Low | 9 | 0 | 0 | 0 |
 
-Batch 0 has been reviewed. `DEP-001` and `DOC-001` are accepted; the remaining findings are open. P0 records the baseline and coverage map; P1-P7 record the complete audit across architecture, persistence, models, services, routes, templates, HTMX, frontend, desktop, packaging, release, tests, documentation, dependencies, and repository assets.
+Batches 0 and 1 have been reviewed. Eleven findings are accepted; the remaining findings are open. P0 records the baseline and coverage map; P1-P7 record the complete audit across architecture, persistence, models, services, routes, templates, HTMX, frontend, desktop, packaging, release, tests, documentation, dependencies, and repository assets.
 
 ## Proposed Implementation Sequence
 
@@ -66,7 +66,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 
 ### DB-001. Reject project files created by a newer schema before opening them for use
 
-- Status: Open
+- Status: Accepted
 - Priority: High
 - Category: Correctness risk
 - Where: `src/ace/db/migrations.py::check_and_migrate`; `src/ace/db/connection.py::open_project`; project-open routes
@@ -77,13 +77,14 @@ This sequence is for review only. It does not accept any finding or authorise pr
 - Expected simplification or measured benefit: Establish one explicit supported-version gate and remove the current ambiguous fall-through for future files.
 - Tests required first: Add connection and route tests for a valid ACE application ID with a future `user_version`, including connection cleanup and the user-facing update message.
 - Verification: Run `tests/test_db`, project/open route tests, launcher file-open E2E coverage, and `uv run pytest`.
+- Progress: Implemented on `refactor/codebase-optimisation`. Future schemas are rejected before WAL mode with a distinct update-ACE response, failed opens close their connection, and the complete non-browser suite plus targeted three-engine project flows pass.
 - Dependencies: None
 - Timing: Safe now
 - Confidence: High
 
 ### ANN-001. Serialise same-code annotation merge decisions across connections
 
-- Status: Open
+- Status: Accepted
 - Priority: High
 - Category: Correctness risk
 - Where: `src/ace/models/annotation.py::add_annotation_merging`; `/api/code/apply`
@@ -100,7 +101,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 
 ### IMPORT-001. Validate and commit each source-import batch atomically
 
-- Status: Open
+- Status: Accepted
 - Priority: High
 - Category: Correctness risk
 - Where: `src/ace/services/importer.py::import_csv` and `import_text_files`; `src/ace/models/source.py::add_source`; import commit/folder routes
@@ -117,7 +118,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 
 ### TEXT-001. Define one Unicode offset convention across Python and the browser
 
-- Status: Open
+- Status: Accepted
 - Priority: High
 - Category: Correctness risk
 - Where: `src/ace/services/text_splitter.py`, `coding_render.py`, `src/ace/static/js/bridge.js::_sourceOffset`, `_buildTextIndex`, and `_findDOMPosition`; annotation merge/excerpt and agreement computations
@@ -134,7 +135,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 
 ### UNDO-001. Make composite undo and redo handlers transactionally atomic
 
-- Status: Open
+- Status: Accepted
 - Priority: High
 - Category: Correctness risk
 - Where: `src/ace/services/undo.py::_undo_codebook_import`, `_redo_codebook_import`, and `_undo_code_delete`; commit-owning mutation helpers in `src/ace/models/codebook.py`
@@ -151,7 +152,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 
 ### AGREEMENT-001. Preserve distinct sources that happen to contain identical text
 
-- Status: Open
+- Status: Accepted
 - Priority: High
 - Category: Correctness risk
 - Where: `src/ace/services/agreement_loader.py` source matching and `build_dataset`; `agreement_computer.py::_build_sparse_counts`
@@ -168,7 +169,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 
 ### PROJECT-001. Replace an existing project only after its replacement is durable
 
-- Status: Open
+- Status: Accepted
 - Priority: High
 - Category: Correctness risk
 - Where: `src/ace/routes/api_project_import.py::project_create`; `POST /api/project/create` with `overwrite=true`
@@ -179,6 +180,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 - Expected simplification or measured benefit: Give project replacement one commit point and remove the destructive gap between deleting the old file and creating the new one.
 - Tests required first: Add failure injection before and after temporary project creation, assert byte-for-byte preservation of the original, assert temporary-file cleanup, and retain the existing confirmation/success tests.
 - Verification: Run project route tests, setup E2E tests in Chromium, Firefox, and WebKit, the full suite, and a manual overwrite smoke test on macOS and Windows packages.
+- Progress: Implemented on `refactor/codebase-optimisation`. Replacement projects are built, checkpointed, reopened, and validated in the target directory before `os.replace`; injected creation and replace failures preserve the original bytes and clean temporary SQLite files. Windows package execution remains for CI.
 - Dependencies: DB-001
 - Timing: Needs tests first
 - Confidence: High
@@ -308,7 +310,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 
 ### EXPORT-001. Group adjacent annotations independently of interleaved coders
 
-- Status: Open
+- Status: Accepted
 - Priority: Medium
 - Category: Correctness risk
 - Where: `src/ace/services/exporter.py::export_annotations_csv` and `_EXPORT_QUERY`
@@ -529,7 +531,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 
 ### DATA-001. Keep the two sample-data import routes byte-identical
 
-- Status: Open
+- Status: Accepted
 - Priority: Medium
 - Category: Correctness risk
 - Where: `examples/ace-guide-manchester-folk-methods/sources.csv`; `examples/ace-guide-manchester-folk-methods/sources/P01.txt`; `sources/P19.txt`; sample-data documentation
