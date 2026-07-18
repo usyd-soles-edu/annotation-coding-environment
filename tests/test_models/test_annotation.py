@@ -1,8 +1,9 @@
 import sqlite3
+import threading
 
 import pytest
 
-from ace.db.connection import create_project
+from ace.db.connection import create_project, open_project
 from ace.db.schema import create_schema
 from ace.models.annotation import (
     add_annotation,
@@ -167,7 +168,50 @@ def test_get_annotations_for_code_empty(tmp_path):
 # add_annotation_merging — overlap detection + union merge on apply
 # ----------------------------------------------------------------------
 
-from ace.models.annotation import add_annotation_merging
+from ace.models.annotation import (
+    AnnotationWriteBusyError,
+    add_annotation_merging,
+    replay_merge_add,
+    reverse_merge_add,
+)
+
+
+class _CoordinatedConnection(sqlite3.Connection):
+    call_started: threading.Event | None = None
+    begin_attempted: threading.Event | None = None
+    overlap_reached: threading.Event | None = None
+    release_overlap: threading.Event | None = None
+
+    def execute(self, sql, parameters=(), /):
+        if self.call_started is not None:
+            self.call_started.set()
+
+        statement = " ".join(sql.split())
+        if statement == "BEGIN IMMEDIATE" and self.begin_attempted is not None:
+            self.begin_attempted.set()
+        if statement.startswith(
+            "SELECT id, start_offset, end_offset FROM annotation"
+        ):
+            if self.overlap_reached is not None:
+                self.overlap_reached.set()
+            if self.release_overlap is not None:
+                if not self.release_overlap.wait(timeout=5):
+                    raise TimeoutError("timed out coordinating overlap query")
+
+        return super().execute(sql, parameters)
+
+
+def _open_coordinated_connection(path):
+    conn = sqlite3.connect(
+        str(path),
+        timeout=2,
+        check_same_thread=False,
+        factory=_CoordinatedConnection,
+    )
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    return conn
 
 
 def test_merging_no_overlap_creates_new_annotation(tmp_db):
@@ -304,12 +348,134 @@ def test_merging_ignores_soft_deleted(tmp_db):
     assert rows[0]["start_offset"] == 5 and rows[0]["end_offset"] == 15
 
 
+@pytest.mark.parametrize(
+    ("first_range", "second_range", "expected_range"),
+    [
+        ((1, 5), (1, 5), (1, 5)),
+        ((1, 6), (4, 10), (1, 10)),
+    ],
+)
+def test_merging_serialises_concurrent_overlap_decisions(
+    tmp_db, first_range, second_range, expected_range
+):
+    setup_conn = create_project(tmp_db, "Test")
+    source_id, coder_id, code_id = _setup(setup_conn)
+    setup_conn.close()
+
+    first_overlap = threading.Event()
+    release_first = threading.Event()
+    second_started = threading.Event()
+    second_begin_attempted = threading.Event()
+
+    first_conn = _open_coordinated_connection(tmp_db)
+    first_conn.overlap_reached = first_overlap
+    first_conn.release_overlap = release_first
+
+    second_conn = _open_coordinated_connection(tmp_db)
+    second_conn.call_started = second_started
+    second_conn.begin_attempted = second_begin_attempted
+
+    source_text = "Some text content here"
+    results = {}
+    errors = []
+
+    def apply(label, conn, offsets):
+        start, end = offsets
+        try:
+            results[label] = add_annotation_merging(
+                conn,
+                source_id,
+                coder_id,
+                code_id,
+                start,
+                end,
+                source_text[start:end],
+            )
+        except Exception as exc:
+            errors.append(exc)
+
+    first_thread = threading.Thread(
+        target=apply, args=("first", first_conn, first_range)
+    )
+    second_thread = threading.Thread(
+        target=apply, args=("second", second_conn, second_range)
+    )
+
+    serialised = False
+    try:
+        first_thread.start()
+        assert first_overlap.wait(timeout=5)
+        second_thread.start()
+        assert second_started.wait(timeout=5)
+        serialised = second_begin_attempted.wait(timeout=5)
+    finally:
+        release_first.set()
+        first_thread.join(timeout=5)
+        if second_thread.ident is not None:
+            second_thread.join(timeout=5)
+        first_conn.close()
+        second_conn.close()
+
+    assert serialised, "the second merge decision did not wait on a write transaction"
+    assert not first_thread.is_alive()
+    assert not second_thread.is_alive()
+    assert errors == []
+
+    first_id, first_replaced = results["first"]
+    merged_id, merged_replaced = results["second"]
+    assert first_replaced == []
+    assert merged_replaced == [first_id]
+
+    check_conn = open_project(tmp_db)
+    active = get_annotations_for_source(check_conn, source_id, coder_id)
+    assert [(row["start_offset"], row["end_offset"]) for row in active] == [
+        expected_range
+    ]
+    assert active[0]["id"] == merged_id
+    assert active[0]["selected_text"] == source_text[slice(*expected_range)]
+
+    reverse_merge_add(check_conn, merged_id, merged_replaced)
+    assert [
+        row["id"] for row in get_annotations_for_source(check_conn, source_id, coder_id)
+    ] == [first_id]
+
+    replay_merge_add(check_conn, merged_id, merged_replaced)
+    assert [
+        row["id"] for row in get_annotations_for_source(check_conn, source_id, coder_id)
+    ] == [merged_id]
+    check_conn.close()
+
+
+def test_merging_translates_write_lock_contention(tmp_db):
+    setup_conn = create_project(tmp_db, "Test")
+    source_id, coder_id, code_id = _setup(setup_conn)
+    setup_conn.close()
+
+    blocker = sqlite3.connect(str(tmp_db), timeout=0)
+    blocker.execute("BEGIN IMMEDIATE")
+
+    contender = sqlite3.connect(str(tmp_db), timeout=0)
+    contender.row_factory = sqlite3.Row
+    try:
+        with pytest.raises(AnnotationWriteBusyError):
+            add_annotation_merging(
+                contender,
+                source_id,
+                coder_id,
+                code_id,
+                0,
+                4,
+                "Some",
+            )
+    finally:
+        contender.close()
+        blocker.rollback()
+        blocker.close()
+
+
 # ----------------------------------------------------------------------
 # reverse_merge_add / replay_merge_add — atomic undo/redo of merge-add
 # ----------------------------------------------------------------------
-
-from ace.models.annotation import reverse_merge_add, replay_merge_add
-
 
 def test_reverse_merge_add_restores_originals_and_deletes_merged(tmp_db):
     """Reversing a merge: merged row becomes soft-deleted, originals undeleted."""

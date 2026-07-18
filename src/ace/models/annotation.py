@@ -6,6 +6,17 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 
 
+class AnnotationWriteBusyError(RuntimeError):
+    """Raised when an annotation merge cannot acquire SQLite's write lock."""
+
+
+def _is_sqlite_lock_contention(exc: sqlite3.OperationalError) -> bool:
+    error_code = getattr(exc, "sqlite_errorcode", None)
+    if error_code is None:
+        return False
+    return error_code & 0xFF in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}
+
+
 def _assert_code_is_active_leaf(conn: sqlite3.Connection, code_id: str) -> None:
     row = conn.execute(
         "SELECT kind FROM codebook_code WHERE id = ? AND deleted_at IS NULL",
@@ -161,42 +172,47 @@ def add_annotation_merging(
 
     Atomic: all soft-deletes + insert run in one transaction; rollback on error.
     """
-    _assert_code_is_active_leaf(conn, code_id)
-    overlapping = conn.execute(
-        "SELECT id, start_offset, end_offset FROM annotation "
-        "WHERE source_id = ? AND coder_id = ? AND code_id = ? "
-        "AND deleted_at IS NULL "
-        "AND end_offset >= ? AND start_offset <= ?",
-        (source_id, coder_id, code_id, start_offset, end_offset),
-    ).fetchall()
-
-    now = datetime.now(timezone.utc).isoformat()
-    new_id = uuid.uuid4().hex
-
-    if not overlapping:
-        conn.execute(
-            "INSERT INTO annotation "
-            "(id, source_id, coder_id, code_id, start_offset, end_offset, "
-            "selected_text, memo, w3c_selector_json, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
-            (new_id, source_id, coder_id, code_id, start_offset, end_offset,
-             selected_text, now, now),
-        )
-        conn.commit()
-        return new_id, []
-
-    union_start = min(start_offset, *(r["start_offset"] for r in overlapping))
-    union_end = max(end_offset, *(r["end_offset"] for r in overlapping))
-
-    source_row = conn.execute(
-        "SELECT content_text FROM source_content WHERE source_id = ?", (source_id,)
-    ).fetchone()
-    if source_row is None:
-        raise ValueError(f"source {source_id} not found")
-    merged_text = source_row["content_text"][union_start:union_end]
-
-    replaced_ids = [r["id"] for r in overlapping]
     try:
+        conn.execute("BEGIN IMMEDIATE")
+    except sqlite3.OperationalError as exc:
+        if _is_sqlite_lock_contention(exc):
+            raise AnnotationWriteBusyError(
+                "annotation write lock is busy"
+            ) from exc
+        raise
+
+    try:
+        _assert_code_is_active_leaf(conn, code_id)
+        overlapping = conn.execute(
+            "SELECT id, start_offset, end_offset FROM annotation "
+            "WHERE source_id = ? AND coder_id = ? AND code_id = ? "
+            "AND deleted_at IS NULL "
+            "AND end_offset >= ? AND start_offset <= ?",
+            (source_id, coder_id, code_id, start_offset, end_offset),
+        ).fetchall()
+
+        now = datetime.now(timezone.utc).isoformat()
+        new_id = uuid.uuid4().hex
+        replaced_ids = [r["id"] for r in overlapping]
+
+        union_start = start_offset
+        union_end = end_offset
+        annotation_text = selected_text
+        if overlapping:
+            union_start = min(
+                start_offset, *(r["start_offset"] for r in overlapping)
+            )
+            union_end = max(
+                end_offset, *(r["end_offset"] for r in overlapping)
+            )
+            source_row = conn.execute(
+                "SELECT content_text FROM source_content WHERE source_id = ?",
+                (source_id,),
+            ).fetchone()
+            if source_row is None:
+                raise ValueError(f"source {source_id} not found")
+            annotation_text = source_row["content_text"][union_start:union_end]
+
         for rid in replaced_ids:
             conn.execute(
                 "UPDATE annotation SET deleted_at = ? WHERE id = ?",
@@ -207,10 +223,26 @@ def add_annotation_merging(
             "(id, source_id, coder_id, code_id, start_offset, end_offset, "
             "selected_text, memo, w3c_selector_json, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)",
-            (new_id, source_id, coder_id, code_id, union_start, union_end,
-             merged_text, now, now),
+            (
+                new_id,
+                source_id,
+                coder_id,
+                code_id,
+                union_start,
+                union_end,
+                annotation_text,
+                now,
+                now,
+            ),
         )
         conn.commit()
+    except sqlite3.OperationalError as exc:
+        conn.rollback()
+        if _is_sqlite_lock_contention(exc):
+            raise AnnotationWriteBusyError(
+                "annotation write lock is busy"
+            ) from exc
+        raise
     except Exception:
         conn.rollback()
         raise

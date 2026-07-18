@@ -95,6 +95,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 - Expected simplification or measured benefit: Make the documented merge invariant true at the database transaction boundary instead of relying on client-side request ordering.
 - Tests required first: Add a deterministic two-connection race test for identical and partially overlapping ranges, plus undo/redo characterisation for the winning merged result.
 - Verification: Run annotation model tests, coding annotation route tests, rapid-apply E2E coverage in all three engines, and `uv run pytest`.
+- Progress: Implemented on `refactor/codebase-optimisation`. Merge validation, overlap selection, soft-deletes, and insertion now share one `BEGIN IMMEDIATE` transaction; lock contention returns a retryable no-swap status. Deterministic identical/partial-overlap races, undo/redo, 81 focused tests, six three-engine apply-path checks, and all 714 non-browser tests pass.
 - Dependencies: None
 - Timing: Needs tests first
 - Confidence: High

@@ -10,6 +10,8 @@ from ace.app import create_app
 
 from ace.db.connection import create_project
 
+from ace.models.annotation import AnnotationWriteBusyError
+
 from ace.models.codebook import add_code
 
 from ace.models.project import list_coders
@@ -280,6 +282,35 @@ def test_annotate(client_with_codes):
     conn.close()
     assert len(rows) == 1
     assert rows[0]["selected_text"] == "First"
+
+
+def test_annotate_reports_retryable_write_contention(
+    client_with_codes, monkeypatch
+):
+    client, _, code_a, _, db_path = client_with_codes
+
+    def busy(*_args, **_kwargs):
+        raise AnnotationWriteBusyError("simulated write contention")
+
+    monkeypatch.setattr("ace.models.annotation.add_annotation_merging", busy)
+
+    resp = client.post(
+        "/api/code/apply",
+        data={
+            "code_id": code_a,
+            "current_index": 0,
+            "start_offset": 0,
+            "end_offset": 5,
+            "selected_text": "First",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Reswap") == "none"
+    assert "ACE is busy saving another change" in resp.text
+    assert "Try applying the code again" in resp.text
+    assert "ace-statusbar-event--err" in resp.text
+    assert _count_active_annotations(client, db_path, 0) == 0
 
 
 def test_delete_annotation(client_with_codes):
@@ -1062,6 +1093,34 @@ def test_annotate_sentence_merge_status(client_with_two_sentences):
     assert "Merged code" in resp.text
     assert 'id="ace-statusbar-event"' in resp.text
     assert 'id="ace-notification-receipt"' in resp.text
+
+
+def test_annotate_sentence_merge_reports_retryable_write_contention(
+    client_with_two_sentences, monkeypatch
+):
+    client, _coder_id, code_a, db_path = client_with_two_sentences
+    client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
+    )
+    original = _active_annotation_ranges(db_path, 0)
+
+    def busy(*_args, **_kwargs):
+        raise AnnotationWriteBusyError("simulated write contention")
+
+    monkeypatch.setattr("ace.models.annotation.add_annotation_merging", busy)
+
+    resp = client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 1, "current_index": 0},
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Reswap") == "none"
+    assert "ACE is busy saving another change" in resp.text
+    assert "Try applying the code again" in resp.text
+    assert "ace-statusbar-event--err" in resp.text
+    assert _active_annotation_ranges(db_path, 0) == original
 
 
 def test_undo_after_annotate_sentence_merge_restores_original_sentence(

@@ -35,6 +35,16 @@ from ace.routes.api_support import (
 )
 
 
+def _annotation_busy_response() -> Response:
+    return _with_headers(
+        _oob_status(
+            "ACE is busy saving another change. Try applying the code again.",
+            "err",
+        ),
+        {"HX-Reswap": "none"},
+    )
+
+
 @router.post("/code/apply")
 async def annotate(
     request: Request,
@@ -45,7 +55,7 @@ async def annotate(
     selected_text: str = Form(default=""),
 ):
     """Create an annotation and return updated text panel + annotation list."""
-    from ace.models.annotation import add_annotation_merging
+    from ace.models.annotation import AnnotationWriteBusyError, add_annotation_merging
 
     coder_id = _require_coder(request)
 
@@ -63,6 +73,9 @@ async def annotate(
                 conn, source_id, coder_id, code_id,
                 start_offset, end_offset, selected_text,
             )
+        except AnnotationWriteBusyError:
+            logger.warning("Annotation apply could not acquire the project write lock")
+            return _annotation_busy_response()
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
@@ -423,11 +436,20 @@ async def annotate_sentence(
                 new_start = min(neighbour["start_offset"], start)
                 new_end = max(neighbour["end_offset"], end)
                 new_text = source_text[new_start:new_end]
-                from ace.models.annotation import add_annotation_merging
-                ann_id, replaced_ids = add_annotation_merging(
-                    conn, source_id, coder_id, code_id,
-                    new_start, new_end, new_text,
+                from ace.models.annotation import (
+                    AnnotationWriteBusyError,
+                    add_annotation_merging,
                 )
+                try:
+                    ann_id, replaced_ids = add_annotation_merging(
+                        conn, source_id, coder_id, code_id,
+                        new_start, new_end, new_text,
+                    )
+                except AnnotationWriteBusyError:
+                    logger.warning(
+                        "Sentence annotation merge could not acquire the project write lock"
+                    )
+                    return _annotation_busy_response()
                 undo.record_merge_add(source_id, ann_id, replaced_ids)
                 status_msg = "Merged code"
             else:
