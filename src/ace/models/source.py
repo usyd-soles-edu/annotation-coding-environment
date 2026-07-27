@@ -16,6 +16,28 @@ def add_source(
     source_column: str | None = None,
     metadata: dict | None = None,
 ) -> str:
+    source_id = _add_source_no_commit(
+        conn,
+        display_id,
+        content_text,
+        source_type,
+        filename,
+        source_column,
+        metadata,
+    )
+    conn.commit()
+    return source_id
+
+
+def _add_source_no_commit(
+    conn: sqlite3.Connection,
+    display_id: str,
+    content_text: str,
+    source_type: str,
+    filename: str | None = None,
+    source_column: str | None = None,
+    metadata: dict | None = None,
+) -> str:
     now = datetime.now(timezone.utc).isoformat()
     source_id = uuid.uuid4().hex
     content_hash = hashlib.sha256(content_text.encode()).hexdigest()
@@ -33,7 +55,6 @@ def add_source(
         "INSERT INTO source_content (source_id, content_text, content_hash) VALUES (?, ?, ?)",
         (source_id, content_text, content_hash),
     )
-    conn.commit()
     return source_id
 
 

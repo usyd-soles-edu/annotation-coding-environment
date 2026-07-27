@@ -1,8 +1,14 @@
 import json
+import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import openpyxl
+import pytest
 
+import ace.services.importer as importer
 from ace.db.connection import create_project
+from ace.db.connection import open_project
 from ace.models.source import list_sources, get_source_content
 from ace.services.importer import (
     import_csv,
@@ -340,6 +346,160 @@ def test_import_csv_skips_intra_file_duplicate_ids(tmp_path):
         conn.close()
 
 
+def test_import_csv_rolls_back_batch_when_later_source_fails(tmp_path):
+    """A failed row must not leave earlier rows from the batch persisted."""
+    csv_path = tmp_path / "rollback.csv"
+    csv_path.write_text("id,text\nA,first\nB,second\n", encoding="utf-8")
+    conn = create_project(tmp_path / "rollback.ace", "test")
+    conn.execute(
+        """
+        CREATE TRIGGER fail_second_import_source
+        BEFORE INSERT ON source
+        WHEN NEW.display_id = 'B'
+        BEGIN
+            SELECT RAISE(ABORT, 'injected import failure');
+        END
+        """
+    )
+    conn.commit()
+
+    try:
+        with pytest.raises(Exception, match="injected import failure"):
+            import_csv(conn, csv_path, id_column="id", text_columns=["text"])
+
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("display_id", [None, "", "   "])
+def test_import_csv_rejects_blank_source_labels(tmp_path, display_id):
+    """Missing and whitespace-only labels must fail before any rows are inserted."""
+    conn = create_project(tmp_path / "blank-label.ace", "test")
+    tabular_data = ([{"id": display_id, "text": "hello"}], ["id", "text"])
+
+    try:
+        with pytest.raises(ValueError, match="Source labels cannot be blank"):
+            import_csv(
+                conn,
+                tmp_path / "blank-label.csv",
+                id_column="id",
+                text_columns=["text"],
+                tabular_data=tabular_data,
+            )
+
+        assert list_sources(conn) == []
+    finally:
+        conn.close()
+
+
+def test_import_csv_skips_completely_blank_rows(tmp_path):
+    """A blank trailing spreadsheet row remains an empty skipped source."""
+    conn = create_project(tmp_path / "blank-row.ace", "test")
+    tabular_data = (
+        [
+            {"id": "A", "text": "hello"},
+            {"id": None, "text": None},
+        ],
+        ["id", "text"],
+    )
+
+    try:
+        result = import_csv(
+            conn,
+            tmp_path / "blank-row.xlsx",
+            id_column="id",
+            text_columns=["text"],
+            tabular_data=tabular_data,
+        )
+
+        assert (result.created, result.duplicate_skipped, result.empty_skipped) == (
+            1,
+            0,
+            1,
+        )
+        assert [source["display_id"] for source in list_sources(conn)] == ["A"]
+    finally:
+        conn.close()
+
+
+def test_import_csv_serialises_duplicate_checks_across_connections(
+    tmp_path, monkeypatch
+):
+    """Concurrent batches must agree which one created a shared label."""
+    csv_path = tmp_path / "concurrent.csv"
+    csv_path.write_text("id,text\nA,hello\n", encoding="utf-8")
+    db_path = tmp_path / "concurrent.ace"
+    conn = create_project(db_path, "test")
+    conn.close()
+
+    barrier = threading.Barrier(2)
+    original_insert_candidates = importer._insert_candidates
+
+    def synchronised_insert(conn, candidates, empty_skipped=0):
+        barrier.wait(timeout=5)
+        return original_insert_candidates(
+            conn, candidates, empty_skipped=empty_skipped
+        )
+
+    monkeypatch.setattr(importer, "_insert_candidates", synchronised_insert)
+
+    def run_import():
+        worker_conn = open_project(db_path)
+        try:
+            return import_csv(
+                worker_conn,
+                csv_path,
+                id_column="id",
+                text_columns=["text"],
+            )
+        finally:
+            worker_conn.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(run_import) for _ in range(2)]
+        imported = [future.result(timeout=10) for future in futures]
+
+    assert sorted(
+        (
+            result.created,
+            result.duplicate_skipped,
+            len(result.created_ids),
+            result.empty_skipped,
+        )
+        for result in imported
+    ) == [(0, 1, 0, 0), (1, 0, 1, 0)]
+
+    conn = open_project(db_path)
+    try:
+        assert [source["display_id"] for source in list_sources(conn)] == ["A"]
+    finally:
+        conn.close()
+
+
+def test_import_csv_does_not_rollback_an_existing_transaction(tmp_path):
+    """Reject nested imports without rolling back caller-owned changes."""
+    csv_path = tmp_path / "nested.csv"
+    csv_path.write_text("id,text\nA,hello\n", encoding="utf-8")
+    conn = create_project(tmp_path / "nested.ace", "test")
+    conn.execute("UPDATE project SET name = 'Uncommitted'")
+
+    try:
+        with pytest.raises(
+            sqlite3.OperationalError,
+            match="Cannot import sources inside an existing transaction",
+        ):
+            import_csv(conn, csv_path, id_column="id", text_columns=["text"])
+
+        assert conn.in_transaction
+        assert conn.execute("SELECT name FROM project").fetchone()[0] == "Uncommitted"
+        assert list_sources(conn) == []
+    finally:
+        conn.rollback()
+        conn.close()
+
+
 def test_import_text_files_skips_duplicate_display_ids(tmp_path):
     """Re-importing the same folder skips files whose stem already exists."""
     folder = tmp_path / "docs"
@@ -366,6 +526,35 @@ def test_import_text_files_skips_duplicate_display_ids(tmp_path):
             get_source_content(conn, sources["one"]["id"])["content_text"]
             == "First document"
         )
+    finally:
+        conn.close()
+
+
+def test_import_text_files_rolls_back_batch_when_later_source_fails(tmp_path):
+    """A failed file must not leave earlier files from the batch persisted."""
+    folder = tmp_path / "rollback-files"
+    folder.mkdir()
+    (folder / "alpha.txt").write_text("Alpha", encoding="utf-8")
+    (folder / "beta.txt").write_text("Beta", encoding="utf-8")
+    conn = create_project(tmp_path / "rollback-files.ace", "test")
+    conn.execute(
+        """
+        CREATE TRIGGER fail_second_import_file
+        BEFORE INSERT ON source
+        WHEN NEW.display_id = 'beta'
+        BEGIN
+            SELECT RAISE(ABORT, 'injected import failure');
+        END
+        """
+    )
+    conn.commit()
+
+    try:
+        with pytest.raises(Exception, match="injected import failure"):
+            import_text_files(conn, folder)
+
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
     finally:
         conn.close()
 

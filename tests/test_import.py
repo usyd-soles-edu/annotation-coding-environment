@@ -104,6 +104,49 @@ def test_import_commit(client_with_project):
     assert "Start coding" in resp.text
 
 
+def test_import_commit_reports_blank_source_labels(client_with_project):
+    """Blank source labels are reported and the full batch is rejected."""
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "blank-label.csv"
+    csv_path.write_text("id,text\nA1,first\n,second\n", encoding="utf-8")
+    client.post("/api/import/file", data={"path": str(csv_path)})
+
+    resp = client.post(
+        "/api/import/commit",
+        data={"id_column": "id", "text_columns": "text"},
+    )
+
+    assert resp.status_code == 200
+    assert "Source labels cannot be blank." in resp.text
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        assert list_sources(conn) == []
+    finally:
+        conn.close()
+
+
+def test_import_commit_skips_completely_blank_rows(client_with_project):
+    """A wholly blank trailing row is reported as empty rather than invalid."""
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "blank-row.csv"
+    csv_path.write_text("id,text\nA1,first\n,\n", encoding="utf-8")
+    client.post("/api/import/file", data={"path": str(csv_path)})
+
+    resp = client.post(
+        "/api/import/commit",
+        data={"id_column": "id", "text_columns": "text"},
+    )
+
+    assert resp.status_code == 200
+    assert "1 source" in resp.text
+    assert "Skipped 1 empty source." in resp.text
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        assert [source["display_id"] for source in list_sources(conn)] == ["A1"]
+    finally:
+        conn.close()
+
+
 def test_import_commit_requires_text_column(client_with_project):
     """Submitting without a text column does not create empty sources."""
     client, tmp_path = client_with_project

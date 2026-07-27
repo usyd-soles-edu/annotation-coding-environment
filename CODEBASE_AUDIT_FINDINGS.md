@@ -113,6 +113,7 @@ This sequence is for review only. It does not accept any finding or authorise pr
 - Expected simplification or measured benefit: Give source imports one transaction owner and one validation boundary, with result counts that describe the committed database state exactly.
 - Tests required first: Add failure-on-second-row/file rollback tests, blank/whitespace/`None` label tests, and retain duplicate, empty-text, metadata, encoding, and remove-last-import coverage.
 - Verification: Run importer service tests, import route tests, desktop-picker import E2E coverage, and `uv run pytest`.
+- Progress: Implemented on `refactor/codebase-optimisation`. CSV and folder imports now prepare candidates before writing, then check existing and intra-batch labels under one `BEGIN IMMEDIATE` transaction using a no-commit source primitive. Missing labels with text reject the full batch with a specific route message, wholly blank rows remain empty skips, and nested imports cannot roll back caller-owned work. Rollback and two-connection race tests pass alongside 28 importer tests, 24 route tests, 18 three-engine desktop-picker cases, and all 724 non-browser tests.
 - Dependencies: None
 - Timing: Needs tests first
 - Confidence: High

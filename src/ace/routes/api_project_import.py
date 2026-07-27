@@ -395,6 +395,8 @@ async def import_commit(
             conn, tmp_path, id_column, text_col_list, tabular_data=tabular_data
         )
         count, skipped, created_ids = result
+    except ValueError as exc:
+        return _oob_status(str(exc))
     except Exception:
         return _oob_status(_friendly_import_error())
     finally:
