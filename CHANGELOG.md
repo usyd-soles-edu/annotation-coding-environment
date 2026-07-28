@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 1.6.2
+
+### Fixes
+
+- **Project safety** — rejected project files created by newer ACE schemas and made replacement-project failures preserve the original file.
+- **Concurrent coding** — serialised overlapping annotation merges so two tabs cannot create conflicting active ranges.
+- **Source imports** — committed spreadsheet and folder imports atomically, kept concurrent duplicate checks consistent, and rejected labelled content with a blank source name.
+- **Server shutdown** — removed the false `KeyboardInterrupt` traceback after a successful Ctrl-C or packaged shutdown.
+- **Dependencies** — refreshed locked runtime packages and release metadata after dependency security updates.
+
 ## 1.6.1
 
 ### Fixes
