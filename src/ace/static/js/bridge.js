@@ -5294,7 +5294,7 @@
     const idHidden = form.querySelector("#import-id-col");
     const textHidden = form.querySelector("#import-text-cols");
     if (idHidden) idHidden.value = idCol;
-    if (textHidden) textHidden.value = textCols.join(",");
+    if (textHidden) textHidden.value = JSON.stringify(textCols);
 
     form.querySelectorAll(".ace-import-column-row").forEach(function (row) {
       const input = row.querySelector("[data-import-text-col]");

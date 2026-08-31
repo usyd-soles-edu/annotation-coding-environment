@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
 import os
 import platform
 import re
@@ -46,6 +47,26 @@ def _validate_project_name(name: str) -> str | None:
 
 def _friendly_import_error() -> str:
     return "Import failed. Check the selected file and try again."
+
+
+def _parse_import_text_columns(value: str) -> list[str]:
+    """Parse the JSON-encoded ``text_columns`` form field.
+
+    Accepts only a JSON array of strings and preserves each string
+    codepoint-for-codepoint, because row dictionaries key on the exact
+    workbook headers. Any other payload — empty, malformed, non-array, or
+    containing non-string items — yields ``[]`` so the caller can return
+    the friendly choose-columns error.
+    """
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    if not all(isinstance(column, str) for column in parsed):
+        return []
+    return parsed
 
 
 def _sqlite_sidecar_paths(path: Path) -> tuple[Path, Path]:
@@ -364,10 +385,9 @@ async def import_commit(
     if tmp_path is None or not Path(tmp_path).exists():
         return _oob_status("No uploaded file found. Please upload again.")
 
-    text_col_list = [c.strip() for c in text_columns.split(",") if c.strip()]
-    id_column = id_column.strip()
-    if not id_column:
+    if not id_column.strip():
         return _oob_status("Choose a source label column.")
+    text_col_list = _parse_import_text_columns(text_columns)
     if not text_col_list:
         return _oob_status("Choose at least one text column.")
 

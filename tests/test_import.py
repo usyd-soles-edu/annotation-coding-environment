@@ -1,7 +1,10 @@
 """Tests for the import page and API routes."""
 
+import html
+import json
 from pathlib import Path
 
+import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
@@ -93,7 +96,7 @@ def test_import_commit(client_with_project):
     # Commit the import
     resp = client.post(
         "/api/import/commit",
-        data={"id_column": "id", "text_columns": "text"},
+        data={"id_column": "id", "text_columns": '["text"]'},
     )
 
     assert resp.status_code == 200
@@ -113,7 +116,7 @@ def test_import_commit_reports_blank_source_labels(client_with_project):
 
     resp = client.post(
         "/api/import/commit",
-        data={"id_column": "id", "text_columns": "text"},
+        data={"id_column": "id", "text_columns": '["text"]'},
     )
 
     assert resp.status_code == 200
@@ -134,7 +137,7 @@ def test_import_commit_skips_completely_blank_rows(client_with_project):
 
     resp = client.post(
         "/api/import/commit",
-        data={"id_column": "id", "text_columns": "text"},
+        data={"id_column": "id", "text_columns": '["text"]'},
     )
 
     assert resp.status_code == 200
@@ -179,7 +182,7 @@ def test_import_commit_reports_missing_id_column_plainly(client_with_project):
 
     resp = client.post(
         "/api/import/commit",
-        data={"id_column": "missing", "text_columns": "text"},
+        data={"id_column": "missing", "text_columns": '["text"]'},
     )
 
     assert resp.status_code == 200
@@ -198,7 +201,7 @@ def test_import_commit_reports_missing_text_column_plainly(client_with_project):
 
     resp = client.post(
         "/api/import/commit",
-        data={"id_column": "id", "text_columns": "missing"},
+        data={"id_column": "id", "text_columns": '["missing"]'},
     )
 
     assert resp.status_code == 200
@@ -228,7 +231,7 @@ def test_import_commit_reuses_parsed_tabular_data(client_with_project, monkeypat
 
     resp = client.post(
         "/api/import/commit",
-        data={"id_column": "id", "text_columns": "text"},
+        data={"id_column": "id", "text_columns": '["text"]'},
     )
 
     assert resp.status_code == 200
@@ -250,7 +253,7 @@ def test_import_commit_multiple_text_columns_creates_one_source_per_row(client_w
 
     resp = client.post(
         "/api/import/commit",
-        data={"id_column": "id", "text_columns": "reflection,feedback"},
+        data={"id_column": "id", "text_columns": '["reflection", "feedback"]'},
     )
 
     assert resp.status_code == 200
@@ -284,7 +287,7 @@ def test_import_commit_reports_empty_rows_separately(client_with_project):
 
     resp = client.post(
         "/api/import/commit",
-        data={"id_column": "id", "text_columns": "reflection,feedback"},
+        data={"id_column": "id", "text_columns": '["reflection", "feedback"]'},
     )
 
     assert resp.status_code == 200
@@ -308,11 +311,74 @@ def test_import_commit_keeps_native_file_path(client_with_project):
 
     resp = client.post(
         "/api/import/commit",
-        data={"id_column": "id", "text_columns": "text"},
+        data={"id_column": "id", "text_columns": '["text"]'},
     )
 
     assert resp.status_code == 200
     assert csv_path.exists()
+
+
+def test_import_commit_rejects_non_json_text_columns_payload(client_with_project):
+    """Comma-joined or otherwise non-JSON payloads get the friendly error."""
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "data.csv"
+    csv_path.write_text("id,text\nA1,hello\n")
+    client.post("/api/import/file", data={"path": str(csv_path)})
+
+    for payload in ("text", "text,more", '["text"', '{"0": "text"}', "[1, 2]"):
+        resp = client.post(
+            "/api/import/commit",
+            data={"id_column": "id", "text_columns": payload},
+        )
+        assert resp.status_code == 200
+        assert "Choose at least one text column." in resp.text
+
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        assert list_sources(conn) == []
+    finally:
+        conn.close()
+
+
+def test_import_commit_xlsx_comma_nbsp_header_end_to_end(client_with_project):
+    """A header with commas and a leading NBSP survives preview and commit."""
+    client, tmp_path = client_with_project
+
+    header = (
+        "\u00a0If you used another qualitative-coding tool before ACE, think of one "
+        "task you did in both tools. How did you go about that task in the other "
+        "tool, and how do you go about it in ACE now?"
+    )
+    content = "In the other tool I coded by hand; now ACE drafts the first codes."
+    xlsx_path = tmp_path / "workbook.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["participant", header])
+    ws.append(["P01", content])
+    wb.save(xlsx_path)
+    wb.close()
+
+    preview = client.post("/api/import/file", data={"path": str(xlsx_path)})
+    assert preview.status_code == 200
+    assert header in preview.text
+    # The default selection is serialised as a JSON array, not comma-joined text.
+    assert html.escape(json.dumps([header]), quote=True) in preview.text
+
+    resp = client.post(
+        "/api/import/commit",
+        data={"id_column": "participant", "text_columns": json.dumps([header])},
+    )
+    assert resp.status_code == 200
+    assert "1 source" in resp.text
+
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        sources = list_sources(conn)
+        assert [source["display_id"] for source in sources] == ["P01"]
+        stored = get_source_content(conn, sources[0]["id"])["content_text"]
+        assert stored == content
+    finally:
+        conn.close()
 
 
 def test_import_preview_returns_snippet(client_with_project):
