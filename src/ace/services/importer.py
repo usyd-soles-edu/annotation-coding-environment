@@ -295,13 +295,16 @@ def _read_xlsx(path: Path) -> tuple[list[dict], list[str]]:
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         ws = wb.active
+        # Producers like Microsoft Forms can write stale <dimension> metadata that
+        # hides populated cells; reset so iteration scans the actual sheet XML.
+        ws.reset_dimensions()
         row_iter = ws.iter_rows()
         header_cells = next(row_iter)
         columns = [str(c.value) if c.value is not None else f"col_{i}" for i, c in enumerate(header_cells)]
 
         rows = []
         for row_cells in row_iter:
-            row = {}
+            row = dict.fromkeys(columns)
             for col_name, cell in zip(columns, row_cells):
                 value = cell.value
                 if isinstance(value, datetime):

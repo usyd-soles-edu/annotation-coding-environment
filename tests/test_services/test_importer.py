@@ -1,6 +1,8 @@
 import json
+import re
 import sqlite3
 import threading
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
 import openpyxl
@@ -14,6 +16,7 @@ from ace.services.importer import (
     import_csv,
     import_text_files,
     get_random_previews,
+    read_tabular,
 )
 
 
@@ -214,6 +217,59 @@ def test_import_xlsx(tmp_path):
     assert sources[1]["display_id"] == "X2"
     meta = json.loads(sources[0]["metadata_json"])
     assert meta["score"] == 85
+    conn.close()
+
+
+def test_read_tabular_reads_past_stale_dimension_metadata(tmp_path, tmp_db):
+    """Stale <dimension> metadata must not hide columns; ragged rows keep keys."""
+    xlsx_path = tmp_path / "stale-dim.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["id", "response", "score"])
+    ws.append(["S1", "First response", 90])
+    ws.append(["S2", "Second response", 75])
+    # Ragged final row: "score" cell genuinely omitted from the sheet XML.
+    ws.append(["S3", "Trailing omitted"])
+    wb.save(xlsx_path)
+    wb.close()
+
+    # Rewrite only the worksheet XML dimension metadata to a falsely narrow
+    # range, mimicking producers (e.g. Microsoft Forms) with stale dimensions.
+    tampered_path = tmp_path / "stale-dim-tampered.xlsx"
+    with zipfile.ZipFile(xlsx_path) as zin, zipfile.ZipFile(
+        tampered_path, "w", zipfile.ZIP_DEFLATED
+    ) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                xml = data.decode("utf-8")
+                xml, replaced = re.subn(
+                    r'<dimension ref="[^"]+"\s*/>',
+                    '<dimension ref="A1:A2"/>',
+                    xml,
+                    count=1,
+                )
+                assert replaced == 1
+                data = xml.encode("utf-8")
+            zout.writestr(item, data)
+
+    rows, columns = read_tabular(tampered_path)
+    assert columns == ["id", "response", "score"]
+    assert rows == [
+        {"id": "S1", "response": "First response", "score": 90},
+        {"id": "S2", "response": "Second response", "score": 75},
+        {"id": "S3", "response": "Trailing omitted", "score": None},
+    ]
+
+    conn = create_project(tmp_db, "test")
+    count, _skipped, _ids = import_csv(
+        conn, tampered_path, id_column="id", text_columns=["response"]
+    )
+    assert count == 3
+    sources = list_sources(conn)
+    assert [s["display_id"] for s in sources] == ["S1", "S2", "S3"]
+    assert json.loads(sources[0]["metadata_json"])["score"] == 90
+    assert json.loads(sources[2]["metadata_json"]) == {"score": None}
     conn.close()
 
 
