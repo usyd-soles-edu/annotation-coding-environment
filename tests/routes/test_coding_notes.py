@@ -256,12 +256,13 @@ def test_coding_page_legend_surfaces_core_shortcuts(client_with_sources):
     client, _ = client_with_sources
     resp = client.get("/code")
 
-    assert "&uarr;&darr;</span> sentence" in resp.text
-    assert "1&ndash;0/a&ndash;y</span> apply" in resp.text
-    assert ">X</span> delete" in resp.text
-    assert ">V</span> view" in resp.text
-    assert ">N</span> note" in resp.text
-    assert ">?</span> help" in resp.text
+    assert '&larr;</span> <span class="ace-legend-action">codebook</span>' in resp.text
+    assert '&uarr;&darr;</span> <span class="ace-legend-action">sentence</span>' in resp.text
+    assert '1&ndash;0/a&ndash;y</span> <span class="ace-legend-action">apply</span>' in resp.text
+    assert '>X</span> <span class="ace-legend-action">delete</span>' in resp.text
+    assert '>V</span> <span class="ace-legend-action">view</span>' in resp.text
+    assert '>N</span> <span class="ace-legend-action">note</span>' in resp.text
+    assert '>?</span> <span class="ace-legend-action">help</span>' in resp.text
 
 
 def test_note_drawer_header_names_current_source(client_with_sources):
