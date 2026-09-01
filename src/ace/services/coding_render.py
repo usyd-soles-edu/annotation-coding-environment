@@ -27,7 +27,9 @@ def render_sentence_text(
         e = unit["end_offset"]
 
         classes = ["ace-sentence"]
-        if unit["type"] == "list":
+        if unit["type"] == "heading":
+            classes.append("ace-sentence--section-heading")
+        elif unit["type"] == "list":
             classes.append("ace-sentence--list")
         if _has_overlap(s, e, annotations):
             classes.append("ace-sentence--coded")

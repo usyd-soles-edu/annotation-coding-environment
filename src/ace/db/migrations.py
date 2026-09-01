@@ -382,6 +382,21 @@ def _migrate_v9_to_v10(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE codebook_code ADD COLUMN definition TEXT")
 
 
+def _migrate_v10_to_v11(conn: sqlite3.Connection) -> None:
+    """Add optional section-heading spans to source content."""
+    has_source_content = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='source_content'"
+    ).fetchone()
+    if has_source_content is None:
+        return
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(source_content)").fetchall()}
+    if "section_headings_json" not in cols:
+        conn.execute(
+            "ALTER TABLE source_content ADD COLUMN section_headings_json TEXT"
+        )
+
+
 # Registry of migration functions keyed by target version.
 # Each function takes a connection and migrates from version (key - 1) to key.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
@@ -394,6 +409,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     8: _migrate_v7_to_v8,
     9: _migrate_v8_to_v9,
     10: _migrate_v9_to_v10,
+    11: _migrate_v10_to_v11,
 }
 
 

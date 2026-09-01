@@ -34,6 +34,7 @@ class _SourceCandidate:
     filename: str | None = None
     source_column: str | None = None
     metadata: dict | None = None
+    section_heading_spans: list[tuple[int, int]] | None = None
     empty: bool = False
 
 
@@ -85,9 +86,12 @@ def import_csv(
             if meta_columns and has_selected_text
             else None
         )
-        content_text = (
-            _combine_text_columns(row, text_columns) if has_selected_text else ""
-        )
+        if has_selected_text:
+            content_text, section_heading_spans = _combine_text_columns(
+                row, text_columns
+            )
+        else:
+            content_text, section_heading_spans = "", None
 
         candidates.append(
             _SourceCandidate(
@@ -97,6 +101,7 @@ def import_csv(
                 filename=path.name,
                 source_column=None,
                 metadata=metadata,
+                section_heading_spans=section_heading_spans,
                 empty=not has_selected_text,
             )
         )
@@ -111,17 +116,35 @@ def _row_has_selected_text(row: dict, text_columns: list[str]) -> bool:
     )
 
 
-def _combine_text_columns(row: dict, text_columns: list[str]) -> str:
+def _combine_text_columns(
+    row: dict,
+    text_columns: list[str],
+) -> tuple[str, list[tuple[int, int]]]:
     if len(text_columns) == 1:
         value = row[text_columns[0]]
-        return "" if value is None else str(value)
+        return ("" if value is None else str(value)), []
 
-    sections = []
-    for col in text_columns:
+    parts: list[str] = []
+    heading_spans: list[tuple[int, int]] = []
+    offset = 0
+    for index, col in enumerate(text_columns):
+        if index:
+            parts.append("\n\n")
+            offset += 2
+
+        title = str(col)
+        heading_start = offset
+        parts.append(title)
+        offset += len(title)
+        if title:
+            heading_spans.append((heading_start, offset))
+
         value = row[col]
         text = "" if value is None else str(value)
-        sections.append(f"{col}\n{text}")
-    return "\n\n".join(sections)
+        parts.extend(("\n", text))
+        offset += 1 + len(text)
+
+    return "".join(parts), heading_spans
 
 
 def _list_text_files(folder: Path) -> list[Path]:
@@ -209,6 +232,7 @@ def _insert_candidates(
                     filename=candidate.filename,
                     source_column=candidate.source_column,
                     metadata=candidate.metadata,
+                    section_heading_spans=candidate.section_heading_spans,
                 )
             )
             existing.add(candidate.display_id)

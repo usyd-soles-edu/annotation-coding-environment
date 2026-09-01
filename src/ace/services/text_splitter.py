@@ -8,6 +8,8 @@ import re
 
 import pysbd
 
+from ace.models.source import validate_section_heading_spans
+
 # List markers: -, *, •, numbered, lettered, roman numerals in parens
 # Negative lookahead (?!\d) prevents "3.5 million" matching as a numbered list
 _LIST_RE = re.compile(
@@ -27,21 +29,47 @@ _LIST_RE = re.compile(
 _segmenter = pysbd.Segmenter(language="en", clean=False, char_span=True)
 
 
-def split_into_units(text: str) -> list[dict]:
-    """Split text into codeable units: sentences and list items.
+def split_into_units(
+    text: str,
+    section_heading_spans: object = (),
+) -> list[dict]:
+    """Split text into codeable sentences, list items, and recorded headings.
 
-    Returns list of dicts with keys:
-        text: str — the unit text (stripped)
-        type: "prose" | "list"
-        start_offset: int — character offset in original text
-        end_offset: int — character offset (exclusive) in original text
+    Heading spans are emitted atomically. If the span collection is invalid,
+    the complete text follows the unchanged legacy splitting path.
     """
+    if not text:
+        return []
+
+    validated_spans = validate_section_heading_spans(
+        section_heading_spans, len(text)
+    )
+    if not validated_spans:
+        return _split_legacy_range(text, 0)
+
+    units: list[dict] = []
+    cursor = 0
+    for start, end in validated_spans:
+        units.extend(_split_legacy_range(text[cursor:start], cursor))
+        units.append({
+            "text": text[start:end],
+            "type": "heading",
+            "start_offset": start,
+            "end_offset": end,
+        })
+        cursor = end
+    units.extend(_split_legacy_range(text[cursor:], cursor))
+    return units
+
+
+def _split_legacy_range(text: str, base_offset: int) -> list[dict]:
+    """Apply the legacy line/list/sentence splitter to one source-text range."""
     if not text:
         return []
 
     lines = text.split("\n")
     units: list[dict] = []
-    offset = 0  # cumulative char position in original text
+    offset = 0
 
     for i, raw_line in enumerate(lines):
         stripped = raw_line.strip()
@@ -51,7 +79,9 @@ def split_into_units(text: str) -> list[dict]:
             continue
 
         # Start of content in original text (skip leading whitespace)
-        content_start = offset + len(raw_line) - len(raw_line.lstrip())
+        content_start = (
+            base_offset + offset + len(raw_line) - len(raw_line.lstrip())
+        )
 
         if _LIST_RE.match(stripped):
             units.append({

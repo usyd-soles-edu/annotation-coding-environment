@@ -1,5 +1,7 @@
 """Tests for smart text splitting: lines → list items → sentences."""
 
+import pytest
+
 from ace.services.text_splitter import split_into_units
 
 
@@ -170,3 +172,49 @@ def test_list_items_parenthetical_lettered():
     units = split_into_units(text)
     assert len(units) == 2
     assert all(u["type"] == "list" for u in units)
+
+
+def test_recorded_punctuation_heavy_heading_is_one_exact_unit():
+    title = "1. Why now? Really! Dr. A."
+    text = f"{title}\nAnswer one. Answer two."
+    legacy_body_units = [
+        unit
+        for unit in split_into_units(text)
+        if unit["start_offset"] > len(title)
+    ]
+
+    units = split_into_units(text, [(0, len(title))])
+
+    assert units[0] == {
+        "text": title,
+        "type": "heading",
+        "start_offset": 0,
+        "end_offset": len(title),
+    }
+    assert units[1:] == legacy_body_units
+    assert [unit["text"] for unit in units] == [
+        title,
+        "Answer one.",
+        "Answer two.",
+    ]
+    assert all(
+        text[unit["start_offset"]:unit["end_offset"]] == unit["text"]
+        for unit in units
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid_spans",
+    [
+        "not spans",
+        [(0, 0)],
+        [(-1, 2)],
+        [(0, 4), (3, 5)],
+        [(0, 999)],
+        [(True, 2)],
+    ],
+)
+def test_invalid_heading_spans_use_exact_legacy_splitting(invalid_spans):
+    text = "Question one? Question two!\nAn answer."
+
+    assert split_into_units(text, invalid_spans) == split_into_units(text)

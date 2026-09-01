@@ -21,7 +21,11 @@ from ace.models.annotation import (
 from ace.models.assignment import add_assignment, get_assignments_for_coder
 from ace.models.codebook import COLOUR_PALETTE, list_codes, list_codes_with_tree
 from ace.models.project import get_project
-from ace.models.source import get_source_content, list_sources
+from ace.models.source import (
+    decode_section_heading_spans,
+    get_source_content,
+    list_sources,
+)
 from ace.models.source_note import get_note, source_ids_with_notes
 
 router = APIRouter()
@@ -102,6 +106,7 @@ def _coding_context(
     # Current source + content
     current_source = None
     source_text = ""
+    section_heading_spans: tuple[tuple[int, int], ...] = ()
     is_flagged = False
     if assignments and current_index < len(assignments):
         assignment = assignments[current_index]
@@ -111,6 +116,9 @@ def _coding_context(
         content_row = get_source_content(conn, source_id)
         if content_row:
             source_text = content_row["content_text"]
+            section_heading_spans = decode_section_heading_spans(
+                source_text, content_row["section_headings_json"]
+            )
     elif sources:
         current_source = {
             "display_id": sources[current_index]["display_id"],
@@ -119,6 +127,9 @@ def _coding_context(
         content_row = get_source_content(conn, sources[current_index]["id"])
         if content_row:
             source_text = content_row["content_text"]
+            section_heading_spans = decode_section_heading_spans(
+                source_text, content_row["section_headings_json"]
+            )
 
     # Source note state for the current source + presence set for the grid
     current_note_text = ""
@@ -144,7 +155,7 @@ def _coding_context(
     code_counts_by_id = get_annotation_counts_by_code(conn, coder_id)
 
     # --- New: sentence-based rendering ---
-    sentence_units = split_into_units(source_text)
+    sentence_units = split_into_units(source_text, section_heading_spans)
     sentence_html = render_sentence_text(sentence_units, annotations_list, codes_by_id)
 
     # --- Tree-shaped codebook for sidebar ---

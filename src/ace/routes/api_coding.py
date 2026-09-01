@@ -376,7 +376,7 @@ async def annotate_sentence(
     from ace.models.annotation import (
         add_annotation, delete_annotation, get_annotations_for_source,
     )
-    from ace.models.source import get_source_content
+    from ace.models.source import decode_section_heading_spans, get_source_content
     from ace.services.text_splitter import split_into_units
 
     coder_id = _require_coder(request)
@@ -391,7 +391,10 @@ async def annotate_sentence(
             return HTMLResponse("", status_code=400)
 
         source_text = content_row["content_text"]
-        units = split_into_units(source_text)
+        section_heading_spans = decode_section_heading_spans(
+            source_text, content_row["section_headings_json"]
+        )
+        units = split_into_units(source_text, section_heading_spans)
         if sentence_index < 0 or sentence_index >= len(units):
             return HTMLResponse("", status_code=400)
 
@@ -478,7 +481,7 @@ async def delete_sentence_annotations(
     Press X multiple times to remove codes one by one (last-applied first).
     """
     from ace.models.annotation import delete_annotation
-    from ace.models.source import get_source_content
+    from ace.models.source import decode_section_heading_spans, get_source_content
     from ace.services.text_splitter import split_into_units
 
     coder_id = _require_coder(request)
@@ -492,7 +495,11 @@ async def delete_sentence_annotations(
         if not content_row:
             return HTMLResponse("", status_code=400)
 
-        units = split_into_units(content_row["content_text"])
+        source_text = content_row["content_text"]
+        section_heading_spans = decode_section_heading_spans(
+            source_text, content_row["section_headings_json"]
+        )
+        units = split_into_units(source_text, section_heading_spans)
         if sentence_index < 0 or sentence_index >= len(units):
             return HTMLResponse("", status_code=400)
 

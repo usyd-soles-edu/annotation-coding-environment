@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 import sqlite3
@@ -11,7 +12,11 @@ import pytest
 import ace.services.importer as importer
 from ace.db.connection import create_project
 from ace.db.connection import open_project
-from ace.models.source import list_sources, get_source_content
+from ace.models.source import (
+    decode_section_heading_spans,
+    get_source_content,
+    list_sources,
+)
 from ace.services.importer import (
     import_csv,
     import_text_files,
@@ -57,6 +62,7 @@ def test_import_csv_creates_sources(tmp_db, sample_csv):
     assert len(sources) == 3
     assert sources[0]["display_id"] == "P001"
     assert sources[0]["source_type"] == "row"
+    assert get_source_content(conn, sources[0]["id"])["section_headings_json"] is None
     conn.close()
 
 
@@ -93,11 +99,20 @@ def test_import_csv_multi_column(tmp_path, tmp_db):
     sources = list_sources(conn)
     assert len(sources) == 2
     assert [s["display_id"] for s in sources] == ["S1", "S2"]
-    content = get_source_content(conn, sources[0]["id"])["content_text"]
-    assert "question1" in content
-    assert "Answer A" in content
-    assert "question2" in content
-    assert "Answer X" in content
+    content_row = get_source_content(conn, sources[0]["id"])
+    expected_content = "question1\nAnswer A\n\nquestion2\nAnswer X"
+    assert content_row["content_text"] == expected_content
+    assert content_row["content_hash"] == hashlib.sha256(
+        expected_content.encode()
+    ).hexdigest()
+    spans = decode_section_heading_spans(
+        expected_content, content_row["section_headings_json"]
+    )
+    assert spans == ((0, 9), (20, 29))
+    assert [expected_content[start:end] for start, end in spans] == [
+        "question1",
+        "question2",
+    ]
     assert sources[0]["source_column"] is None
     conn.close()
 
@@ -115,6 +130,10 @@ def test_import_text_files(tmp_path, tmp_db):
     display_ids = sorted(s["display_id"] for s in sources)
     assert display_ids == ["file1", "file2"]
     assert all(s["source_type"] == "file" for s in sources)
+    assert all(
+        get_source_content(conn, source["id"])["section_headings_json"] is None
+        for source in sources
+    )
     conn.close()
 
 
@@ -189,10 +208,13 @@ def test_import_csv_skips_multi_column_rows_when_all_selected_text_is_blank(tmp_
         assert (created, duplicate_skipped, result.empty_skipped) == (2, 0, 1)
         sources = list_sources(conn)
         assert [s["display_id"] for s in sources] == ["partial", "filled"]
-        content = get_source_content(conn, sources[0]["id"])["content_text"]
-        assert "q1" in content
-        assert "answer" in content
-        assert "q2" in content
+        content_row = get_source_content(conn, sources[0]["id"])
+        content = content_row["content_text"]
+        spans = decode_section_heading_spans(
+            content, content_row["section_headings_json"]
+        )
+        assert [content[start:end] for start, end in spans] == ["q1", "q2"]
+        assert content == "q1\nanswer\n\nq2\n   "
     finally:
         conn.close()
 
@@ -202,21 +224,33 @@ def test_import_xlsx(tmp_path):
     xlsx_path = tmp_path / "data.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.append(["id", "response", "score"])
-    ws.append(["X1", "Good stuff", 85])
-    ws.append(["X2", "Needs work", 62])
+    ws.append(["id", "response", "follow_up", "score"])
+    ws.append(["X1", "Good stuff", "Anything else?", 85])
+    ws.append(["X2", "Needs work", "More detail.", 62])
     wb.save(xlsx_path)
     wb.close()
 
     db_path = tmp_path / "xlsx.ace"
     conn = create_project(db_path, "test")
-    count, _skipped, _ids = import_csv(conn, xlsx_path, id_column="id", text_columns=["response"])
+    count, _skipped, _ids = import_csv(
+        conn,
+        xlsx_path,
+        id_column="id",
+        text_columns=["response", "follow_up"],
+    )
     assert count == 2
     sources = list_sources(conn)
     assert sources[0]["display_id"] == "X1"
     assert sources[1]["display_id"] == "X2"
     meta = json.loads(sources[0]["metadata_json"])
     assert meta["score"] == 85
+    content_row = get_source_content(conn, sources[0]["id"])
+    spans = decode_section_heading_spans(
+        content_row["content_text"], content_row["section_headings_json"]
+    )
+    assert [
+        content_row["content_text"][start:end] for start, end in spans
+    ] == ["response", "follow_up"]
     conn.close()
 
 

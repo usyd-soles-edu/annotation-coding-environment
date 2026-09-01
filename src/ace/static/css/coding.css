@@ -1359,6 +1359,34 @@ rect.ace-code-preview {
   padding: 2px 2px 4px 20px;
 }
 
+.ace-sentence--section-heading {
+  display: block;
+  position: relative;
+  font-family: var(--ace-font-sans, system-ui, -apple-system, sans-serif);
+  font-size: var(--ace-font-size-sm);
+  font-weight: var(--ace-weight-medium);
+  line-height: 1.5;
+  padding: 0 0 0 var(--ace-space-4);
+  margin: var(--ace-space-6) 0 var(--ace-space-3) 0;
+}
+
+.ace-text-body > svg + .ace-sentence--section-heading {
+  margin-top: 0;
+}
+
+.ace-sentence--section-heading::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 0;
+  width: 5px;
+  border-left: 2px solid var(--ace-focus);
+  border-top: 2px solid var(--ace-focus);
+  border-bottom: 2px solid var(--ace-focus);
+  pointer-events: none;
+}
+
 .ace-sentence--focused {
   text-decoration: underline;
   text-decoration-color: #546e7a;

@@ -533,3 +533,41 @@ def test_v10_migration_adds_definition_column(tmp_path):
 
     cols = {r[1] for r in conn.execute("PRAGMA table_info(codebook_code)").fetchall()}
     assert "definition" in cols
+
+
+def test_v11_migration_adds_null_heading_metadata_without_changing_content(tmp_path):
+    db = tmp_path / "v10.ace"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE source_content (
+            source_id TEXT PRIMARY KEY,
+            content_text TEXT NOT NULL,
+            content_hash TEXT NOT NULL
+        );
+        INSERT INTO source_content VALUES ('s1', 'Question\nAnswer', 'hash-before');
+
+        CREATE TABLE annotation (
+            id TEXT PRIMARY KEY,
+            start_offset INTEGER NOT NULL,
+            end_offset INTEGER NOT NULL
+        );
+        INSERT INTO annotation VALUES ('a1', 9, 15);
+        PRAGMA user_version = 10;
+    """)
+    conn.commit()
+
+    assert check_and_migrate(conn) == SCHEMA_VERSION
+
+    columns = {
+        row[1]: row for row in conn.execute("PRAGMA table_info(source_content)")
+    }
+    assert columns["section_headings_json"][3] == 0
+    content = conn.execute(
+        "SELECT content_text, content_hash, section_headings_json "
+        "FROM source_content WHERE source_id = 's1'"
+    ).fetchone()
+    assert content == ("Question\nAnswer", "hash-before", None)
+    offsets = conn.execute(
+        "SELECT start_offset, end_offset FROM annotation WHERE id = 'a1'"
+    ).fetchone()
+    assert offsets == (9, 15)
