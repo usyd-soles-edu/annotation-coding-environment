@@ -1,11 +1,15 @@
 """Migration runner for ACE project files."""
 
+import json
 import sqlite3
 import uuid
+from collections import Counter
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Callable
 
 from ace.db.schema import SCHEMA_VERSION
+from ace.models.source import validate_section_heading_spans
 
 
 class NewerSchemaVersionError(ValueError):
@@ -397,6 +401,233 @@ def _migrate_v10_to_v11(conn: sqlite3.Connection) -> None:
         )
 
 
+def _legacy_heading_candidates(content: str) -> list[tuple[str, int, int]]:
+    """Return plausible headings at boundaries used by legacy row imports."""
+    first_end = content.find("\n")
+    if first_end <= 0:
+        return []
+
+    first_heading = content[:first_end]
+    if not first_heading.strip() or "\r" in first_heading:
+        return []
+
+    candidates = [(first_heading, 0, first_end)]
+    line_start = first_end + 1
+    while line_start < len(content):
+        line_end = content.find("\n", line_start)
+        if line_end == -1:
+            break
+        if (
+            line_start >= 2
+            and content[line_start - 2 : line_start] == "\n\n"
+        ):
+            heading = content[line_start:line_end]
+            if heading.strip() and "\r" not in heading:
+                candidates.append((heading, line_start, line_end))
+        line_start = line_end + 1
+    return candidates
+
+
+def _infer_legacy_section_heading_spans(
+    contents: Sequence[str],
+) -> list[tuple[tuple[int, int], ...]] | None:
+    """Infer per-row spans only when boundary headings agree unambiguously."""
+    if len(contents) < 2:
+        return None
+
+    candidates_by_source = [
+        _legacy_heading_candidates(content) for content in contents
+    ]
+    if any(not candidates for candidates in candidates_by_source):
+        return None
+
+    first_heading = candidates_by_source[0][0][0]
+    if any(
+        candidates[0][0] != first_heading or candidates[0][1] != 0
+        for candidates in candidates_by_source
+    ):
+        return None
+
+    counts_by_source = [
+        Counter(heading for heading, _start, _end in candidates)
+        for candidates in candidates_by_source
+    ]
+    common_headings = set(counts_by_source[0])
+    for counts in counts_by_source[1:]:
+        common_headings.intersection_update(counts)
+
+    # Stable value boilerplate at the same boundary in every row is
+    # indistinguishable from a lost heading; cross-row agreement is the
+    # strongest evidence retained by the legacy schema.
+
+    # A repeated common boundary token has more than one possible span.
+    if any(
+        counts[heading] != 1
+        for heading in common_headings
+        for counts in counts_by_source
+    ):
+        return None
+
+    ordered_headings = [
+        heading
+        for heading, _start, _end in candidates_by_source[0]
+        if heading in common_headings
+    ]
+    if len(ordered_headings) < 2 or ordered_headings[0] != first_heading:
+        return None
+
+    inferred: list[tuple[tuple[int, int], ...]] = []
+    for content, candidates in zip(contents, candidates_by_source):
+        source_order = [
+            heading
+            for heading, _start, _end in candidates
+            if heading in common_headings
+        ]
+        if source_order != ordered_headings:
+            return None
+
+        positions = {
+            heading: (start, end)
+            for heading, start, end in candidates
+            if heading in common_headings
+        }
+        spans = tuple(positions[heading] for heading in ordered_headings)
+        for index, (start, end) in enumerate(spans):
+            if content[end : end + 1] != "\n":
+                return None
+            if index == 0:
+                if start != 0:
+                    return None
+            elif content[start - 2 : start] != "\n\n":
+                return None
+
+        validated = validate_section_heading_spans(spans, len(content))
+        if validated is None or len(validated) != len(ordered_headings):
+            return None
+        inferred.append(validated)
+
+    return inferred
+
+
+def _legacy_heading_updates(
+    group: Sequence[tuple[str, str]],
+) -> list[tuple[str, str]]:
+    inferred = _infer_legacy_section_heading_spans(
+        [content for _source_id, content in group]
+    )
+    if inferred is None:
+        return []
+    return [
+        (json.dumps(spans, separators=(",", ":")), source_id)
+        for (source_id, _content), spans in zip(group, inferred)
+    ]
+
+
+def _migrate_v11_to_v12(conn: sqlite3.Connection) -> None:
+    """Recover high-confidence heading spans from legacy multi-column rows."""
+    table_names = {
+        row[0]
+        for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
+    if not {"source", "source_content"}.issubset(table_names):
+        return
+
+    source_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(source)")
+    }
+    content_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(source_content)")
+    }
+    if not {
+        "id",
+        "source_type",
+        "filename",
+        "sort_order",
+    }.issubset(source_columns) or not {
+        "source_id",
+        "content_text",
+        "section_headings_json",
+    }.issubset(content_columns):
+        return
+
+    rows = conn.execute(
+        """
+        SELECT
+            s.id,
+            s.source_type,
+            s.filename,
+            s.sort_order,
+            sc.source_id,
+            sc.content_text,
+            sc.section_headings_json
+        FROM source AS s
+        LEFT JOIN source_content AS sc ON sc.source_id = s.id
+        ORDER BY s.sort_order, s.id
+        """
+    )
+
+    updates: list[tuple[str, str]] = []
+    group: list[tuple[str, str]] = []
+    group_filename: str | None = None
+    previous_sort_order: int | None = None
+
+    for (
+        source_id,
+        source_type,
+        filename,
+        sort_order,
+        content_source_id,
+        content,
+        headings_json,
+    ) in rows:
+        eligible = (
+            isinstance(source_id, str)
+            and source_type == "row"
+            and isinstance(filename, str)
+            and bool(filename.strip())
+            and type(sort_order) is int
+            and content_source_id is not None
+            and isinstance(content, str)
+            and headings_json is None
+        )
+        starts_new_group = (
+            eligible
+            and bool(group)
+            and (
+                filename != group_filename
+                or previous_sort_order is None
+                or sort_order != previous_sort_order + 1
+            )
+        )
+        if group and (not eligible or starts_new_group):
+            updates.extend(_legacy_heading_updates(group))
+            group = []
+
+        if not eligible:
+            group_filename = None
+            previous_sort_order = None
+            continue
+
+        if not group:
+            group_filename = filename
+        group.append((source_id, content))
+        previous_sort_order = sort_order
+
+    if group:
+        updates.extend(_legacy_heading_updates(group))
+
+    conn.executemany(
+        """
+        UPDATE source_content
+        SET section_headings_json = ?
+        WHERE source_id = ? AND section_headings_json IS NULL
+        """,
+        updates,
+    )
+
+
 # Registry of migration functions keyed by target version.
 # Each function takes a connection and migrates from version (key - 1) to key.
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
@@ -410,6 +641,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     9: _migrate_v8_to_v9,
     10: _migrate_v9_to_v10,
     11: _migrate_v10_to_v11,
+    12: _migrate_v11_to_v12,
 }
 
 
