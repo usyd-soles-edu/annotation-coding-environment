@@ -70,9 +70,9 @@ To release:
 2. Bump the release number in `src/ace/__init__.py`, `desktop/launcher/Cargo.toml`, `desktop/launcher/Cargo.lock`, `desktop/launcher/Packager.toml`, `.zenodo.json`, `CITATION.cff`, the README citation, and the website citation on `website/index.qmd`
 3. Check `CITATION.cff` has the intended `version`, `date-released`, DOI, authors, license, and repository URL. Zenodo reads citation metadata from the tagged archive, so stale or uncommitted metadata changes can appear on the DOI record.
 4. Run `uv run python scripts/check_release_metadata.py` and `uv lock --check`
-5. Commit it: `git commit -am "chore(release): bump version to X.Y.Z"`
+5. Stage only the release metadata files, then commit them: `git commit -m "chore(release): X.Y.Z"`
 6. Push `main`: `git push origin main`
-7. Tag it from the release commit on `main`: `git tag vX.Y.Z`
+7. Create an annotated tag from the release commit on `main`: `git tag -a vX.Y.Z -m "X.Y.Z"`
 8. Push the tag: `git push origin vX.Y.Z`
 9. Confirm the `Release Desktop App` GitHub Actions workflow succeeds, audits the locked runtime dependencies, and publishes a draft GitHub release using the matching changelog section
 
@@ -104,16 +104,24 @@ Example:
 
 ```
 src/ace/
-├── app.py              — FastAPI app factory, middleware, server config
+├── app.py               — FastAPI app factory, middleware, server config
 ├── routes/
-│   ├── pages.py        — GET routes (/, /import, /code, /agreement)
-│   └── api.py          — HTMX API endpoints (annotation CRUD, codebook, import, export)
-├── templates/          — Jinja2 templates (base, landing, import, coding, agreement)
-├── models/             — database operations (one file per table)
-├── services/           — business logic (undo, importer, exporter, agreement, text_splitter)
-├── db/                 — schema, migrations, connection management
-└── static/             — CSS, JavaScript (bridge.js), vendored libs (htmx, Sortable)
+│   ├── pages.py         — GET pages (/, /new-project, /import, /code, /code/{id}/view, /agreement)
+│   ├── api.py           — aggregates the API routers below
+│   ├── api_coding.py    — coding, annotations, undo/redo, flags, notes
+│   ├── api_codebook.py  — codebook tree CRUD and reordering
+│   ├── api_agreement.py — agreement computation and exports
+│   ├── api_project_import.py — project create/open, source and codebook import
+│   ├── api_support.py   — shared HTMX helpers and support endpoints
+│   └── runtime.py       — browser-launcher runtime routes
+├── templates/           — Jinja2 templates (base, landing, import, coding, code_view, agreement)
+├── models/              — database operations (one file per table)
+├── services/            — business logic (undo, importer, exporter, agreement, text_splitter)
+├── db/                  — schema, migrations, connection management
+└── static/              — CSS, JavaScript (bridge.js, coding_keyboard.js, code_view.js), vendored libs (htmx, Sortable, fuzzysort)
 ```
+
+The desktop app lives in `desktop/launcher`: a small native launcher (Rust) that starts a bundled ACE server and opens the default browser. `uv run python scripts/build_launcher_package.py` builds the bundled server (via `scripts/build_sidecar.py`) and packages the installers with cargo-packager.
 
 ## Code conventions
 

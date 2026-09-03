@@ -4,7 +4,7 @@ title: "Codebooks"
 
 A codebook is the list of codes you apply to text.
 
-![](../assets/guide/coding-view-with-codebook.png)
+![Codebook editor with folders and code-colour legend](../assets/guide/coding-view-with-codebook.png)
 
 ## Add a code
 

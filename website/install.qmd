@@ -41,13 +41,16 @@ For development with reloads:
 uv run uvicorn ace.app:create_app --factory --host 127.0.0.1 --port 8080 --reload --reload-dir src/ace
 ```
 
-### Desktop wrapper
+### Desktop app
 
-The desktop app is a Tauri wrapper around the local ACE server. To run it during development:
+The downloadable desktop app is a small native launcher. It starts a bundled copy of the ACE server on your computer and opens ACE in your default browser. `uv run ace` runs the same server on its own.
+
+Contributors can build the desktop package — a `.dmg` on macOS or an installer on Windows:
 
 ```bash
-cd desktop
-cargo tauri dev
+uv run python scripts/build_launcher_package.py
 ```
+
+The launcher source lives in `desktop/launcher`. The `Release Desktop App` workflow builds the published installers automatically from version tags.
 
 For more detail, see the repository `README.md`, `INSTALL.md`, and `CONTRIBUTING.md`.

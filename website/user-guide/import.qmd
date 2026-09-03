@@ -2,47 +2,52 @@
 title: "Import sources"
 ---
 
-ACE imports source text from a CSV file or a folder of text files.
+ACE imports source text from a spreadsheet (`.csv` or `.xlsx`) or a folder of text files.
 
-After import, the text is stored inside the `.ace` project file.
+After import, the text is stored inside the `.ace` project file. Your original files are not changed.
 
-## CSV import
+## Spreadsheet import
 
-Use CSV import when your sources are already in a spreadsheet.
+Use spreadsheet import when your sources are already in a table. ACE reads `.csv` files and `.xlsx` workbooks (first sheet). The first row must hold the column names.
 
-Your CSV should have:
+Your spreadsheet needs:
 
 - **one row per source**
-- **one column for the source ID or name**
-- **one column for the text to code**
+- **one column for the source label** — a name or ID such as `P01`
+- **one or more columns holding the text to code**
+
+Extra columns are optional. ACE keeps them with each source and includes them again when you [export annotations](export.qmd).
 
 Example:
 
 ```csv
-source_id,text
+source_id,interview
 P01,"First transcript text..."
 P02,"Second transcript text..."
 ```
 
 Steps:
 
-1. **Open ACE.**
-2. **Choose New project.**
-3. **Name the project** and choose where to save it.
-4. **Choose Import sources.**
-5. **Select the CSV file.**
-6. **Pick the source ID column.**
-7. **Pick the text column.**
-8. **Check the preview.**
-9. **Start coding** when the import looks right.
+1. **Open your project** and choose **Import sources**.
+2. **Choose Import a spreadsheet** and select the `.csv` or `.xlsx` file.
+3. **Check the source label column** ACE suggests. Pick a different column if needed.
+4. **Tick the text columns** to code. Ticking more than one adds a labelled section for each column to every source.
+5. **Check the preview.** It shows a sample source with its label and selected text; use the refresh button to see another. Your column choices stay as they are while you look.
+6. **Choose Import**, then start coding when the import looks right.
 
-If your CSV has metadata columns, keep them in the file for your records. ACE only needs the source ID and text columns for coding.
+### Section headings
+
+When a source has several text columns, the column name becomes a heading above each section. Headings work like sentences: move through them with `Up` and `Down`, select them, and code them. See [Code text](coding.qmd).
+
+### Skipped rows and mistakes
+
+Rows whose label already exists in the project are skipped, so importing the same file twice does not duplicate sources. Fully blank rows are skipped too. If an import goes wrong, use **Remove last import** on the import screen to remove that batch.
 
 ## Folder import
 
 Use folder import when each source is already a separate `.txt` or `.md` file.
 
-![](../assets/guide/new-project-folder-selected.png)
+![The new project screen showing a project name and a selected folder location for saving the project file.](../assets/guide/new-project-folder-selected.png)
 
 Steps:
 
@@ -52,7 +57,7 @@ Steps:
 4. **Check the sample preview.**
 5. **Start coding** when the import looks right.
 
-![](../assets/guide/folder-import-review.png)
+![Folder import preview listing the text files ready to import](../assets/guide/folder-import-review.png)
 
 ACE creates one source per file. The file name becomes the source name.
 

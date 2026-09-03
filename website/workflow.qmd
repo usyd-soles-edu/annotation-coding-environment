@@ -20,7 +20,7 @@ Use a clear file name, such as `interviews_round_1.ace`, and keep it in a backed
 
 Start by importing sources. You can add more later, but it is easier to check the dataset before coding begins.
 
-![](assets/guide/folder-import-review.png)
+![Folder import preview showing ready-to-import files](assets/guide/folder-import-review.png)
 
 ## Codebook second
 
