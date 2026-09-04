@@ -503,7 +503,7 @@ def _build_import_mapping_fragment(
         for i, row in enumerate(preview_rows)
     ]
     preview_data = html.escape(json.dumps(preview_payload), quote=True)
-    selected_text_value = ",".join(text_cols)
+    selected_text_value = json.dumps(text_cols)
 
     id_options = []
     for col in columns:

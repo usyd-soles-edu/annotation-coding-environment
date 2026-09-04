@@ -40,6 +40,16 @@ def test_create_schema_sets_user_version(schema_conn):
     assert row[0] == SCHEMA_VERSION
 
 
+def test_source_content_has_nullable_section_heading_metadata(schema_conn):
+    columns = {
+        row["name"]: row
+        for row in schema_conn.execute("PRAGMA table_info(source_content)")
+    }
+
+    assert columns["section_headings_json"]["type"] == "TEXT"
+    assert columns["section_headings_json"]["notnull"] == 0
+
+
 def test_create_schema_adds_annotation_hot_path_indexes(schema_conn):
     rows = schema_conn.execute("PRAGMA index_list(annotation)").fetchall()
     indexes = {row["name"] for row in rows}

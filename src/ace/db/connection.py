@@ -5,8 +5,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from ace.db.migrations import check_and_migrate
-from ace.db.schema import ACE_APPLICATION_ID, create_schema
+from ace.db.migrations import NewerSchemaVersionError, check_and_migrate
+from ace.db.schema import ACE_APPLICATION_ID, SCHEMA_VERSION, create_schema
 from ace.models.project import add_coder
 
 
@@ -24,19 +24,35 @@ def create_project(
 
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode = WAL")
-    create_schema(conn)
+    try:
+        conn.execute("PRAGMA journal_mode = WAL")
+        create_schema(conn)
 
-    now = datetime.now(timezone.utc).isoformat()
-    conn.execute(
-        "INSERT INTO project (id, name, description, file_role, created_at, updated_at) "
-        "VALUES (?, ?, ?, 'manager', ?, ?)",
-        (uuid.uuid4().hex, name, description, now, now),
-    )
-    conn.commit()
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "INSERT INTO project (id, name, description, file_role, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'manager', ?, ?)",
+            (uuid.uuid4().hex, name, description, now, now),
+        )
+        conn.commit()
 
-    add_coder(conn, coder_name)
-    return conn
+        add_coder(conn, coder_name)
+        return conn
+    except Exception:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
+        for candidate in (
+            path,
+            path.with_name(f"{path.name}-wal"),
+            path.with_name(f"{path.name}-shm"),
+        ):
+            try:
+                candidate.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
 
 
 def open_project(path: str | Path) -> sqlite3.Connection:
@@ -52,17 +68,24 @@ def open_project(path: str | Path) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
 
-    app_id = conn.execute("PRAGMA application_id").fetchone()[0]
-    if app_id != ACE_APPLICATION_ID:
-        conn.close()
-        raise ValueError(
-            f"Not a valid ACE project file (application_id={app_id:#x}, "
-            f"expected {ACE_APPLICATION_ID:#x})"
-        )
+    try:
+        app_id = conn.execute("PRAGMA application_id").fetchone()[0]
+        if app_id != ACE_APPLICATION_ID:
+            raise ValueError(
+                f"Not a valid ACE project file (application_id={app_id:#x}, "
+                f"expected {ACE_APPLICATION_ID:#x})"
+            )
 
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    check_and_migrate(conn)
+        conn.execute("PRAGMA foreign_keys = ON")
+        file_version = conn.execute("PRAGMA user_version").fetchone()[0]
+        if file_version > SCHEMA_VERSION:
+            raise NewerSchemaVersionError(file_version, SCHEMA_VERSION)
+        conn.execute("PRAGMA journal_mode = WAL")
+        check_and_migrate(conn)
+    except Exception:
+        conn.close()
+        raise
+
     return conn
 
 

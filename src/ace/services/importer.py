@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from ace.models.source import add_source
+from ace.models.source import _add_source_no_commit
 
 _CSV_ENCODINGS = ("utf-8", "cp1252", "latin-1")
 _TEXT_EXTENSIONS = ("*.txt", "*.md")
@@ -24,6 +24,18 @@ class ImportResult:
         yield self.created
         yield self.duplicate_skipped
         yield self.created_ids
+
+
+@dataclass(frozen=True)
+class _SourceCandidate:
+    display_id: str
+    content_text: str
+    source_type: str
+    filename: str | None = None
+    source_column: str | None = None
+    metadata: dict | None = None
+    section_heading_spans: list[tuple[int, int]] | None = None
+    empty: bool = False
 
 
 def _existing_display_ids(conn: sqlite3.Connection) -> set[str]:
@@ -59,37 +71,42 @@ def import_csv(
     rows, columns = tabular_data if tabular_data is not None else read_tabular(path)
 
     meta_columns = [c for c in columns if c != id_column and c not in text_columns]
-    existing = _existing_display_ids(conn)
-    created = 0
-    duplicate_skipped = 0
     empty_skipped = 0
-    created_ids: list[str] = []
+    candidates: list[_SourceCandidate] = []
 
     for row in rows:
-        display_id = str(row[id_column])
-        if display_id in existing:
-            duplicate_skipped += 1
-            continue
-        if not _row_has_selected_text(row, text_columns):
+        raw_display_id = row[id_column]
+        has_selected_text = _row_has_selected_text(row, text_columns)
+        if not has_selected_text and _is_blank_value(raw_display_id):
             empty_skipped += 1
             continue
-        metadata = {c: row[c] for c in meta_columns} if meta_columns else None
-        content_text = _combine_text_columns(row, text_columns)
-
-        source_id = add_source(
-            conn,
-            display_id=display_id,
-            content_text=content_text,
-            source_type="row",
-            filename=path.name,
-            source_column=None,
-            metadata=metadata,
+        display_id = _validated_display_id(raw_display_id)
+        metadata = (
+            {c: row[c] for c in meta_columns}
+            if meta_columns and has_selected_text
+            else None
         )
-        created_ids.append(source_id)
-        existing.add(display_id)
-        created += 1
+        if has_selected_text:
+            content_text, section_heading_spans = _combine_text_columns(
+                row, text_columns
+            )
+        else:
+            content_text, section_heading_spans = "", None
 
-    return ImportResult(created, duplicate_skipped, empty_skipped, created_ids)
+        candidates.append(
+            _SourceCandidate(
+                display_id=display_id,
+                content_text=content_text,
+                source_type="row",
+                filename=path.name,
+                source_column=None,
+                metadata=metadata,
+                section_heading_spans=section_heading_spans,
+                empty=not has_selected_text,
+            )
+        )
+
+    return _insert_candidates(conn, candidates, empty_skipped=empty_skipped)
 
 
 def _row_has_selected_text(row: dict, text_columns: list[str]) -> bool:
@@ -99,17 +116,35 @@ def _row_has_selected_text(row: dict, text_columns: list[str]) -> bool:
     )
 
 
-def _combine_text_columns(row: dict, text_columns: list[str]) -> str:
+def _combine_text_columns(
+    row: dict,
+    text_columns: list[str],
+) -> tuple[str, list[tuple[int, int]]]:
     if len(text_columns) == 1:
         value = row[text_columns[0]]
-        return "" if value is None else str(value)
+        return ("" if value is None else str(value)), []
 
-    sections = []
-    for col in text_columns:
+    parts: list[str] = []
+    heading_spans: list[tuple[int, int]] = []
+    offset = 0
+    for index, col in enumerate(text_columns):
+        if index:
+            parts.append("\n\n")
+            offset += 2
+
+        title = str(col)
+        heading_start = offset
+        parts.append(title)
+        offset += len(title)
+        if title:
+            heading_spans.append((heading_start, offset))
+
         value = row[col]
         text = "" if value is None else str(value)
-        sections.append(f"{col}\n{text}")
-    return "\n\n".join(sections)
+        parts.extend(("\n", text))
+        offset += 1 + len(text)
+
+    return "".join(parts), heading_spans
 
 
 def _list_text_files(folder: Path) -> list[Path]:
@@ -133,32 +168,82 @@ def import_text_files(
     where ``created_ids`` is the list of new source ids (used by the
     'Remove last import' button).
     """
-    existing = _existing_display_ids(conn)
-    created = 0
-    duplicate_skipped = 0
-    empty_skipped = 0
-    created_ids: list[str] = []
+    candidates: list[_SourceCandidate] = []
     for txt_path in _list_text_files(Path(folder)):
-        display_id = txt_path.stem
-        if display_id in existing:
-            duplicate_skipped += 1
-            continue
+        display_id = _validated_display_id(txt_path.stem)
         content = _read_text_file(txt_path)
-        if not content.strip():
-            empty_skipped += 1
-            continue
-        source_id = add_source(
-            conn,
-            display_id=display_id,
-            content_text=content,
-            source_type="file",
-            filename=txt_path.name,
+        candidates.append(
+            _SourceCandidate(
+                display_id=display_id,
+                content_text=content,
+                source_type="file",
+                filename=txt_path.name,
+                empty=not content.strip(),
+            )
         )
-        created_ids.append(source_id)
-        existing.add(display_id)
-        created += 1
 
-    return ImportResult(created, duplicate_skipped, empty_skipped, created_ids)
+    return _insert_candidates(conn, candidates)
+
+
+def _is_blank_value(value: object) -> bool:
+    return value is None or not str(value).strip()
+
+
+def _validated_display_id(value: object) -> str:
+    """Return a source label, rejecting missing and whitespace-only values."""
+    if _is_blank_value(value):
+        raise ValueError("Source labels cannot be blank.")
+    return str(value)
+
+
+def _insert_candidates(
+    conn: sqlite3.Connection,
+    candidates: list[_SourceCandidate],
+    empty_skipped: int = 0,
+) -> ImportResult:
+    """Insert one prepared import batch atomically in candidate order."""
+    if not candidates:
+        return ImportResult(0, 0, empty_skipped, [])
+    if conn.in_transaction:
+        raise sqlite3.OperationalError(
+            "Cannot import sources inside an existing transaction."
+        )
+
+    created_ids: list[str] = []
+    duplicate_skipped = 0
+    transaction_started = False
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        transaction_started = True
+        existing = _existing_display_ids(conn)
+        for candidate in candidates:
+            if candidate.display_id in existing:
+                duplicate_skipped += 1
+                continue
+            if candidate.empty:
+                empty_skipped += 1
+                continue
+            created_ids.append(
+                _add_source_no_commit(
+                    conn,
+                    display_id=candidate.display_id,
+                    content_text=candidate.content_text,
+                    source_type=candidate.source_type,
+                    filename=candidate.filename,
+                    source_column=candidate.source_column,
+                    metadata=candidate.metadata,
+                    section_heading_spans=candidate.section_heading_spans,
+                )
+            )
+            existing.add(candidate.display_id)
+        conn.commit()
+    except Exception:
+        if transaction_started:
+            conn.rollback()
+        raise
+    return ImportResult(
+        len(created_ids), duplicate_skipped, empty_skipped, created_ids
+    )
 
 
 def get_random_previews(
@@ -234,13 +319,16 @@ def _read_xlsx(path: Path) -> tuple[list[dict], list[str]]:
     wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
     try:
         ws = wb.active
+        # Producers like Microsoft Forms can write stale <dimension> metadata that
+        # hides populated cells; reset so iteration scans the actual sheet XML.
+        ws.reset_dimensions()
         row_iter = ws.iter_rows()
         header_cells = next(row_iter)
         columns = [str(c.value) if c.value is not None else f"col_{i}" for i, c in enumerate(header_cells)]
 
         rows = []
         for row_cells in row_iter:
-            row = {}
+            row = dict.fromkeys(columns)
             for col_name, cell in zip(columns, row_cells):
                 value = cell.value
                 if isinstance(value, datetime):

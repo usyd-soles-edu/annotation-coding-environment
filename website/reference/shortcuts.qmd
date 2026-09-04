@@ -9,7 +9,7 @@ Shortcuts depend on where focus is: source text, codebook, or search.
 | Shortcut | Action |
 |---|---|
 | `1` to `9`, `0`, `a` to `y` | Apply visible codes |
-| `Up` / `Down` | Move between sentences |
+| `Up` / `Down` | Move between sentences and section headings |
 | `Shift+Left` / `Shift+Right` | Move between sources |
 | `Q` | Repeat the last code |
 | `Z` or `Command+Z` | Undo |
@@ -22,6 +22,7 @@ Shortcuts depend on where focus is: source text, codebook, or search.
 | `]` | Open or collapse the applied-codes inspector |
 | `/` | Search codes |
 | `Tab` | Cycle between coding zones |
+| `?` | Show or hide the shortcut sheet |
 
 ## Applied codes
 
@@ -59,7 +60,7 @@ Shortcuts depend on where focus is: source text, codebook, or search.
 
 ## Tip
 
-Use the shortcuts shown inside ACE first. Use this page as a reference when you need the full list.
+The coding screen keeps a short strip of the most-used shortcuts along the bottom of the source panel. Press `?` there for the full sheet.
 
 ## Review coded text
 

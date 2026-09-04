@@ -14,6 +14,20 @@ The file is local to your machine unless you deliberately move, copy, sync, or s
 
 Treat `.ace` files as research data. Keep backups and avoid editing them manually.
 
+## Opening projects from other ACE versions
+
+ACE updates projects made by older versions automatically the first time it opens them, and saves the update into the file.
+
+A project made by a newer version of ACE is not opened: ACE tells you to update ACE first and leaves the file unchanged.
+
+## Copying and syncing projects
+
+Close the project, or quit ACE, before you copy, move, back up, or sync an `.ace` file.
+
+While a project is open, ACE may keep temporary journal files beside it, named like the project (for example `Interviews.ace-wal` and `Interviews.ace-shm`). Recent work can sit in those files, so a copy taken while ACE is open may be incomplete. ACE folds them into the `.ace` file when you close the project or quit normally. Do not delete them; if ACE closes unexpectedly, it recovers from them the next time the project is opened.
+
+After a clean close, the single `.ace` file is all you need.
+
 ## Privacy
 
 ACE does not require a cloud account and does not upload project files automatically. If you store `.ace` files in a cloud-synced folder, that sync is controlled by your storage provider, not by ACE.

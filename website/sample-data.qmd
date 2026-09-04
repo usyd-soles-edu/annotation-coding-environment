@@ -6,6 +6,8 @@ ACE includes a guide-ready version of the Manchester Folk-Methods example datase
 
 Use it to practise importing sources, importing a codebook, coding text, and exporting results.
 
+The repository also contains `examples/manchester-folk-methods/`, a provenance copy of the original Figshare deposit (deposited codebook and survey files). It is reference material only; the importable sample lives in `examples/ace-guide-manchester-folk-methods/`.
+
 ## What is included
 
 The sample folder contains:
@@ -42,7 +44,7 @@ ACE will create 19 sources named `P01` through `P19`.
 3. Select the `sources/` folder.
 4. Check the import preview.
 
-![](assets/guide/folder-import-review.png)
+![Folder import preview with parsed sources listed](assets/guide/folder-import-review.png)
 
 ACE will import each `.txt` file as one source.
 

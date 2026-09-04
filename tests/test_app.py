@@ -259,6 +259,20 @@ def test_run_accepts_port_parameter():
         mock_server.return_value.run.assert_called_once_with()
 
 
+def test_run_suppresses_keyboard_interrupt_after_graceful_shutdown():
+    """Uvicorn may re-raise Ctrl-C after completing its shutdown sequence."""
+    with patch("ace.app.uvicorn.Server") as mock_server, \
+         patch("ace.app._kill_stale_server"), \
+         patch("ace.app._kill_stale_ace_instances"):
+        from ace.app import run
+
+        mock_server.return_value.run.side_effect = KeyboardInterrupt
+
+        run(port=9999)
+
+        mock_server.return_value.run.assert_called_once_with()
+
+
 def test_run_defaults_to_8080():
     """run() without port should default to 8080."""
     import os

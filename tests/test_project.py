@@ -1,12 +1,15 @@
 """Tests for project create/open API routes."""
 
+import os
+import sqlite3
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from ace.app import create_app
-from ace.db.connection import create_project
+from ace.db.connection import create_project, open_project
+from ace.db.schema import SCHEMA_VERSION
 
 
 @pytest.fixture()
@@ -27,6 +30,23 @@ def tmp_project(tmp_path):
     conn = create_project(str(db_path), "Existing")
     conn.close()
     return db_path
+
+
+def _replacement_temp_files(project_path: Path) -> list[Path]:
+    return list(project_path.parent.glob(f".{project_path.name}.*.tmp*"))
+
+
+def _replacement_sidecar_backups(project_path: Path) -> list[Path]:
+    return list(project_path.parent.glob(f".{project_path.name}-*.bak"))
+
+
+def _seed_project_state(app, project_path: Path, upload_path: Path) -> None:
+    app.state.project_path = str(project_path)
+    app.state.undo_managers[str(project_path)] = object()
+    app.state.last_import_source_ids = ["old-source"]
+    app.state.import_tmp_path = str(upload_path)
+    app.state.import_tmp_cleanup = True
+    app.state.import_source_name = "old.csv"
 
 
 # ── Create ──────────────────────────────────────────────────────────────
@@ -171,14 +191,115 @@ def test_create_project_existing_returns_overwrite_dialog(client, tmp_project):
     assert "project-overwrite-panel" not in resp.text
 
 
-def test_create_project_overwrite_confirmed(client, tmp_project):
-    """Overwrite=true deletes existing file and creates fresh project."""
+def test_create_project_overwrite_confirmed(client, app, tmp_project, tmp_path):
+    """Overwrite=true atomically replaces the project and clears stale state."""
+    upload_path = tmp_path / "old-upload.csv"
+    upload_path.write_text("old", encoding="utf-8")
+    wal_path = tmp_project.with_name(f"{tmp_project.name}-wal")
+    shm_path = tmp_project.with_name(f"{tmp_project.name}-shm")
+    wal_path.write_bytes(b"stale wal")
+    shm_path.write_bytes(b"stale shm")
+    _seed_project_state(app, tmp_project, upload_path)
+
     resp = client.post(
         "/api/project/create",
         data={"name": "Test", "path": str(tmp_project), "overwrite": "true"},
     )
+
     assert tmp_project.exists()
     assert "hx-redirect" in resp.headers or "HX-Redirect" in resp.headers
+    conn = open_project(tmp_project)
+    assert conn.execute("SELECT name FROM project").fetchone()["name"] == "Test"
+    conn.close()
+    assert str(tmp_project) not in app.state.undo_managers
+    assert app.state.last_import_source_ids is None
+    assert app.state.import_tmp_path is None
+    assert app.state.import_tmp_cleanup is True
+    assert app.state.import_source_name is None
+    assert not upload_path.exists()
+    assert _replacement_temp_files(tmp_project) == []
+    assert not wal_path.exists()
+    assert not shm_path.exists()
+    assert _replacement_sidecar_backups(tmp_project) == []
+
+
+def test_create_project_overwrite_preserves_original_when_creation_fails(
+    client, app, tmp_project, tmp_path, monkeypatch
+):
+    original = tmp_project.read_bytes()
+    upload_path = tmp_path / "old-upload.csv"
+    upload_path.write_text("old", encoding="utf-8")
+    _seed_project_state(app, tmp_project, upload_path)
+
+    def fail_create(*_args, **_kwargs):
+        raise OSError("simulated disk failure")
+
+    monkeypatch.setattr("ace.db.connection.create_project", fail_create)
+
+    resp = client.post(
+        "/api/project/create",
+        data={"name": "Test", "path": str(tmp_project), "overwrite": "true"},
+    )
+
+    assert "Could not create that project" in resp.text
+    assert tmp_project.read_bytes() == original
+    assert _replacement_temp_files(tmp_project) == []
+    assert str(tmp_project) in app.state.undo_managers
+    assert app.state.last_import_source_ids == ["old-source"]
+    assert app.state.import_tmp_path == str(upload_path)
+    assert upload_path.exists()
+
+
+def test_create_project_overwrite_cleans_partial_replacement_on_failure(
+    client, tmp_project, monkeypatch
+):
+    original = tmp_project.read_bytes()
+
+    def create_then_fail(path, name, description=None, coder_name="default"):
+        conn = create_project(path, name, description, coder_name)
+        conn.close()
+        raise OSError("simulated post-create failure")
+
+    monkeypatch.setattr("ace.db.connection.create_project", create_then_fail)
+
+    resp = client.post(
+        "/api/project/create",
+        data={"name": "Test", "path": str(tmp_project), "overwrite": "true"},
+    )
+
+    assert "Could not create that project" in resp.text
+    assert tmp_project.read_bytes() == original
+    assert _replacement_temp_files(tmp_project) == []
+
+
+def test_create_project_overwrite_preserves_original_when_replace_fails(
+    client, tmp_project, monkeypatch
+):
+    original = tmp_project.read_bytes()
+    wal_path = tmp_project.with_name(f"{tmp_project.name}-wal")
+    shm_path = tmp_project.with_name(f"{tmp_project.name}-shm")
+    wal_path.write_bytes(b"original wal")
+    shm_path.write_bytes(b"original shm")
+    real_replace = os.replace
+
+    def fail_replace(source, target):
+        if Path(target) == tmp_project:
+            raise OSError("simulated replace failure")
+        real_replace(source, target)
+
+    monkeypatch.setattr("ace.routes.api_project_import.os.replace", fail_replace)
+
+    resp = client.post(
+        "/api/project/create",
+        data={"name": "Test", "path": str(tmp_project), "overwrite": "true"},
+    )
+
+    assert "Could not create that project" in resp.text
+    assert tmp_project.read_bytes() == original
+    assert wal_path.read_bytes() == b"original wal"
+    assert shm_path.read_bytes() == b"original shm"
+    assert _replacement_temp_files(tmp_project) == []
+    assert _replacement_sidecar_backups(tmp_project) == []
 
 
 # ── Open ────────────────────────────────────────────────────────────────
@@ -213,10 +334,21 @@ def test_open_invalid_file(client, tmp_path):
     assert "file is not a database" not in resp.text
 
 
+def test_open_newer_project_tells_user_to_update(client, tmp_project):
+    conn = sqlite3.connect(str(tmp_project))
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+    conn.commit()
+    conn.close()
+
+    resp = client.post("/api/project/open", data={"path": str(tmp_project)})
+
+    assert resp.status_code == 200
+    assert "newer version of ACE" in resp.text
+    assert "Update ACE" in resp.text
+
+
 def test_create_project_with_coder_name(client, tmp_path):
     """POST /api/project/create stores the provided coder name."""
-    import sqlite3
-
     path = str(tmp_path / "named.ace")
     resp = client.post(
         "/api/project/create",

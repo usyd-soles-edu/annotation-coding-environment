@@ -12,7 +12,7 @@ Download and install ACE using the instructions in [Get ACE](install.qmd).
 
 Open ACE. The front page gives you the main project actions.
 
-![](assets/guide/landing.png)
+![ACE landing page showing project actions](assets/guide/landing.png)
 
 Choose **New project** to create a local `.ace` file, or **Open project** to reopen an existing one.
 
@@ -22,10 +22,12 @@ Keep the `.ace` file somewhere you can back up. If your team has multiple coders
 
 Import either:
 
-- a CSV file, with one row per source
+- a spreadsheet — `.csv` or `.xlsx` — with one row per source, a label column, and one or more text columns
 - a folder of `.txt` or `.md` files, with one file per source
 
-![](assets/guide/import-options.png)
+![ACE project import options in the start flow](assets/guide/import-options.png)
+
+ACE walks you through choosing the label and text columns and shows a preview before importing. See [Import sources](user-guide/import.qmd).
 
 ### 4. Create a codebook
 
@@ -33,9 +35,9 @@ Add codes for the ideas you want to mark in the text. Put related codes into fol
 
 ### 5. Code text
 
-Move through the source sentence by sentence. Select text, then apply one or more codes from the codebook. To learn more about coding, see [Code text](user-guide/coding.qmd) and [Keyboard shortcuts](reference/shortcuts.qmd).
+Move through the source one sentence or section heading at a time. Select text, then apply one or more codes from the codebook. To learn more about coding, see [Code text](user-guide/coding.qmd) and [Keyboard shortcuts](reference/shortcuts.qmd).
 
-![](assets/guide/coding-view-with-codebook.png)
+![Coding view showing source text and codebook pane](assets/guide/coding-view-with-codebook.png)
 
 ### 6. Review and export
 

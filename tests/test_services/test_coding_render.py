@@ -109,3 +109,33 @@ def test_partial_annotation_no_mark():
     assert "<mark" not in html
 
 
+def test_heading_keeps_sentence_contract_and_adds_heading_class():
+    units = [
+        {
+            "text": "Q < 1?",
+            "type": "heading",
+            "start_offset": 4,
+            "end_offset": 10,
+        },
+        {
+            "text": "Answer.",
+            "type": "prose",
+            "start_offset": 11,
+            "end_offset": 18,
+        },
+    ]
+    annotations = [
+        {"id": "a1", "code_id": "c1", "start_offset": 4, "end_offset": 10}
+    ]
+
+    rendered = render_sentence_text(units, annotations, {})
+
+    assert (
+        'id="s-0" class="ace-sentence ace-sentence--section-heading '
+        'ace-sentence--coded" data-idx="0" data-start="4" data-end="10"'
+        in rendered
+    )
+    assert "Q &lt; 1?" in rendered
+    assert '<span class="ace-para-break"></span>' in rendered
+
+

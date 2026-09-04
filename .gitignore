@@ -15,6 +15,9 @@ build/
 website/_site/
 website/.quarto/
 
+# Duplicate raw transcripts; use the import-ready guide sample instead
+/examples/manchester-folk-methods/sources/
+
 .worktrees/
 /desktop/launcher/target/
 /desktop/launcher/resources/

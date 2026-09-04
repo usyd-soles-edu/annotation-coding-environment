@@ -401,4 +401,9 @@ def run(
     server = uvicorn.Server(config)
     if parent_pid is not None:
         _start_parent_watchdog(parent_pid, _request_server_shutdown)
-    server.run()
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        # Uvicorn can re-raise a captured shutdown signal after its graceful
+        # shutdown completes. Ctrl-C and the packaged SIGTERM path are expected.
+        pass

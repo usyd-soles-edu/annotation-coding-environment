@@ -22,6 +22,14 @@ ACE is designed for small teams, but it does not provide real-time collaborative
 
 Agreement depends on how often a code is used, how clearly it is defined, and how similarly coders apply it. Low agreement is often a prompt to review the code definition and examples.
 
+## Why does ACE say my project needs a newer version?
+
+The project was last used with a newer version of ACE, and this version cannot read it. ACE has not changed the file. Install the latest release from the [GitHub Releases page](https://github.com/usyd-soles-edu/annotation-coding-environment/releases/latest) and open the project again. Projects from older versions of ACE open normally: ACE updates them automatically. See [Project files](file-format.qmd).
+
+## Can I copy my project while ACE is open?
+
+Close the project or quit ACE first. While ACE is open, recent work can sit in temporary journal files beside the `.ace` file, so a copy taken then may be incomplete. See [Project files](file-format.qmd).
+
 ## Where do I report problems?
 
 Report bugs or documentation issues on the [GitHub issue tracker](https://github.com/usyd-soles-edu/annotation-coding-environment/issues).

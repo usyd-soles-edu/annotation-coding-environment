@@ -3,7 +3,7 @@
 import sqlite3
 
 ACE_APPLICATION_ID = 0x41434500  # "ACE\0"
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 12
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS project (
@@ -31,8 +31,9 @@ CREATE TABLE IF NOT EXISTS source (
 
 CREATE TABLE IF NOT EXISTS source_content (
     source_id    TEXT PRIMARY KEY REFERENCES source(id),
-    content_text TEXT NOT NULL,
-    content_hash TEXT NOT NULL
+    content_text          TEXT NOT NULL,
+    content_hash          TEXT NOT NULL,
+    section_headings_json TEXT
 );
 
 CREATE TABLE IF NOT EXISTS codebook_code (

@@ -1,7 +1,8 @@
 import sqlite3
 import pytest
 from ace.db.connection import create_project, open_project, checkpoint_and_close
-from ace.db.schema import ACE_APPLICATION_ID
+from ace.db.migrations import NewerSchemaVersionError
+from ace.db.schema import ACE_APPLICATION_ID, SCHEMA_VERSION
 
 
 def test_create_project_creates_file(tmp_db):
@@ -18,6 +19,24 @@ def test_create_project_inserts_manager_role(tmp_db):
     conn.close()
 
 
+def test_create_project_cleans_partial_files_when_schema_creation_fails(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "partial.ace"
+
+    def fail_schema(_conn):
+        raise sqlite3.OperationalError("simulated disk failure")
+
+    monkeypatch.setattr("ace.db.connection.create_schema", fail_schema)
+
+    with pytest.raises(sqlite3.OperationalError):
+        create_project(path, "Partial")
+
+    assert not path.exists()
+    assert not path.with_name(f"{path.name}-wal").exists()
+    assert not path.with_name(f"{path.name}-shm").exists()
+
+
 def test_open_project_validates_application_id(tmp_path):
     # Create a plain SQLite file (no ACE schema)
     plain_db = tmp_path / "plain.ace"
@@ -28,6 +47,42 @@ def test_open_project_validates_application_id(tmp_path):
 
     with pytest.raises(ValueError):
         open_project(plain_db)
+
+
+def test_open_project_rejects_newer_schema_and_closes_connection(
+    tmp_path, monkeypatch
+):
+    path = tmp_path / "future.ace"
+    conn = create_project(path, "Future")
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+    conn.commit()
+    conn.close()
+
+    real_connect = sqlite3.connect
+    opened = []
+
+    class TrackingConnection(sqlite3.Connection):
+        was_closed = False
+
+        def close(self):
+            self.was_closed = True
+            super().close()
+
+    def tracked_connect(*args, **kwargs):
+        kwargs["factory"] = TrackingConnection
+        tracked = real_connect(*args, **kwargs)
+        opened.append(tracked)
+        return tracked
+
+    monkeypatch.setattr("ace.db.connection.sqlite3.connect", tracked_connect)
+
+    with pytest.raises(NewerSchemaVersionError) as error:
+        open_project(path)
+
+    assert error.value.file_version == SCHEMA_VERSION + 1
+    assert error.value.supported_version == SCHEMA_VERSION
+    assert len(opened) == 1
+    assert opened[0].was_closed
 
 
 def test_open_project_enables_foreign_keys(tmp_db):

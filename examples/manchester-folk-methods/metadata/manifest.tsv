@@ -1,0 +1,4 @@
+local_path	size_bytes	md5	expected_md5	download_url
+examples/manchester-folk-methods/codebook/Codebook - Folk Methods Interview MPhil - 08-02-2026.pdf	345711	9a9ac98de62ae58cb83685d555f1b3cc	9a9ac98de62ae58cb83685d555f1b3cc	https://ndownloader.figshare.com/files/63342313
+examples/manchester-folk-methods/surveys/Surveys.ods	12829	d2eb29e7ebfc18d2dc44811daeb3b5f9	d2eb29e7ebfc18d2dc44811daeb3b5f9	https://ndownloader.figshare.com/files/63342373
+examples/manchester-folk-methods/surveys/Surveys.pdf	131799	2ac4a830e8a73e15cc5e91f3b668c013	2ac4a830e8a73e15cc5e91f3b668c013	https://ndownloader.figshare.com/files/63342376

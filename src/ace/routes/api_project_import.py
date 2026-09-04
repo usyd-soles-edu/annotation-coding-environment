@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json
+import os
 import platform
 import re
 import sqlite3
+import uuid
 from pathlib import Path
 from urllib.parse import quote
 
@@ -44,6 +47,96 @@ def _validate_project_name(name: str) -> str | None:
 
 def _friendly_import_error() -> str:
     return "Import failed. Check the selected file and try again."
+
+
+def _parse_import_text_columns(value: str) -> list[str]:
+    """Parse the JSON-encoded ``text_columns`` form field.
+
+    Accepts only a JSON array of strings and preserves each string
+    codepoint-for-codepoint, because row dictionaries key on the exact
+    workbook headers. Any other payload — empty, malformed, non-array, or
+    containing non-string items — yields ``[]`` so the caller can return
+    the friendly choose-columns error.
+    """
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    if not all(isinstance(column, str) for column in parsed):
+        return []
+    return parsed
+
+
+def _sqlite_sidecar_paths(path: Path) -> tuple[Path, Path]:
+    return (
+        path.with_name(f"{path.name}-wal"),
+        path.with_name(f"{path.name}-shm"),
+    )
+
+
+def _remove_temporary_project(path: Path) -> None:
+    for candidate in (path, *_sqlite_sidecar_paths(path)):
+        try:
+            candidate.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove temporary project file at %s", candidate)
+
+
+def _quarantine_sqlite_sidecars(path: Path) -> list[tuple[Path, Path]]:
+    quarantined: list[tuple[Path, Path]] = []
+    token = uuid.uuid4().hex
+    try:
+        for sidecar in _sqlite_sidecar_paths(path):
+            if not sidecar.exists():
+                continue
+            quarantine = sidecar.with_name(f".{sidecar.name}.{token}.bak")
+            os.replace(sidecar, quarantine)
+            quarantined.append((sidecar, quarantine))
+    except OSError:
+        _restore_quarantined_sidecars(quarantined)
+        raise
+    return quarantined
+
+
+def _restore_quarantined_sidecars(
+    quarantined: list[tuple[Path, Path]],
+) -> None:
+    errors: list[OSError] = []
+    for sidecar, quarantine in reversed(quarantined):
+        try:
+            os.replace(quarantine, sidecar)
+        except OSError as exc:
+            logger.exception("Could not restore SQLite sidecar at %s", sidecar)
+            errors.append(exc)
+    if errors:
+        raise errors[0]
+
+
+def _discard_quarantined_sidecars(
+    quarantined: list[tuple[Path, Path]],
+) -> None:
+    for _sidecar, quarantine in quarantined:
+        try:
+            quarantine.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove quarantined SQLite sidecar at %s", quarantine)
+
+
+def _clear_project_transient_state(request: Request, project_path: str) -> None:
+    request.app.state.undo_managers.pop(project_path, None)
+    request.app.state.last_import_source_ids = None
+
+    import_tmp_path = getattr(request.app.state, "import_tmp_path", None)
+    if import_tmp_path and getattr(request.app.state, "import_tmp_cleanup", True):
+        try:
+            Path(import_tmp_path).unlink(missing_ok=True)
+        except OSError:
+            logger.warning("Could not remove stale import file at %s", import_tmp_path)
+    request.app.state.import_tmp_path = None
+    request.app.state.import_tmp_cleanup = True
+    request.app.state.import_source_name = None
 
 
 from ace.routes.api_support import (
@@ -129,7 +222,7 @@ async def project_create(
     coder_name: str = Form(default="default"),
 ):
     """Create a new .ace project file."""
-    from ace.db.connection import create_project
+    from ace.db.connection import checkpoint_and_close, create_project, open_project
     from ace.models.project import list_coders
 
     name_error = _validate_project_name(name)
@@ -142,6 +235,10 @@ async def project_create(
     if file_path.suffix != ".ace":
         file_path = file_path.with_suffix(".ace")
 
+    temporary_path: Path | None = None
+    conn: sqlite3.Connection | None = None
+    validation_conn: sqlite3.Connection | None = None
+    quarantined_sidecars: list[tuple[Path, Path]] = []
     try:
         if file_path.exists() and not overwrite:
             file_name = html.escape(file_path.name)
@@ -165,18 +262,43 @@ async def project_create(
                 "</dialog>"
             )
 
+        create_path = file_path
         if file_path.exists() and overwrite:
-            file_path.unlink()
+            temporary_path = file_path.with_name(
+                f".{file_path.name}.{uuid.uuid4().hex}.tmp"
+            )
+            create_path = temporary_path
 
-        conn = create_project(str(file_path), name, coder_name=coder_name)
+        conn = create_project(str(create_path), name, coder_name=coder_name)
         coders = list_coders(conn)
         coder_id = coders[0]["id"] if coders else None
-        conn.close()
 
-        request.app.state.project_path = str(file_path)
+        if temporary_path is not None:
+            checkpoint_and_close(conn)
+            conn = None
+            validation_conn = open_project(temporary_path)
+            checkpoint_and_close(validation_conn)
+            validation_conn = None
+            quarantined_sidecars = _quarantine_sqlite_sidecars(file_path)
+            try:
+                os.replace(temporary_path, file_path)
+            except OSError:
+                _restore_quarantined_sidecars(quarantined_sidecars)
+                quarantined_sidecars = []
+                raise
+            temporary_path = None
+            _discard_quarantined_sidecars(quarantined_sidecars)
+            quarantined_sidecars = []
+        else:
+            conn.close()
+            conn = None
+
+        project_path = str(file_path)
+        _clear_project_transient_state(request, project_path)
+        request.app.state.project_path = project_path
         if coder_id:
             request.app.state.coder_id = coder_id
-        request.app.state.active_projects.add(str(file_path))
+        request.app.state.active_projects.add(project_path)
 
         return Response(
             status_code=200,
@@ -187,18 +309,32 @@ async def project_create(
         return _oob_status(
             "Could not create that project. Check the name, location, and file permissions."
         )
+    finally:
+        if conn is not None:
+            conn.close()
+        if validation_conn is not None:
+            validation_conn.close()
+        if temporary_path is not None:
+            _remove_temporary_project(temporary_path)
 
 
 @router.post("/project/open")
 async def project_open(request: Request, path: str = Form(...)):
     """Open an existing .ace project file."""
     from ace.db.connection import open_project
+    from ace.db.migrations import NewerSchemaVersionError
     from ace.models.project import list_coders
     from ace.models.source import list_sources
 
     file_path = _native_selection_path(path)
     try:
         conn = open_project(str(file_path))
+    except NewerSchemaVersionError:
+        logger.warning("Project at %s requires a newer ACE version", file_path)
+        return _oob_status(
+            "This project was created by a newer version of ACE. "
+            "Update ACE to open it."
+        )
     except (ValueError, FileNotFoundError, sqlite3.DatabaseError):
         logger.exception("Failed to open project at %s", file_path)
         return _oob_status(
@@ -249,10 +385,9 @@ async def import_commit(
     if tmp_path is None or not Path(tmp_path).exists():
         return _oob_status("No uploaded file found. Please upload again.")
 
-    text_col_list = [c.strip() for c in text_columns.split(",") if c.strip()]
-    id_column = id_column.strip()
-    if not id_column:
+    if not id_column.strip():
         return _oob_status("Choose a source label column.")
+    text_col_list = _parse_import_text_columns(text_columns)
     if not text_col_list:
         return _oob_status("Choose at least one text column.")
 
@@ -280,6 +415,8 @@ async def import_commit(
             conn, tmp_path, id_column, text_col_list, tabular_data=tabular_data
         )
         count, skipped, created_ids = result
+    except ValueError as exc:
+        return _oob_status(str(exc))
     except Exception:
         return _oob_status(_friendly_import_error())
     finally:

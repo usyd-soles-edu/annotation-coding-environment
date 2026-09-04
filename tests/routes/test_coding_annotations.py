@@ -10,6 +10,8 @@ from ace.app import create_app
 
 from ace.db.connection import create_project
 
+from ace.models.annotation import AnnotationWriteBusyError
+
 from ace.models.codebook import add_code
 
 from ace.models.project import list_coders
@@ -280,6 +282,35 @@ def test_annotate(client_with_codes):
     conn.close()
     assert len(rows) == 1
     assert rows[0]["selected_text"] == "First"
+
+
+def test_annotate_reports_retryable_write_contention(
+    client_with_codes, monkeypatch
+):
+    client, _, code_a, _, db_path = client_with_codes
+
+    def busy(*_args, **_kwargs):
+        raise AnnotationWriteBusyError("simulated write contention")
+
+    monkeypatch.setattr("ace.models.annotation.add_annotation_merging", busy)
+
+    resp = client.post(
+        "/api/code/apply",
+        data={
+            "code_id": code_a,
+            "current_index": 0,
+            "start_offset": 0,
+            "end_offset": 5,
+            "selected_text": "First",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Reswap") == "none"
+    assert "ACE is busy saving another change" in resp.text
+    assert "Try applying the code again" in resp.text
+    assert "ace-statusbar-event--err" in resp.text
+    assert _count_active_annotations(client, db_path, 0) == 0
 
 
 def test_delete_annotation(client_with_codes):
@@ -1064,6 +1095,34 @@ def test_annotate_sentence_merge_status(client_with_two_sentences):
     assert 'id="ace-notification-receipt"' in resp.text
 
 
+def test_annotate_sentence_merge_reports_retryable_write_contention(
+    client_with_two_sentences, monkeypatch
+):
+    client, _coder_id, code_a, db_path = client_with_two_sentences
+    client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 0, "current_index": 0},
+    )
+    original = _active_annotation_ranges(db_path, 0)
+
+    def busy(*_args, **_kwargs):
+        raise AnnotationWriteBusyError("simulated write contention")
+
+    monkeypatch.setattr("ace.models.annotation.add_annotation_merging", busy)
+
+    resp = client.post(
+        "/api/code/apply-sentence",
+        data={"code_id": code_a, "sentence_index": 1, "current_index": 0},
+    )
+
+    assert resp.status_code == 200
+    assert resp.headers.get("HX-Reswap") == "none"
+    assert "ACE is busy saving another change" in resp.text
+    assert "Try applying the code again" in resp.text
+    assert "ace-statusbar-event--err" in resp.text
+    assert _active_annotation_ranges(db_path, 0) == original
+
+
 def test_undo_after_annotate_sentence_merge_restores_original_sentence(
     client_with_two_sentences,
 ):
@@ -1085,3 +1144,90 @@ def test_undo_after_annotate_sentence_merge_restores_original_sentence(
 
     assert resp.status_code == 200
     assert _active_annotation_ranges(db_path, 0) == original
+
+
+def test_clamped_heading_render_and_sentence_routes_share_the_same_units(tmp_path):
+    app = create_app()
+    db_path = tmp_path / "heading.ace"
+    conn = create_project(str(db_path), "Heading Project")
+    coder_id = list_coders(conn)[0]["id"]
+    title = "Question 1. Why? Really!"
+    content = f"{title}\nThe complete answer."
+    source_id = add_source(
+        conn,
+        "S001",
+        content,
+        "row",
+        section_heading_spans=[(0, len(title))],
+    )
+    code_id = add_code(conn, "Theme A", "#BF6030")
+    conn.close()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        app.state.project_path = str(db_path)
+        app.state.coder_id = coder_id
+        page = client.get("/code?index=999")
+        assert page.status_code == 200
+        assert (
+            'id="s-0" class="ace-sentence ace-sentence--section-heading" '
+            f'data-idx="0" data-start="0" data-end="{len(title)}">{title}</span>'
+            in page.text
+        )
+
+        applied = client.post(
+            "/api/code/apply-sentence",
+            data={"code_id": code_id, "sentence_index": 0, "current_index": 0},
+        )
+        assert applied.status_code == 200
+
+        check = sqlite3.connect(db_path)
+        annotation = check.execute(
+            "SELECT start_offset, end_offset, selected_text "
+            "FROM annotation WHERE source_id = ? AND deleted_at IS NULL",
+            (source_id,),
+        ).fetchone()
+        check.close()
+        assert annotation == (0, len(title), title)
+
+        deleted = client.post(
+            "/api/code/delete-sentence",
+            data={"sentence_index": 0, "current_index": 0},
+        )
+        assert deleted.status_code == 200
+
+        check = sqlite3.connect(db_path)
+        active = check.execute(
+            "SELECT COUNT(*) FROM annotation "
+            "WHERE source_id = ? AND deleted_at IS NULL",
+            (source_id,),
+        ).fetchone()[0]
+        check.close()
+        assert active == 0
+
+
+def test_malformed_stored_heading_metadata_falls_back_on_coding_page(tmp_path):
+    app = create_app()
+    db_path = tmp_path / "malformed-heading.ace"
+    conn = create_project(str(db_path), "Heading Project")
+    coder_id = list_coders(conn)[0]["id"]
+    source_id = add_source(
+        conn,
+        "S001",
+        "Question one? Question two!\nAnswer.",
+        "row",
+    )
+    conn.execute(
+        "UPDATE source_content SET section_headings_json = ? WHERE source_id = ?",
+        ("[[0, 999]]", source_id),
+    )
+    conn.commit()
+    conn.close()
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        app.state.project_path = str(db_path)
+        app.state.coder_id = coder_id
+        page = client.get("/code")
+
+    assert page.status_code == 200
+    assert "ace-sentence--section-heading" not in page.text
+    assert 'id="s-0" class="ace-sentence"' in page.text

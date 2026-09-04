@@ -8,7 +8,7 @@ The coding screen has three main areas:
 - source text in the centre
 - applied codes in the right-side inspector
 
-![](../assets/guide/coding-view-with-codebook.png)
+![Coding screen with codebook, source text, and applied-code inspector](../assets/guide/coding-view-with-codebook.png)
 
 ## Read the source map
 
@@ -24,9 +24,15 @@ Use the source grid to choose a source.
 
 Within a source:
 
-- press `Up` or `Down` to move sentence by sentence
+- press `Up` or `Down` to move through the text one sentence or heading at a time
 - press `Shift+Left` or `Shift+Right` to move between sources
 - click text when you want to select manually
+
+Heading lines work like sentences: select them, code them, and move through them with the same keys. Sources imported from a spreadsheet with several text columns have a heading above each section — see [Import sources](import.qmd).
+
+## Shortcut reminders
+
+The bottom of the source panel keeps a short strip of the most-used shortcuts, so they stay in view while you code. Press `?` to open the full shortcut sheet. The complete list is in [Keyboard shortcuts](../reference/shortcuts.qmd).
 
 ## Wording cues
 

@@ -206,3 +206,68 @@ def test_coding_text_scrollbar_sits_before_applied_codes(ace_server, browser_nam
             assert text_scroll_box["x"] + text_scroll_box["width"] <= inspector_box["x"] + 1
         finally:
             browser.close()
+
+
+@pytest.mark.parametrize("browser_name", browser_params())
+def test_docked_transcription_ledger_never_intersects_scroll_content(ace_server, browser_name):
+    with sync_playwright() as p:
+        browser = getattr(p, browser_name).launch()
+        try:
+            page = browser.new_page(viewport={"width": 1400, "height": 620})
+            page.goto(f"{ace_server}/code")
+
+            # Inject long content to force scrolling
+            page.evaluate(
+                """
+                const body = document.querySelector(".ace-text-body");
+                const sentence = document.querySelector(".ace-sentence");
+                if (body && sentence) {
+                    for (let i = 0; i < 80; i += 1) {
+                        const span = sentence.cloneNode(true);
+                        span.textContent = ` Extra coding sentence ${i}.`;
+                        body.appendChild(span);
+                    }
+                }
+                """
+            )
+
+            page.wait_for_selector(".ace-legend")
+
+            # Verify scrollable
+            scroll_metrics = page.locator("#text-scroll").evaluate(
+                "el => ({ scrollHeight: el.scrollHeight, clientHeight: el.clientHeight })"
+            )
+            assert scroll_metrics["scrollHeight"] > scroll_metrics["clientHeight"]
+
+            # Ledger shouldn't intersect scroll content boundary
+            scroll_box = page.locator("#text-scroll").bounding_box()
+            ledger_box = page.locator(".ace-legend").bounding_box()
+
+            assert scroll_box is not None
+            assert ledger_box is not None
+            # Allow for tiny sub-pixel rounding
+            assert ledger_box["y"] >= scroll_box["y"] + scroll_box["height"] - 1
+
+            # Wide view: action words are visible
+            assert page.locator(".ace-legend-action").first.is_visible()
+
+            # Narrow view: trigger container query to hide action words, preserving layout
+            page.set_viewport_size({"width": 900, "height": 620})
+
+            # Wait for query to take effect
+            page.wait_for_function(
+                "window.getComputedStyle(document.querySelector('.ace-legend-action')).display === 'none'"
+            )
+
+            narrow_scroll_box = page.locator("#text-scroll").bounding_box()
+            narrow_ledger_box = page.locator(".ace-legend").bounding_box()
+            assert narrow_scroll_box is not None
+            assert narrow_ledger_box is not None
+            assert narrow_ledger_box["y"] >= narrow_scroll_box["y"] + narrow_scroll_box["height"] - 1
+
+            # Keys remain visible, including the last one on the right edge
+            assert page.locator(".ace-legend .k").first.is_visible()
+            assert page.locator(".ace-legend .k").last.is_visible()
+
+        finally:
+            browser.close()

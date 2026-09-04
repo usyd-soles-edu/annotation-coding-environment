@@ -1,13 +1,27 @@
+import hashlib
 import json
+import re
+import sqlite3
+import threading
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 import openpyxl
+import pytest
 
+import ace.services.importer as importer
 from ace.db.connection import create_project
-from ace.models.source import list_sources, get_source_content
+from ace.db.connection import open_project
+from ace.models.source import (
+    decode_section_heading_spans,
+    get_source_content,
+    list_sources,
+)
 from ace.services.importer import (
     import_csv,
     import_text_files,
     get_random_previews,
+    read_tabular,
 )
 
 
@@ -48,6 +62,7 @@ def test_import_csv_creates_sources(tmp_db, sample_csv):
     assert len(sources) == 3
     assert sources[0]["display_id"] == "P001"
     assert sources[0]["source_type"] == "row"
+    assert get_source_content(conn, sources[0]["id"])["section_headings_json"] is None
     conn.close()
 
 
@@ -84,11 +99,20 @@ def test_import_csv_multi_column(tmp_path, tmp_db):
     sources = list_sources(conn)
     assert len(sources) == 2
     assert [s["display_id"] for s in sources] == ["S1", "S2"]
-    content = get_source_content(conn, sources[0]["id"])["content_text"]
-    assert "question1" in content
-    assert "Answer A" in content
-    assert "question2" in content
-    assert "Answer X" in content
+    content_row = get_source_content(conn, sources[0]["id"])
+    expected_content = "question1\nAnswer A\n\nquestion2\nAnswer X"
+    assert content_row["content_text"] == expected_content
+    assert content_row["content_hash"] == hashlib.sha256(
+        expected_content.encode()
+    ).hexdigest()
+    spans = decode_section_heading_spans(
+        expected_content, content_row["section_headings_json"]
+    )
+    assert spans == ((0, 9), (20, 29))
+    assert [expected_content[start:end] for start, end in spans] == [
+        "question1",
+        "question2",
+    ]
     assert sources[0]["source_column"] is None
     conn.close()
 
@@ -106,6 +130,10 @@ def test_import_text_files(tmp_path, tmp_db):
     display_ids = sorted(s["display_id"] for s in sources)
     assert display_ids == ["file1", "file2"]
     assert all(s["source_type"] == "file" for s in sources)
+    assert all(
+        get_source_content(conn, source["id"])["section_headings_json"] is None
+        for source in sources
+    )
     conn.close()
 
 
@@ -180,10 +208,13 @@ def test_import_csv_skips_multi_column_rows_when_all_selected_text_is_blank(tmp_
         assert (created, duplicate_skipped, result.empty_skipped) == (2, 0, 1)
         sources = list_sources(conn)
         assert [s["display_id"] for s in sources] == ["partial", "filled"]
-        content = get_source_content(conn, sources[0]["id"])["content_text"]
-        assert "q1" in content
-        assert "answer" in content
-        assert "q2" in content
+        content_row = get_source_content(conn, sources[0]["id"])
+        content = content_row["content_text"]
+        spans = decode_section_heading_spans(
+            content, content_row["section_headings_json"]
+        )
+        assert [content[start:end] for start, end in spans] == ["q1", "q2"]
+        assert content == "q1\nanswer\n\nq2\n   "
     finally:
         conn.close()
 
@@ -193,21 +224,86 @@ def test_import_xlsx(tmp_path):
     xlsx_path = tmp_path / "data.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.append(["id", "response", "score"])
-    ws.append(["X1", "Good stuff", 85])
-    ws.append(["X2", "Needs work", 62])
+    ws.append(["id", "response", "follow_up", "score"])
+    ws.append(["X1", "Good stuff", "Anything else?", 85])
+    ws.append(["X2", "Needs work", "More detail.", 62])
     wb.save(xlsx_path)
     wb.close()
 
     db_path = tmp_path / "xlsx.ace"
     conn = create_project(db_path, "test")
-    count, _skipped, _ids = import_csv(conn, xlsx_path, id_column="id", text_columns=["response"])
+    count, _skipped, _ids = import_csv(
+        conn,
+        xlsx_path,
+        id_column="id",
+        text_columns=["response", "follow_up"],
+    )
     assert count == 2
     sources = list_sources(conn)
     assert sources[0]["display_id"] == "X1"
     assert sources[1]["display_id"] == "X2"
     meta = json.loads(sources[0]["metadata_json"])
     assert meta["score"] == 85
+    content_row = get_source_content(conn, sources[0]["id"])
+    spans = decode_section_heading_spans(
+        content_row["content_text"], content_row["section_headings_json"]
+    )
+    assert [
+        content_row["content_text"][start:end] for start, end in spans
+    ] == ["response", "follow_up"]
+    conn.close()
+
+
+def test_read_tabular_reads_past_stale_dimension_metadata(tmp_path, tmp_db):
+    """Stale <dimension> metadata must not hide columns; ragged rows keep keys."""
+    xlsx_path = tmp_path / "stale-dim.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["id", "response", "score"])
+    ws.append(["S1", "First response", 90])
+    ws.append(["S2", "Second response", 75])
+    # Ragged final row: "score" cell genuinely omitted from the sheet XML.
+    ws.append(["S3", "Trailing omitted"])
+    wb.save(xlsx_path)
+    wb.close()
+
+    # Rewrite only the worksheet XML dimension metadata to a falsely narrow
+    # range, mimicking producers (e.g. Microsoft Forms) with stale dimensions.
+    tampered_path = tmp_path / "stale-dim-tampered.xlsx"
+    with zipfile.ZipFile(xlsx_path) as zin, zipfile.ZipFile(
+        tampered_path, "w", zipfile.ZIP_DEFLATED
+    ) as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                xml = data.decode("utf-8")
+                xml, replaced = re.subn(
+                    r'<dimension ref="[^"]+"\s*/>',
+                    '<dimension ref="A1:A2"/>',
+                    xml,
+                    count=1,
+                )
+                assert replaced == 1
+                data = xml.encode("utf-8")
+            zout.writestr(item, data)
+
+    rows, columns = read_tabular(tampered_path)
+    assert columns == ["id", "response", "score"]
+    assert rows == [
+        {"id": "S1", "response": "First response", "score": 90},
+        {"id": "S2", "response": "Second response", "score": 75},
+        {"id": "S3", "response": "Trailing omitted", "score": None},
+    ]
+
+    conn = create_project(tmp_db, "test")
+    count, _skipped, _ids = import_csv(
+        conn, tampered_path, id_column="id", text_columns=["response"]
+    )
+    assert count == 3
+    sources = list_sources(conn)
+    assert [s["display_id"] for s in sources] == ["S1", "S2", "S3"]
+    assert json.loads(sources[0]["metadata_json"])["score"] == 90
+    assert json.loads(sources[2]["metadata_json"]) == {"score": None}
     conn.close()
 
 
@@ -340,6 +436,160 @@ def test_import_csv_skips_intra_file_duplicate_ids(tmp_path):
         conn.close()
 
 
+def test_import_csv_rolls_back_batch_when_later_source_fails(tmp_path):
+    """A failed row must not leave earlier rows from the batch persisted."""
+    csv_path = tmp_path / "rollback.csv"
+    csv_path.write_text("id,text\nA,first\nB,second\n", encoding="utf-8")
+    conn = create_project(tmp_path / "rollback.ace", "test")
+    conn.execute(
+        """
+        CREATE TRIGGER fail_second_import_source
+        BEFORE INSERT ON source
+        WHEN NEW.display_id = 'B'
+        BEGIN
+            SELECT RAISE(ABORT, 'injected import failure');
+        END
+        """
+    )
+    conn.commit()
+
+    try:
+        with pytest.raises(Exception, match="injected import failure"):
+            import_csv(conn, csv_path, id_column="id", text_columns=["text"])
+
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+    finally:
+        conn.close()
+
+
+@pytest.mark.parametrize("display_id", [None, "", "   "])
+def test_import_csv_rejects_blank_source_labels(tmp_path, display_id):
+    """Missing and whitespace-only labels must fail before any rows are inserted."""
+    conn = create_project(tmp_path / "blank-label.ace", "test")
+    tabular_data = ([{"id": display_id, "text": "hello"}], ["id", "text"])
+
+    try:
+        with pytest.raises(ValueError, match="Source labels cannot be blank"):
+            import_csv(
+                conn,
+                tmp_path / "blank-label.csv",
+                id_column="id",
+                text_columns=["text"],
+                tabular_data=tabular_data,
+            )
+
+        assert list_sources(conn) == []
+    finally:
+        conn.close()
+
+
+def test_import_csv_skips_completely_blank_rows(tmp_path):
+    """A blank trailing spreadsheet row remains an empty skipped source."""
+    conn = create_project(tmp_path / "blank-row.ace", "test")
+    tabular_data = (
+        [
+            {"id": "A", "text": "hello"},
+            {"id": None, "text": None},
+        ],
+        ["id", "text"],
+    )
+
+    try:
+        result = import_csv(
+            conn,
+            tmp_path / "blank-row.xlsx",
+            id_column="id",
+            text_columns=["text"],
+            tabular_data=tabular_data,
+        )
+
+        assert (result.created, result.duplicate_skipped, result.empty_skipped) == (
+            1,
+            0,
+            1,
+        )
+        assert [source["display_id"] for source in list_sources(conn)] == ["A"]
+    finally:
+        conn.close()
+
+
+def test_import_csv_serialises_duplicate_checks_across_connections(
+    tmp_path, monkeypatch
+):
+    """Concurrent batches must agree which one created a shared label."""
+    csv_path = tmp_path / "concurrent.csv"
+    csv_path.write_text("id,text\nA,hello\n", encoding="utf-8")
+    db_path = tmp_path / "concurrent.ace"
+    conn = create_project(db_path, "test")
+    conn.close()
+
+    barrier = threading.Barrier(2)
+    original_insert_candidates = importer._insert_candidates
+
+    def synchronised_insert(conn, candidates, empty_skipped=0):
+        barrier.wait(timeout=5)
+        return original_insert_candidates(
+            conn, candidates, empty_skipped=empty_skipped
+        )
+
+    monkeypatch.setattr(importer, "_insert_candidates", synchronised_insert)
+
+    def run_import():
+        worker_conn = open_project(db_path)
+        try:
+            return import_csv(
+                worker_conn,
+                csv_path,
+                id_column="id",
+                text_columns=["text"],
+            )
+        finally:
+            worker_conn.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(run_import) for _ in range(2)]
+        imported = [future.result(timeout=10) for future in futures]
+
+    assert sorted(
+        (
+            result.created,
+            result.duplicate_skipped,
+            len(result.created_ids),
+            result.empty_skipped,
+        )
+        for result in imported
+    ) == [(0, 1, 0, 0), (1, 0, 1, 0)]
+
+    conn = open_project(db_path)
+    try:
+        assert [source["display_id"] for source in list_sources(conn)] == ["A"]
+    finally:
+        conn.close()
+
+
+def test_import_csv_does_not_rollback_an_existing_transaction(tmp_path):
+    """Reject nested imports without rolling back caller-owned changes."""
+    csv_path = tmp_path / "nested.csv"
+    csv_path.write_text("id,text\nA,hello\n", encoding="utf-8")
+    conn = create_project(tmp_path / "nested.ace", "test")
+    conn.execute("UPDATE project SET name = 'Uncommitted'")
+
+    try:
+        with pytest.raises(
+            sqlite3.OperationalError,
+            match="Cannot import sources inside an existing transaction",
+        ):
+            import_csv(conn, csv_path, id_column="id", text_columns=["text"])
+
+        assert conn.in_transaction
+        assert conn.execute("SELECT name FROM project").fetchone()[0] == "Uncommitted"
+        assert list_sources(conn) == []
+    finally:
+        conn.rollback()
+        conn.close()
+
+
 def test_import_text_files_skips_duplicate_display_ids(tmp_path):
     """Re-importing the same folder skips files whose stem already exists."""
     folder = tmp_path / "docs"
@@ -366,6 +616,35 @@ def test_import_text_files_skips_duplicate_display_ids(tmp_path):
             get_source_content(conn, sources["one"]["id"])["content_text"]
             == "First document"
         )
+    finally:
+        conn.close()
+
+
+def test_import_text_files_rolls_back_batch_when_later_source_fails(tmp_path):
+    """A failed file must not leave earlier files from the batch persisted."""
+    folder = tmp_path / "rollback-files"
+    folder.mkdir()
+    (folder / "alpha.txt").write_text("Alpha", encoding="utf-8")
+    (folder / "beta.txt").write_text("Beta", encoding="utf-8")
+    conn = create_project(tmp_path / "rollback-files.ace", "test")
+    conn.execute(
+        """
+        CREATE TRIGGER fail_second_import_file
+        BEFORE INSERT ON source
+        WHEN NEW.display_id = 'beta'
+        BEGIN
+            SELECT RAISE(ABORT, 'injected import failure');
+        END
+        """
+    )
+    conn.commit()
+
+    try:
+        with pytest.raises(Exception, match="injected import failure"):
+            import_text_files(conn, folder)
+
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
     finally:
         conn.close()
 

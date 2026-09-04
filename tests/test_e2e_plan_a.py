@@ -36,7 +36,7 @@ def test_full_flow_create_and_import(client, tmp_path):
     assert "text" in resp.text
 
     # 3. Commit import
-    resp = client.post("/api/import/commit", data={"id_column": "id", "text_columns": "text"})
+    resp = client.post("/api/import/commit", data={"id_column": "id", "text_columns": '["text"]'})
     assert resp.status_code == 200
     assert "3" in resp.text  # 3 sources imported
 

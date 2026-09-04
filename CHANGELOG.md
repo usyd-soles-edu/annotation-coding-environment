@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+## 1.7.0
+
+### Changes
+
+- **Imported column headings** — spreadsheet imports with several text columns now keep the imported column headings as section headings in the coding view, so each column's start stays visible and the heading text can be coded like other units.
+- **Import mapping review** — kept your chosen source-label and text-column selections when the import preview updates, so changing one choice no longer resets the others.
+- **Coding shortcuts** — docked the keyboard-shortcut legend at the foot of the coding view and added a matching shortcut strip under the codebook, so the main actions stay visible without covering the text.
+
+### Fixes
+
+- **Project safety** — rejected project files created by newer ACE schemas and made replacement-project failures preserve the original file.
+- **Concurrent coding** — serialised overlapping annotation merges so two tabs cannot create conflicting active ranges.
+- **Source imports** — committed spreadsheet and folder imports atomically, kept concurrent duplicate checks consistent, and rejected labelled content with a blank source name.
+- **Existing spreadsheet imports** — recovered column headings for projects imported before this release when the row layout makes them unambiguous, leaving other projects unchanged.
+- **Excel imports** — read each sheet's actual contents instead of trusting stale `.xlsx` dimension metadata, so rows hidden by producers such as Microsoft Forms are no longer skipped.
+- **Server shutdown** — removed the false `KeyboardInterrupt` traceback after a successful Ctrl-C or packaged shutdown.
+- **Dependencies** — refreshed locked runtime packages and release metadata after dependency security updates.
+
+## 1.6.1
+
+### Fixes
+
+- **Quick Resume** — dismissing the latest project now clears Quick Resume instead of revealing an older entry.
+- **Launcher shutdown** — the launcher now shuts down its server gracefully so ACE can complete cleanup and remove SQLite sidecar files.
+
 ## 1.6.0
 
 ### Changes

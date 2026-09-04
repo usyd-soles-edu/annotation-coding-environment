@@ -1,12 +1,30 @@
 """Tests for schema migrations."""
 
+import json
 import sqlite3
 
 import pytest
 
 from ace.db.connection import create_project, open_project
-from ace.db.migrations import _migrate_v6_to_v7, _migrate_v9_to_v10, check_and_migrate
+from ace.db.migrations import (
+    NewerSchemaVersionError,
+    _migrate_v6_to_v7,
+    _migrate_v9_to_v10,
+    _migrate_v11_to_v12,
+    check_and_migrate,
+)
 from ace.db.schema import ACE_APPLICATION_ID, SCHEMA_VERSION
+
+
+def test_check_and_migrate_rejects_newer_schema():
+    conn = sqlite3.connect(":memory:")
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION + 1}")
+
+    with pytest.raises(NewerSchemaVersionError):
+        check_and_migrate(conn)
+
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION + 1
+    conn.close()
 
 
 def test_v1_to_v2_migration_adds_group_name(tmp_path):
@@ -517,3 +535,368 @@ def test_v10_migration_adds_definition_column(tmp_path):
 
     cols = {r[1] for r in conn.execute("PRAGMA table_info(codebook_code)").fetchall()}
     assert "definition" in cols
+
+
+def test_v11_migration_adds_null_heading_metadata_without_changing_content(tmp_path):
+    db = tmp_path / "v10.ace"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE source_content (
+            source_id TEXT PRIMARY KEY,
+            content_text TEXT NOT NULL,
+            content_hash TEXT NOT NULL
+        );
+        INSERT INTO source_content VALUES ('s1', 'Question\nAnswer', 'hash-before');
+
+        CREATE TABLE annotation (
+            id TEXT PRIMARY KEY,
+            start_offset INTEGER NOT NULL,
+            end_offset INTEGER NOT NULL
+        );
+        INSERT INTO annotation VALUES ('a1', 9, 15);
+        PRAGMA user_version = 10;
+    """)
+    conn.commit()
+
+    assert check_and_migrate(conn) == SCHEMA_VERSION
+
+    columns = {
+        row[1]: row for row in conn.execute("PRAGMA table_info(source_content)")
+    }
+    assert columns["section_headings_json"][3] == 0
+    content = conn.execute(
+        "SELECT content_text, content_hash, section_headings_json "
+        "FROM source_content WHERE source_id = 's1'"
+    ).fetchone()
+    assert content == ("Question\nAnswer", "hash-before", None)
+    offsets = conn.execute(
+        "SELECT start_offset, end_offset FROM annotation WHERE id = 'a1'"
+    ).fetchone()
+    assert offsets == (9, 15)
+
+
+def _build_v11_source_db(tmp_path, sources):
+    db = tmp_path / "v11-heading-recovery.ace"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE source (
+            id            TEXT PRIMARY KEY,
+            display_id    TEXT NOT NULL,
+            source_type   TEXT NOT NULL CHECK (source_type IN ('file', 'row')),
+            source_column TEXT,
+            filename      TEXT,
+            metadata_json TEXT,
+            sort_order    INTEGER NOT NULL,
+            created_at    TEXT NOT NULL
+        );
+        CREATE TABLE source_content (
+            source_id             TEXT PRIMARY KEY REFERENCES source(id),
+            content_text          TEXT NOT NULL,
+            content_hash          TEXT NOT NULL,
+            section_headings_json TEXT
+        );
+        PRAGMA user_version = 11;
+    """)
+    for (
+        source_id,
+        source_type,
+        filename,
+        sort_order,
+        content,
+        headings_json,
+    ) in sources:
+        conn.execute(
+            """
+            INSERT INTO source (
+                id, display_id, source_type, source_column, filename,
+                metadata_json, sort_order, created_at
+            )
+            VALUES (?, ?, ?, NULL, ?, NULL, ?, '2026-01-01T00:00:00+00:00')
+            """,
+            (source_id, source_id, source_type, filename, sort_order),
+        )
+        conn.execute(
+            """
+            INSERT INTO source_content (
+                source_id, content_text, content_hash, section_headings_json
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            (source_id, content, f"hash-{source_id}", headings_json),
+        )
+    conn.commit()
+    return conn
+
+
+def test_v12_migration_recovers_per_row_spans_and_preserves_source_data(tmp_path):
+    first = (
+        "Question\nFirst answer.\n\nA second answer paragraph.\n\n"
+        "Response\nFirst response.\n\nAnother response paragraph.\n\n"
+        "Notes\nAlpha note"
+    )
+    second = (
+        "Question\nShort answer.\n\nDifferent continuation.\n\n"
+        "Response\nA much longer response value.\n\n"
+        "Notes\nBeta note"
+    )
+    third = (
+        "Question\nThird answer.\n\n"
+        "Response\nThird response.\n\nA final response paragraph.\n\n"
+        "Notes\nGamma note"
+    )
+    sources = [
+        ("s1", "row", "responses.csv", 1, first, None),
+        ("s2", "row", "responses.csv", 2, second, None),
+        ("s3", "row", "responses.csv", 3, third, None),
+    ]
+    conn = _build_v11_source_db(tmp_path, sources)
+    conn.executescript("""
+        CREATE TABLE annotation (
+            id           TEXT PRIMARY KEY,
+            source_id    TEXT NOT NULL,
+            start_offset INTEGER NOT NULL,
+            end_offset   INTEGER NOT NULL
+        );
+        INSERT INTO annotation VALUES ('a1', 's1', 9, 21);
+        INSERT INTO annotation VALUES ('a2', 's2', 9, 21);
+    """)
+    conn.commit()
+
+    source_before = conn.execute(
+        "SELECT * FROM source ORDER BY sort_order"
+    ).fetchall()
+    content_before = conn.execute(
+        """
+        SELECT source_id, content_text, content_hash
+        FROM source_content
+        ORDER BY source_id
+        """
+    ).fetchall()
+    annotations_before = conn.execute(
+        "SELECT * FROM annotation ORDER BY id"
+    ).fetchall()
+
+    assert check_and_migrate(conn) == SCHEMA_VERSION
+
+    headings = ("Question", "Response", "Notes")
+
+    def expected_json(content):
+        starts = [0]
+        starts.extend(
+            content.index(f"\n\n{heading}\n") + 2
+            for heading in headings[1:]
+        )
+        return json.dumps(
+            [
+                [start, start + len(heading)]
+                for start, heading in zip(starts, headings)
+            ],
+            separators=(",", ":"),
+        )
+
+    recovered = conn.execute(
+        """
+        SELECT source_id, section_headings_json
+        FROM source_content
+        ORDER BY source_id
+        """
+    ).fetchall()
+    assert recovered == [
+        ("s1", expected_json(first)),
+        ("s2", expected_json(second)),
+        ("s3", expected_json(third)),
+    ]
+    assert len({metadata for _source_id, metadata in recovered}) == 3
+    assert conn.execute(
+        "SELECT * FROM source ORDER BY sort_order"
+    ).fetchall() == source_before
+    assert conn.execute(
+        """
+        SELECT source_id, content_text, content_hash
+        FROM source_content
+        ORDER BY source_id
+        """
+    ).fetchall() == content_before
+    assert conn.execute(
+        "SELECT * FROM annotation ORDER BY id"
+    ).fetchall() == annotations_before
+
+    _migrate_v11_to_v12(conn)
+    assert conn.execute(
+        """
+        SELECT source_id, section_headings_json
+        FROM source_content
+        ORDER BY source_id
+        """
+    ).fetchall() == recovered
+
+
+def test_v12_migration_leaves_existing_heading_metadata_untouched(tmp_path):
+    content = "Question\nanswer\n\nResponse\nreply"
+    existing = "[[0,8],[17,25]]"
+    conn = _build_v11_source_db(
+        tmp_path,
+        [("populated", "row", "responses.csv", 1, content, existing)],
+    )
+
+    assert check_and_migrate(conn) == SCHEMA_VERSION
+    assert conn.execute(
+        """
+        SELECT content_text, content_hash, section_headings_json
+        FROM source_content
+        WHERE source_id = 'populated'
+        """
+    ).fetchone() == (content, "hash-populated", existing)
+
+
+def test_v12_migration_skips_ambiguous_inconsistent_and_malformed_rows(tmp_path):
+    sources = [
+        (
+            "ambiguous-1",
+            "row",
+            "ambiguous.csv",
+            1,
+            "Topic\none\n\nAnswer\ntwo\n\nAnswer\nthree",
+            None,
+        ),
+        (
+            "ambiguous-2",
+            "row",
+            "ambiguous.csv",
+            2,
+            "Topic\nfour\n\nAnswer\nfive",
+            None,
+        ),
+        (
+            "inconsistent-1",
+            "row",
+            "inconsistent.csv",
+            3,
+            "Prompt\none\n\nAnswer\ntwo",
+            None,
+        ),
+        (
+            "inconsistent-2",
+            "row",
+            "inconsistent.csv",
+            4,
+            "Prompt\nthree\n\nResponse\nfour",
+            None,
+        ),
+        (
+            "malformed-1",
+            "row",
+            "malformed.csv",
+            5,
+            "Question\none\n\nResponse\ntwo",
+            None,
+        ),
+        (
+            "malformed-2",
+            "row",
+            "malformed.csv",
+            6,
+            "Question\nthree\n\nResponse",
+            None,
+        ),
+    ]
+    conn = _build_v11_source_db(tmp_path, sources)
+
+    assert check_and_migrate(conn) == SCHEMA_VERSION
+    assert conn.execute(
+        "SELECT section_headings_json FROM source_content"
+    ).fetchall() == [(None,)] * len(sources)
+
+
+def test_v12_migration_skips_single_row_single_column_and_file_sources(tmp_path):
+    sources = [
+        (
+            "single-row",
+            "row",
+            "single-row.csv",
+            1,
+            "Question\none\n\nResponse\ntwo",
+            None,
+        ),
+        (
+            "single-column-1",
+            "row",
+            "single-column.csv",
+            2,
+            "A raw response.\n\nIts second paragraph.",
+            None,
+        ),
+        (
+            "single-column-2",
+            "row",
+            "single-column.csv",
+            3,
+            "Another raw response.\n\nMore unlabelled text.",
+            None,
+        ),
+        (
+            "file-1",
+            "file",
+            "document.txt",
+            4,
+            "Question\none\n\nResponse\ntwo",
+            None,
+        ),
+        (
+            "file-2",
+            "file",
+            "document.txt",
+            5,
+            "Question\nthree\n\nResponse\nfour",
+            None,
+        ),
+        (
+            "no-filename-1",
+            "row",
+            None,
+            6,
+            "Question\none\n\nResponse\ntwo",
+            None,
+        ),
+        (
+            "no-filename-2",
+            "row",
+            None,
+            7,
+            "Question\nthree\n\nResponse\nfour",
+            None,
+        ),
+    ]
+    conn = _build_v11_source_db(tmp_path, sources)
+
+    assert check_and_migrate(conn) == SCHEMA_VERSION
+    assert conn.execute(
+        "SELECT section_headings_json FROM source_content"
+    ).fetchall() == [(None,)] * len(sources)
+
+
+def test_v12_migration_does_not_combine_separate_sort_order_runs(tmp_path):
+    sources = [
+        (
+            "first-run",
+            "row",
+            "responses.csv",
+            1,
+            "Question\none\n\nResponse\ntwo",
+            None,
+        ),
+        (
+            "second-run",
+            "row",
+            "responses.csv",
+            3,
+            "Question\nthree\n\nResponse\nfour",
+            None,
+        ),
+    ]
+    conn = _build_v11_source_db(tmp_path, sources)
+
+    assert check_and_migrate(conn) == SCHEMA_VERSION
+    assert conn.execute(
+        "SELECT section_headings_json FROM source_content"
+    ).fetchall() == [(None,), (None,)]
