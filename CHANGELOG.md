@@ -19,6 +19,7 @@
 - **Excel imports** — read each sheet's actual contents instead of trusting stale `.xlsx` dimension metadata, so rows hidden by producers such as Microsoft Forms are no longer skipped.
 - **Server shutdown** — removed the false `KeyboardInterrupt` traceback after a successful Ctrl-C or packaged shutdown.
 - **Dependencies** — refreshed locked runtime packages and release metadata after dependency security updates.
+- **Project switching** — kept last-viewed source position separately for each project, so opening a new project now starts from its first source instead of inheriting another project's position.
 
 ## 1.6.1
 

@@ -7,9 +7,9 @@
   document.documentElement.dataset.aceProjectName = {{ project_file_stem|tojson }};
 </script>
 <script>
-  // Resume at last viewed source if returning without explicit index
+  // Resume this project's last viewed source unless an index is explicit.
   if (!new URLSearchParams(window.location.search).has("index")) {
-    var saved = localStorage.getItem("ace-last-index");
+    var saved = localStorage.getItem({{ source_index_storage_key|tojson }});
     if (saved && parseInt(saved, 10) > 0) {
       var params = new URLSearchParams(window.location.search);
       params.set("index", saved);
@@ -423,8 +423,11 @@ rect.ace-flash-{{ code["id"] }} {
   window.__aceCodes = {{ codes | tojson }};
   window.__aceColourPalette = {{ colour_palette | tojson }};
   window.__aceLastCodeId = null;
-  // Save current index for resume on return
-  localStorage.setItem("ace-last-index", {{ current_index }});
+  // Save this project's current index for resume on return
+  localStorage.setItem(
+    {{ source_index_storage_key|tojson }},
+    {{ current_index|tojson }}
+  );
   // Kick off the client-rendered source grid once bridge.js is available
   document.addEventListener("DOMContentLoaded", function () {
     if (typeof window._aceRenderSourceGrid === "function") {

@@ -248,6 +248,7 @@ def _coding_context(
     return {
         "project_name": project["name"],
         "project_file_stem": project_file_stem,
+        "source_index_storage_key": f"ace-source-index:{project['id']}",
         "current_index": current_index,
         "total_sources": total_sources,
         "current_source": current_source,
