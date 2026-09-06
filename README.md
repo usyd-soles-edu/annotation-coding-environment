@@ -24,6 +24,19 @@ Harianto, J., Van Den Berg, F., Lilje, O., Pang, R., & Widjaja, M. (2026). *Anno
 - Export annotations, codebooks, notes, and raw coding data for analysis in R, Python, Excel, or other tools.
 - Work locally with `.ace` project files; no cloud storage or user account is required.
 
+## Quick look
+
+<table>
+  <tr>
+    <td width="50%" align="center"><a href="website/assets/demos/ace-home.png"><img src="website/assets/demos/ace-home.png" alt="ACE main page" width="100%"></a><br><sub>Open or create a project · ACE 1.7.0</sub></td>
+    <td width="50%" align="center"><a href="website/assets/demos/ace-coding.gif"><img src="website/assets/demos/ace-coding.gif" alt="Coding passages with the mouse and keyboard" width="100%"></a><br><sub>Code with mouse or keyboard · ACE 1.7.0</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><a href="website/assets/demos/ace-review-dictionary.gif"><img src="website/assets/demos/ace-review-dictionary.gif" alt="Reviewing coded text and editing the code dictionary" width="100%"></a><br><sub>Review text and refine codes · ACE 1.7.0</sub></td>
+    <td width="50%" align="center"><a href="website/assets/demos/ace-coder-agreement.gif"><img src="website/assets/demos/ace-coder-agreement.gif" alt="Comparing agreement across three fictional researchers" width="100%"></a><br><sub>Compare coder agreement · ACE 1.7.0</sub></td>
+  </tr>
+</table>
+
 ## Download
 
 Pre-built installers are on the [Releases page](https://github.com/usyd-soles-edu/annotation-coding-environment/releases/latest), but source installation is also available for people who are comfortable with the command line.
