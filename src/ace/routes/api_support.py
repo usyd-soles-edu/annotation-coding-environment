@@ -409,7 +409,6 @@ def _folder_duplicate_skipped_html(n: int) -> str:
     """
     if not n:
         return ""
-    plural = "" if n == 1 else "s"
     return (
         f'<p class="ace-import-result-skipped">Skipped {n} {"source" if n == 1 else "sources"} '
         f"with a label already in use in this project.</p>"
