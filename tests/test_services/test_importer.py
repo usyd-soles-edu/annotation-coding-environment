@@ -1252,8 +1252,110 @@ def test_folder_import_confirm_requires_repreview_when_ready_file_replaced_by_fi
         conn.close()
 
 
+def test_folder_import_confirm_requires_repreview_when_path_replaced_during_read(
+    tmp_path, monkeypatch
+):
+    """A ready path swapped mid-read must re-preview, not import stale bytes.
+
+    Regression: the descriptor is opened and fstat-verified before the read,
+    so a replacement landing between that check and the read is only caught
+    by revalidating the path after the read. The injected ``os.read`` hook
+    swaps the path to a new inode with different content while the old inode
+    is still open — without the post-read check the old bytes plus the
+    pre-read stat match the saved fingerprint and the stale content would be
+    imported.
+    """
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "midread-swap.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+
+        victim = folder / "alpha.txt"
+        real_read = os.read
+        hooked = {"swapped": False}
+
+        def hooked_read(fd, nbytes):
+            if not hooked["swapped"]:
+                hooked["swapped"] = True
+                victim.unlink()
+                victim.write_text("Replaced during read", encoding="utf-8")
+            return real_read(fd, nbytes)
+
+        monkeypatch.setattr(os, "read", hooked_read)
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert hooked["swapped"]
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert result.detail == "file changed since preview"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_requires_repreview_when_file_mutated_during_read(
+    tmp_path, monkeypatch
+):
+    """In-place metadata-only mutation during the read forces re-preview.
+
+    Regression: rewriting a ready file with identical bytes mid-read keeps
+    content, size, and inode stable, so only the post-read descriptor
+    revalidation (size/mtime against the saved fingerprint) can catch it.
+    Without that check the stale pre-read stat plus unchanged bytes would be
+    accepted and imported.
+    """
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "midread-mutate.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+        saved = preview.manifest.ready_entries[0].fingerprint
+        assert saved is not None
+
+        victim = folder / "alpha.txt"
+        original = victim.read_text(encoding="utf-8")
+        real_read = os.read
+        hooked = {"touched": False, "mtime_advanced": False}
+
+        def hooked_read(fd, nbytes):
+            if not hooked["touched"]:
+                hooked["touched"] = True
+                fd_write = os.open(victim, os.O_WRONLY | os.O_TRUNC)
+                try:
+                    os.write(fd_write, original.encode("utf-8"))
+                finally:
+                    os.close(fd_write)
+                hooked["mtime_advanced"] = (
+                    victim.stat().st_mtime_ns != saved.mtime_ns
+                )
+            return real_read(fd, nbytes)
+
+        monkeypatch.setattr(os, "read", hooked_read)
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert hooked["mtime_advanced"]
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert result.detail == "file changed since preview"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
 def test_folder_import_confirm_excludes_files_added_after_preview(tmp_path):
     """Confirmation imports the saved manifest only; later files never join."""
+
     folder = _build_confirm_tree(tmp_path)
     conn = create_project(tmp_path / "added.ace", "test")
 

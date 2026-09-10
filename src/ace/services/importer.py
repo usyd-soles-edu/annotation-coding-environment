@@ -518,6 +518,10 @@ def confirm_folder_import(
     non-regular file) is refused without opening a blocking read; the read
     descriptor itself is opened ``O_NONBLOCK`` and fstat-verified so a
     replacement racing the validation cannot hang or misattribute content.
+    After the read, the open descriptor's metadata and the path's current
+    type/identity are revalidated against the saved fingerprint, so a
+    mutation or replacement racing the read returns re-preview-required
+    instead of accepting stale bytes.
 
     Confirmed accounting preserves the reviewed manifest: manifest-level
     duplicate and empty counts are carried into the result, and any label
@@ -598,8 +602,14 @@ def _read_validated_ready_bytes(
     longer matches ``saved_fingerprint`` — raises ``_RevalidationFailed``.
     The read descriptor is opened ``O_NONBLOCK``, so a path swapped to a FIFO
     after that validation cannot block the caller, and the opened descriptor
-    is fstat-verified against the pre-open identity, so the returned
-    fingerprint always describes the bytes actually read.
+    is fstat-verified against the pre-open identity.
+
+    After the read completes, both the open descriptor and the current path
+    are revalidated against ``saved_fingerprint``: a file mutated in place
+    mid-read fails the descriptor's size/mtime check, and a path swapped to
+    another inode (or a non-regular file) while its old inode was still open
+    fails the path identity check. Only a path that is still the reviewed
+    regular file both before and after the read yields content.
     """
     stat_result = path.lstat()
     if not stat.S_ISREG(stat_result.st_mode):
@@ -637,12 +647,38 @@ def _read_validated_ready_bytes(
             if not chunk:
                 break
             chunks.append(chunk)
+        # Revalidate after the read: the bytes on the descriptor and the file
+        # at the path must both still match the saved fingerprint, so a
+        # mutation or replacement racing the read is never accepted.
+        opened_after = os.fstat(fd)
+        if not stat.S_ISREG(opened_after.st_mode) or (
+            opened_after.st_dev,
+            opened_after.st_ino,
+            opened_after.st_size,
+            opened_after.st_mtime_ns,
+        ) != (
+            saved_fingerprint.device,
+            saved_fingerprint.inode,
+            saved_fingerprint.size,
+            saved_fingerprint.mtime_ns,
+        ):
+            raise _RevalidationFailed("file changed since preview")
+        current = path.lstat()
+        if not stat.S_ISREG(current.st_mode):
+            raise _RevalidationFailed("file is not a regular file")
+        if (current.st_dev, current.st_ino) != (
+            saved_fingerprint.device,
+            saved_fingerprint.inode,
+        ):
+            raise _RevalidationFailed("file changed since preview")
+    except FileNotFoundError:
+        raise
     except OSError as exc:
         raise _RevalidationFailed(_unreadable_detail(exc)) from exc
     finally:
         os.close(fd)
     data = b"".join(chunks)
-    return data, _fingerprint_from_stat(data, opened)
+    return data, _fingerprint_from_stat(data, opened_after)
 
 
 def _is_blank_value(value: object) -> bool:
