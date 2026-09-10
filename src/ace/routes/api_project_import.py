@@ -8,9 +8,11 @@ import json
 import os
 import platform
 import re
+import secrets
 import sqlite3
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from fastapi import (
@@ -24,6 +26,9 @@ from fastapi.responses import (
     JSONResponse,
     Response,
 )
+
+if TYPE_CHECKING:
+    from ace.services.importer import FolderImportManifest, FolderImportPreview
 
 
 router = APIRouter(prefix="/api")
@@ -127,6 +132,9 @@ def _discard_quarantined_sidecars(
 def _clear_project_transient_state(request: Request, project_path: str) -> None:
     request.app.state.undo_managers.pop(project_path, None)
     request.app.state.last_import_source_ids = None
+    manifest_store = getattr(request.app.state, "folder_import_manifests", None)
+    if manifest_store is not None:
+        manifest_store.clear()
 
     import_tmp_path = getattr(request.app.state, "import_tmp_path", None)
     if import_tmp_path and getattr(request.app.state, "import_tmp_cleanup", True):
@@ -145,9 +153,7 @@ from ace.routes.api_support import (
     _codebook_import_payload,
     _codebook_mapping_select,
     _csv_download,
-    _empty_skipped_html,
     _folder_import_preview_fragment,
-    _import_done_actions,
     _import_result_fragment,
     _native_selection_path,
     _normalise_codebook_mapping_column,
@@ -156,7 +162,6 @@ from ace.routes.api_support import (
     _project_db,
     _require_coder,
     _run_osascript,
-    _skipped_html,
     _tk_pick_file,
     _tk_pick_files,
     _tk_pick_folder,
@@ -447,14 +452,127 @@ async def import_commit(
     )
 
 
+def _folder_status_labels() -> dict[str, str]:
+    """Short, file-name-free status wording per folder-import category."""
+    from ace.services.importer import (
+        FOLDER_CATEGORY_DUPLICATE,
+        FOLDER_CATEGORY_EMPTY,
+        FOLDER_CATEGORY_READY,
+        FOLDER_CATEGORY_UNREADABLE,
+        FOLDER_CATEGORY_UNSUPPORTED,
+    )
+
+    return {
+        FOLDER_CATEGORY_READY: "ready to import",
+        FOLDER_CATEGORY_UNSUPPORTED: "unsupported file type",
+        FOLDER_CATEGORY_UNREADABLE: "could not be read",
+        FOLDER_CATEGORY_EMPTY: "empty",
+        FOLDER_CATEGORY_DUPLICATE: "label already in project",
+    }
+
+
+def _folder_preview_workspace_fragment(
+    preview: "FolderImportPreview",
+    manifest_token: str,
+) -> str:
+    """Render the reviewed preview workspace for one saved manifest.
+
+    The fragment carries only the opaque token — never the saved manifest
+    itself, the raw folder path, or absolute paths. Totals derive from the
+    manifest entries (hidden and non-regular paths are absent entirely), and
+    confirmation is offered only when ready entries exist.
+    """
+    from ace.services.importer import FOLDER_CATEGORY_READY
+
+    manifest = preview.manifest
+    counts = manifest.counts
+    total = preview.total_files
+    ready_count = counts[FOLDER_CATEGORY_READY]
+    labels = _folder_status_labels()
+    folder_name = html.escape(Path(manifest.folder).name)
+
+    rows = "".join(
+        '<li class="ace-folder-preview-entry" '
+        f'data-folder-entry="{html.escape(entry.category, quote=True)}">'
+        f"<span>{html.escape(entry.relative_path)}</span>"
+        f"<small>{labels[entry.category]}"
+        + (f" · {html.escape(entry.detail)}" if entry.detail else "")
+        + "</small></li>"
+        for entry in manifest.entries
+    )
+    summary_bits = [
+        f"{counts[category]} {label}"
+        for category, label in labels.items()
+        if counts[category]
+    ]
+    summary = ", ".join(summary_bits) if summary_bits else "nothing to import"
+
+    if ready_count:
+        confirm_form = (
+            '<form class="ace-folder-preview-confirm" '
+            'hx-post="/api/import/folder/confirm" '
+            'hx-target="#step-done" hx-swap="innerHTML">'
+            '<input type="hidden" name="manifest_token" '
+            f'value="{html.escape(manifest_token, quote=True)}">'
+            '<button type="submit" class="ace-btn ace-btn--primary">'
+            f'Import {ready_count} file{"s" if ready_count != 1 else ""}'
+            "</button></form>"
+        )
+    else:
+        confirm_form = ""
+
+    return (
+        '<div class="ace-folder-preview-workspace" data-folder-import-preview>'
+        '<div class="ace-import-result-top">'
+        '<span class="ace-wizard-crumb">Folder import</span>'
+        f'<span class="ace-wizard-pill">{folder_name}/ · '
+        f'{total} file{"s" if total != 1 else ""} found</span>'
+        "</div>"
+        '<h1 class="ace-wizard-title" tabindex="-1">Review folder files</h1>'
+        f'<p class="ace-wizard-hint">{summary}.</p>'
+        f'<ul class="ace-folder-preview-entries">{rows}</ul>'
+        f"{confirm_form}"
+        "</div>"
+    )
+
+
+def _folder_repreview_required_fragment(reason: str) -> str:
+    """Preview-again fragment for every refused confirmation.
+
+    Covers changed/deleted/unreadable ready files, failed batches, and
+    unknown/expired/consumed tokens; it never claims an import happened.
+    """
+    return (
+        '<div class="ace-import-result ace-folder-repreview" '
+        'data-repreview-required="true" role="alert">'
+        '<div class="ace-import-result-top">'
+        '<span class="ace-wizard-crumb">Folder import</span>'
+        "</div>"
+        '<h1 class="ace-wizard-title" tabindex="-1">Preview the folder again</h1>'
+        f"<p>{html.escape(reason)} The files were not imported.</p>"
+        '<div class="ace-import-result-actions">'
+        '<button class="ace-btn" type="button" '
+        "onclick=\"showStep('step-choose')\">Choose folder again</button>"
+        "</div>"
+        "</div>"
+    )
+
+
 @router.post("/import/folder")
 async def import_folder(
     request: Request,
     path: str = Form(...),
 ):
-    """Import .txt and .md files from a folder."""
+    """Preview .txt/.md files in a folder and save a confirmation manifest.
+
+    Phase one of the two-phase folder import: classify the folder, store the
+    manifest server-side under an opaque single-use token, and return the
+    reviewed preview. No database writes happen on this route — only
+    POST /api/import/folder/confirm imports, and it confirms the saved
+    manifest exactly rather than rescanning the folder.
+    """
     from ace.app import get_db
-    from ace.services.importer import import_text_files, get_random_previews
+    from ace.services.importer import preview_folder_import
 
     folder = _native_selection_path(path)
     if not folder.is_dir():
@@ -463,48 +581,98 @@ async def import_folder(
     db_gen = get_db(request)
     conn = next(db_gen)
     try:
-        result = import_text_files(conn, folder)
-        count, skipped, created_ids = result
+        preview = preview_folder_import(conn, folder)
     except Exception:
         return _oob_status(_friendly_import_error())
     finally:
         db_gen.close()
 
-    # Remember the last import's source ids so the 'Remove last import'
-    # button can delete them directly (imports are NOT on the undo stack).
-    # Set unconditionally — a no-op import (all duplicates) clears the
-    # record so the button never removes a previous batch by mistake.
-    request.app.state.last_import_source_ids = created_ids
+    token = secrets.token_urlsafe(32)
+    manifest_store = getattr(request.app.state, "folder_import_manifests", None)
+    if manifest_store is not None:
+        manifest_store.put(token, preview.manifest)
+    return HTMLResponse(_folder_preview_workspace_fragment(preview, token))
 
-    folder_name = html.escape(folder.name)
-    escaped_path = html.escape(quote(str(folder), safe=""))
 
-    total, previews = get_random_previews(folder)
-    preview_html = (
-        _folder_import_preview_fragment(previews, total, escaped_path)
-        if previews
-        else ""
+def _take_folder_import_manifest(
+    request: Request,
+    token: str,
+) -> "FolderImportManifest | None":
+    """Pop the live manifest for ``token``; None for missing or expired.
+
+    The store applies its expiry policy before the manifest is used, so an
+    expired token behaves exactly like an unknown one: a new preview is
+    required. Popping also makes every token single-use.
+    """
+    manifest_store = getattr(request.app.state, "folder_import_manifests", None)
+    if manifest_store is None or not token:
+        return None
+    return manifest_store.take(token)
+
+
+@router.post("/import/folder/confirm")
+async def import_folder_confirm(
+    request: Request,
+    manifest_token: str = Form(default=""),
+):
+    """Import the reviewed folder manifest addressed by ``manifest_token``.
+
+    Phase two of the two-phase folder import. The token is consumed on use;
+    missing, expired, and already-consumed tokens all get the same
+    re-preview-required response. The service revalidates every saved ready
+    file before its single atomic transaction, so a refused confirmation
+    writes nothing, and ``last_import_source_ids`` is set only after a
+    successful commit, with exactly the ids that commit created.
+    """
+    from ace.app import get_db
+    from ace.services.importer import (
+        FolderImportRepreviewRequired,
+        confirm_folder_import,
     )
 
-    skipped_html = _skipped_html(skipped, "file")
-    empty_skipped_html = _empty_skipped_html(result.empty_skipped, "source")
+    manifest = _take_folder_import_manifest(request, manifest_token)
+    if manifest is None:
+        return HTMLResponse(
+            _folder_repreview_required_fragment(
+                "This folder preview is no longer available."
+            )
+        )
 
+    db_gen = get_db(request)
+    conn = next(db_gen)
+    try:
+        result = confirm_folder_import(conn, manifest)
+    except Exception:
+        logger.exception("Folder-import confirmation failed; manifest discarded")
+        return HTMLResponse(
+            _folder_repreview_required_fragment(
+                "The folder could not be imported as previewed."
+            )
+        )
+    finally:
+        db_gen.close()
+
+    if isinstance(result, FolderImportRepreviewRequired):
+        return HTMLResponse(
+            _folder_repreview_required_fragment(
+                f"{result.relative_path}: {result.detail}"
+            )
+        )
+
+    # Remember the last import's source ids so the 'Remove last import'
+    # button can delete them directly (imports are NOT on the undo stack).
+    # Success-only: assigned after the service commits, with exactly the
+    # created ids — preview, expiry, rejection, and rollback never touch it.
+    request.app.state.last_import_source_ids = list(result.created_ids)
+
+    count_label = f'{result.created} source{"s" if result.created != 1 else ""}'
     return HTMLResponse(
-        '<div class="ace-import-result ace-import-result--folder">'
-        '<div class="ace-import-result-top">'
-        '<span class="ace-wizard-crumb">Folder import</span>'
-        f'<span class="ace-wizard-pill">{folder_name}/ · {count} file{"s" if count != 1 else ""}</span>'
-        "</div>"
-        '<h1 class="ace-wizard-title" tabindex="-1">Check imported text files</h1>'
-        '<p class="ace-wizard-hint">'
-        "ACE imported each text or Markdown file as a separate source. "
-        "Scan a random sample before coding."
-        "</p>"
-        f"{skipped_html}"
-        f"{empty_skipped_html}"
-        f"{preview_html}"
-        f"{_import_done_actions(include_back=True)}"
-        "</div>"
+        _import_result_fragment(
+            count_label,
+            Path(manifest.folder).name,
+            skipped=result.duplicate_skipped,
+            empty_skipped=result.empty_skipped,
+        )
     )
 
 

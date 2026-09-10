@@ -11,13 +11,16 @@ import time
 from collections.abc import AsyncGenerator, Callable, Generator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import uvicorn
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
 from jinja2_fragments.fastapi import Jinja2Blocks
 from starlette.middleware.sessions import SessionMiddleware
+
+if TYPE_CHECKING:
+    from ace.services.importer import FolderImportManifest
 
 from ace.db.connection import checkpoint_and_close
 from ace.db.schema import ACE_APPLICATION_ID
@@ -138,6 +141,64 @@ DbDep = Annotated[sqlite3.Connection, Depends(get_db)]
 
 
 # ---------------------------------------------------------------------------
+# Folder-import manifest store
+# ---------------------------------------------------------------------------
+
+# Reviewed folder-import manifests are short-lived by design: long enough to
+# check a preview, short enough that a stale token can never confirm an old
+# batch. Expiry is rechecked on every take.
+FOLDER_IMPORT_MANIFEST_TTL_SECONDS = 600.0
+
+
+class FolderImportManifestStore:
+    """Process-local store of reviewed folder-import manifests.
+
+    Manifests are addressed by opaque, unguessable tokens and expire
+    ``ttl_seconds`` after they are saved. They live only in process memory:
+    never in the project database, a session cookie, or an HTTP response.
+    Tokens are single-use — ``take`` pops the record — so consumed tokens
+    behave exactly like unknown or expired ones and require a new preview.
+    """
+
+    def __init__(self, ttl_seconds: float = FOLDER_IMPORT_MANIFEST_TTL_SECONDS) -> None:
+        self.ttl_seconds = ttl_seconds
+        self._records: dict[str, tuple["FolderImportManifest", float]] = {}
+
+    def put(self, token: str, manifest: "FolderImportManifest") -> None:
+        """Save one manifest under ``token`` with a fresh expiry."""
+        self._purge_expired()
+        self._records[token] = (manifest, time.monotonic() + self.ttl_seconds)
+
+    def take(self, token: str) -> "FolderImportManifest | None":
+        """Pop the live manifest for ``token``; None when unknown or expired.
+
+        Expiry is checked before the manifest is used, so an expired token
+        is indistinguishable from an unknown one: both need a new preview.
+        """
+        record = self._records.pop(token, None)
+        if record is None:
+            return None
+        manifest, expires_at = record
+        if time.monotonic() >= expires_at:
+            return None
+        return manifest
+
+    def clear(self) -> None:
+        """Drop every saved manifest (the project changed)."""
+        self._records.clear()
+
+    def _purge_expired(self) -> None:
+        now = time.monotonic()
+        expired = [
+            token
+            for token, (_, expires_at) in self._records.items()
+            if now >= expires_at
+        ]
+        for token in expired:
+            del self._records[token]
+
+
+# ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
 
@@ -197,6 +258,9 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.db = None
     app.state.project_path = None
     app.state.undo_managers = {}
+    app.state.folder_import_manifests = FolderImportManifestStore(
+        FOLDER_IMPORT_MANIFEST_TTL_SECONDS
+    )
     app.state.migrated_paths = set()
     app.state.active_projects = set()
     app.state.browser_runtime_config = _runtime_config_from_env()

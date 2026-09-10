@@ -2,15 +2,18 @@
 
 import html
 import json
+import os
+import re
 from pathlib import Path
 
 import openpyxl
 import pytest
 from fastapi.testclient import TestClient
 
+import ace.services.importer as importer
 from ace.app import create_app
 from ace.db.connection import create_project, open_project
-from ace.models.source import get_source_content, list_sources
+from ace.models.source import add_source, get_source_content, list_sources
 
 
 @pytest.fixture()
@@ -444,67 +447,371 @@ def test_import_page_has_consistent_buttons(client_with_project):
     assert "ace-wizard-option" in resp.text
 
 
-def test_import_folder(client_with_project):
-    """Import .txt folder creates sources and shows preview."""
-    client, tmp_path = client_with_project
+# -------------------------------------------------------------------------
+# Two-phase folder import: preview (no writes) then token-backed confirm.
+# -------------------------------------------------------------------------
 
+
+def _extract_manifest_token(fragment: str) -> str:
+    match = re.search(r'name="manifest_token" value="([^"]+)"', fragment)
+    assert match, "preview fragment must carry an opaque manifest token"
+    return match.group(1)
+
+
+def _source_display_ids(project_path: Path) -> list[str]:
+    conn = open_project(project_path)
+    try:
+        return [source["display_id"] for source in list_sources(conn)]
+    finally:
+        conn.close()
+
+
+def _source_ids_by_label(project_path: Path) -> dict[str, str]:
+    conn = open_project(project_path)
+    try:
+        return {source["display_id"]: source["id"] for source in list_sources(conn)}
+    finally:
+        conn.close()
+
+
+def _last_import_source_ids(app) -> list[str] | None:
+    """The stored last-import ids; None when never set (route-layer contract)."""
+    return getattr(app.state, "last_import_source_ids", None)
+
+
+def _make_mixed_folder(tmp_path: Path) -> Path:
+    """Nested TXT/MD plus unsupported, hidden, hidden-dir, and FIFO entries."""
     folder = tmp_path / "texts"
-    folder.mkdir()
-    (folder / "one.txt").write_text("First document")
-    (folder / "two.txt").write_text("Second document")
+    (folder / "nested").mkdir(parents=True)
+    (folder / "top.txt").write_text("Top document", encoding="utf-8")
+    (folder / "nested" / "kept.md").write_text("Nested markdown", encoding="utf-8")
+    (folder / "image.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (folder / ".hidden.txt").write_text("hidden", encoding="utf-8")
+    (folder / ".hidden-dir").mkdir()
+    (folder / ".hidden-dir" / "inside.md").write_text("hidden doc", encoding="utf-8")
+    if hasattr(os, "mkfifo"):
+        os.mkfifo(folder / "pipe")
+    return folder
 
-    resp = client.post(
-        "/api/import/folder",
-        data={"path": str(folder)},
-    )
+
+def test_import_folder_preview_creates_no_sources_and_reports_totals(
+    client_with_project,
+):
+    """Preview counts only examined regular files and never writes sources."""
+    client, tmp_path = client_with_project
+    folder = _make_mixed_folder(tmp_path)
+
+    resp = client.post("/api/import/folder", data={"path": str(folder)})
 
     assert resp.status_code == 200
-    assert "2 files" in resp.text
-    assert "Folder import" in resp.text
-    assert "Check imported text files" in resp.text
-    assert "Start coding" in resp.text
-    assert ">Back</button>" in resp.text
-    assert "Import more data" in resp.text
-    assert "ace-folder-import-browser" in resp.text
-    assert "Random sample" in resp.text
-    assert "Previewing" in resp.text
+    # 3 examined regular files; hidden paths and the FIFO are absent from
+    # totals entirely.
+    assert "3 files" in resp.text
+    assert "Import 2 files" in resp.text
+    assert "top.txt" in resp.text
+    assert "nested/kept.md" in resp.text
+    assert "image.png" in resp.text
+    assert ".hidden" not in resp.text
+    assert "pipe" not in resp.text
+    assert _source_display_ids(tmp_path / "test.ace") == []
 
 
-def test_import_folder_accepts_file_uri(client_with_project):
-    """Desktop dialogs may return a file:// URI instead of a POSIX path."""
+def test_import_folder_preview_then_confirm_creates_sources(client_with_project):
+    """The ordinary journey: preview writes nothing, confirm imports the batch."""
     client, tmp_path = client_with_project
+    app = client.app
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+    (folder / "two.txt").write_text("Second document", encoding="utf-8")
 
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    assert preview.status_code == 200
+    assert _source_display_ids(tmp_path / "test.ace") == []
+    assert _last_import_source_ids(app) is None
+
+    token = _extract_manifest_token(preview.text)
+    resp = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+
+    assert resp.status_code == 200
+    assert "2 sources" in resp.text
+    assert "Import complete" in resp.text
+    assert "Start coding" in resp.text
+    assert _source_display_ids(tmp_path / "test.ace") == ["one", "two"]
+
+
+def test_import_folder_preview_accepts_file_uri_then_confirm(client_with_project):
+    """Desktop dialogs may return a file:// URI; preview and confirm still work."""
+    client, tmp_path = client_with_project
     folder = tmp_path / "texts with spaces"
     folder.mkdir()
     (folder / "one.txt").write_text("First document", encoding="utf-8")
 
-    resp = client.post(
-        "/api/import/folder",
-        data={"path": folder.as_uri()},
-    )
+    preview = client.post("/api/import/folder", data={"path": folder.as_uri()})
+    assert preview.status_code == 200
+    assert _source_display_ids(tmp_path / "test.ace") == []
+
+    token = _extract_manifest_token(preview.text)
+    resp = client.post("/api/import/folder/confirm", data={"manifest_token": token})
 
     assert resp.status_code == 200
-    assert "1 file" in resp.text
-    assert "Check imported text files" in resp.text
+    assert "1 source" in resp.text
+    assert _source_display_ids(tmp_path / "test.ace") == ["one"]
 
 
-def test_import_folder_reports_empty_files_separately(client_with_project):
+def test_import_folder_preview_token_is_opaque(client_with_project):
+    """The token carries no folder path and is an unguessable per-preview id."""
     client, tmp_path = client_with_project
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+
+    resp = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(resp.text)
+
+    assert str(folder) not in resp.text
+    assert str(folder) not in token
+    assert re.fullmatch(r"[A-Za-z0-9_-]{40,}", token)
+    again = client.post("/api/import/folder", data={"path": str(folder)})
+    assert _extract_manifest_token(again.text) != token
+
+
+def test_import_folder_confirm_excludes_files_added_after_preview(client_with_project):
+    """Confirmation imports the saved manifest, never a fresh folder scan."""
+    client, tmp_path = client_with_project
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    (folder / "late.txt").write_text("Added after preview", encoding="utf-8")
+
+    resp = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+
+    assert resp.status_code == 200
+    assert "Import complete" in resp.text
+    assert _source_display_ids(tmp_path / "test.ace") == ["one"]
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_detail"),
+    [
+        ("changed", "file changed since preview"),
+        ("deleted", "file is missing"),
+        ("unreadable", "file could not be read (PermissionError)"),
+    ],
+)
+def test_import_folder_confirm_requires_repreview_and_writes_nothing(
+    client_with_project, monkeypatch, mutation, expected_detail
+):
+    """Changed, deleted, and unreadable ready files refuse with zero writes."""
+    client, tmp_path = client_with_project
+    app = client.app
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+    (folder / "two.txt").write_text("Second document", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    if mutation == "changed":
+        (folder / "one.txt").write_text("Rewritten after preview", encoding="utf-8")
+    elif mutation == "deleted":
+        (folder / "one.txt").unlink()
+    else:
+
+        def failing_read(path, saved_fingerprint):
+            raise PermissionError(13, "Permission denied")
+
+        monkeypatch.setattr(importer, "_read_validated_ready_bytes", failing_read)
+
+    resp = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+
+    assert resp.status_code == 200
+    assert 'data-repreview-required="true"' in resp.text
+    assert "one.txt" in resp.text
+    assert expected_detail in resp.text
+    assert "Import complete" not in resp.text
+    assert _source_display_ids(tmp_path / "test.ace") == []
+    assert _last_import_source_ids(app) is None
+
+
+def test_import_folder_confirm_unknown_or_blank_token_requires_new_preview(
+    client_with_project,
+):
+    client, tmp_path = client_with_project
+    for token_value in ("bogus-token", ""):
+        resp = client.post(
+            "/api/import/folder/confirm", data={"manifest_token": token_value}
+        )
+        assert resp.status_code == 200
+        assert 'data-repreview-required="true"' in resp.text
+        assert "Import complete" not in resp.text
+    assert _source_display_ids(tmp_path / "test.ace") == []
+
+
+def test_import_folder_confirm_expired_token_requires_new_preview(client_with_project):
+    client, tmp_path = client_with_project
+    # A zero TTL makes every manifest expire the moment it is saved.
+    client.app.state.folder_import_manifests.ttl_seconds = 0.0
+
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    resp = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+
+    assert 'data-repreview-required="true"' in resp.text
+    assert "Import complete" not in resp.text
+    assert _source_display_ids(tmp_path / "test.ace") == []
+
+
+def test_import_folder_confirm_consumed_token_requires_new_preview(client_with_project):
+    client, tmp_path = client_with_project
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    first = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+    assert "Import complete" in first.text
+
+    second = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+    assert 'data-repreview-required="true"' in second.text
+    assert "Import complete" not in second.text
+    # The first confirmation imported exactly once; the replay imports nothing.
+    assert _source_display_ids(tmp_path / "test.ace") == ["one"]
+
+
+def test_import_folder_confirm_insert_failure_keeps_last_import_untouched(
+    client_with_project,
+):
+    """A failing batch rolls back fully and never publishes last-import ids."""
+    client, tmp_path = client_with_project
+    app = client.app
+
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        conn.execute(
+            "CREATE TRIGGER abort_second_source BEFORE INSERT ON source "
+            "WHEN NEW.display_id = 'two' "
+            "BEGIN SELECT RAISE(ABORT, 'blocked'); END"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+    (folder / "two.txt").write_text("Second document", encoding="utf-8")
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    app.state.last_import_source_ids = ["sentinel-id"]
+    resp = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+
+    assert resp.status_code == 200
+    assert 'data-repreview-required="true"' in resp.text
+    assert "Import complete" not in resp.text
+    assert _source_display_ids(tmp_path / "test.ace") == []
+    assert app.state.last_import_source_ids == ["sentinel-id"]
+
+
+def test_import_folder_confirm_sets_last_import_and_retains_duplicate_accounting(
+    client_with_project,
+):
+    """Success stores exactly the created ids; reviewed duplicates stay counted."""
+    client, tmp_path = client_with_project
+    app = client.app
+    project_path = tmp_path / "test.ace"
+
+    conn = open_project(project_path)
+    try:
+        add_source(
+            conn, display_id="dup", content_text="Existing text", source_type="file"
+        )
+    finally:
+        conn.close()
+
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "dup.txt").write_text("Duplicate label", encoding="utf-8")
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    resp = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+
+    assert resp.status_code == 200
+    assert "1 source" in resp.text
+    assert "Skipped 1 source already present in this project." in resp.text
+    assert _source_display_ids(project_path) == ["dup", "one"]
+    assert app.state.last_import_source_ids == [
+        _source_ids_by_label(project_path)["one"]
+    ]
+
+
+def test_import_folder_confirm_retains_empty_file_accounting(client_with_project):
+    """Empty files stay skipped in the confirmed result and last-import ids."""
+    client, tmp_path = client_with_project
+    app = client.app
+    project_path = tmp_path / "test.ace"
     folder = tmp_path / "texts"
     folder.mkdir()
     (folder / "empty.txt").write_text("", encoding="utf-8")
     (folder / "filled.txt").write_text("Some text", encoding="utf-8")
 
-    resp = client.post("/api/import/folder", data={"path": str(folder)})
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    resp = client.post("/api/import/folder/confirm", data={"manifest_token": token})
 
     assert resp.status_code == 200
-    assert "1 file" in resp.text
+    assert "1 source" in resp.text
     assert "Skipped 1 empty source." in resp.text
     assert "already present" not in resp.text
-    conn = open_project(tmp_path / "test.ace")
+    assert _source_display_ids(project_path) == ["filled"]
+    assert app.state.last_import_source_ids == [
+        _source_ids_by_label(project_path)["filled"]
+    ]
+
+
+def test_project_create_clears_saved_folder_import_manifests(client_with_project):
+    """Changing projects drops saved manifests and the last-import record."""
+    client, tmp_path = client_with_project
+    app = client.app
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    app.state.last_import_source_ids = ["sentinel-id"]
+    other = tmp_path / "other.ace"
+    created = client.post(
+        "/api/project/create",
+        data={"name": "Other", "path": str(other)},
+    )
+    assert created.status_code == 200
+    assert app.state.last_import_source_ids is None
+
+    confirm = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+    assert 'data-repreview-required="true"' in confirm.text
+    assert "Import complete" not in confirm.text
+
+    conn = open_project(other)
     try:
-        sources = list_sources(conn)
-        assert [source["display_id"] for source in sources] == ["filled"]
+        assert list_sources(conn) == []
     finally:
         conn.close()
 
