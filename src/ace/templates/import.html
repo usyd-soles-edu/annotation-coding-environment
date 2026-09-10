@@ -86,13 +86,50 @@
     return !!(xhr && xhr.status >= 200 && xhr.status < 300);
   }
 
-  function previewTextForButton(button) {
-    try {
-      return JSON.parse(button.dataset.previewJson || "\"\"");
-    } catch (_) {
-      return "";
-    }
+  function folderPreviewFetchContent(workspace, row, title, meta, text, truncated) {
+    var tokenInput = workspace.querySelector("[data-folder-preview-token]");
+    var token = tokenInput ? tokenInput.value : "";
+    var path = row.dataset.folderPreviewPath || "";
+    if (!token || !path) return;
+    var url = "/api/import/folder/preview-file?" + new URLSearchParams({
+      manifest_token: token,
+      path: path
+    }).toString();
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (text) text.textContent = data.content || "";
+        if (truncated) truncated.hidden = !data.truncated;
+      })
+      .catch(function() {
+        if (text) text.textContent = "";
+        if (truncated) truncated.hidden = true;
+      });
   }
+
+  document.addEventListener("click", function(evt) {
+    var row = evt.target.closest("[data-folder-preview-row]");
+    if (!row) return;
+    var workspace = row.closest("[data-folder-import-preview]");
+    if (!workspace) return;
+    workspace.querySelectorAll("[data-folder-preview-row]").forEach(function(other) {
+      other.classList.remove("is-selected");
+      other.removeAttribute("aria-current");
+    });
+    row.classList.add("is-selected");
+    row.setAttribute("aria-current", "true");
+    var title = workspace.querySelector("[data-folder-preview-canvas-title]");
+    var meta = workspace.querySelector("[data-folder-preview-canvas-meta]");
+    var text = workspace.querySelector("[data-folder-preview-canvas-text]");
+    var truncated = workspace.querySelector("[data-folder-preview-canvas-truncated]");
+    if (title) title.textContent = row.dataset.folderPreviewName || "";
+    if (meta) meta.textContent = row.dataset.folderPreviewMeta || "";
+    if (text) text.textContent = "";
+    if (truncated) truncated.hidden = true;
+    var reading = workspace.querySelector(".ace-folder-preview-reading");
+    if (reading) reading.scrollTop = 0;
+    folderPreviewFetchContent(workspace, row, title, meta, text, truncated);
+  });
 
   window.showStep = function(id) {
     document.querySelectorAll(".ace-wizard-step").forEach(function(el) {
@@ -102,7 +139,7 @@
     });
     var step = document.getElementById(id);
     if (!step) return;
-    var title = step.querySelector(".ace-wizard-title, .ace-wizard-count");
+    var title = step.querySelector(".ace-wizard-title, .ace-wizard-count, .ace-folder-preview-title");
     if (title) {
       if (!title.hasAttribute("tabindex")) title.setAttribute("tabindex", "-1");
       title.focus();
@@ -218,25 +255,22 @@
       });
   };
 
-  document.addEventListener("click", function(evt) {
-    var button = evt.target.closest("[data-import-preview-file]");
-    if (!button) return;
-    var browser = button.closest(".ace-folder-import-browser");
-    if (!browser) return;
-    browser.querySelectorAll("[data-import-preview-file]").forEach(function(other) {
-      other.classList.remove("is-selected");
-      other.removeAttribute("aria-current");
-    });
-    button.classList.add("is-selected");
-    button.setAttribute("aria-current", "true");
-    var title = browser.querySelector("[data-import-preview-title]");
-    var size = browser.querySelector("[data-import-preview-size]");
-    var text = browser.querySelector("[data-import-preview-text]");
-    if (title) title.textContent = button.dataset.filename || "";
-    if (size) size.textContent = button.dataset.sizeLabel || "";
-    if (text) text.textContent = previewTextForButton(button);
-    var body = browser.querySelector(".ace-folder-import-preview-body");
-    if (body) body.scrollTop = 0;
+  document.addEventListener("htmx:afterRequest", function(evt) {
+    var form = evt.detail.elt;
+    if (!form || !form.matches("[data-folder-preview-confirm]")) return;
+    if (!responseIsSuccessful(evt)) return;
+    var responseText = (evt.detail.xhr && evt.detail.xhr.responseText) || "";
+    if (responseText.indexOf('data-repreview-required="true"') !== -1) {
+      var done = document.getElementById("step-done");
+      var preview = document.getElementById("step-columns");
+      if (done && preview) {
+        preview.innerHTML = done.innerHTML;
+        done.innerHTML = "";
+      }
+      showStep("step-columns");
+      return;
+    }
+    showStep("step-done");
   });
 
   window.pickAndImportFolder = function() {
@@ -249,14 +283,14 @@
         btn.disabled = false;
         setButtonTitle(btn, "Import a folder");
         if (!path) return;
-        setImportMessage("Importing folder...", "");
+        setImportMessage("Reviewing folder...", "");
         btn.disabled = true;
-        setButtonTitle(btn, "Importing folder...");
-        return postFragment("/api/import/folder", { path: path }, "#step-done")
+        setButtonTitle(btn, "Reviewing folder...");
+        return postFragment("/api/import/folder", { path: path }, "#step-columns")
           .then(function() {
             btn.disabled = false;
             setButtonTitle(btn, "Import a folder");
-            showStep("step-done");
+            showStep("step-columns");
           })
           .catch(function(error) {
             btn.disabled = false;

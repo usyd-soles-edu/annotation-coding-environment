@@ -1,11 +1,15 @@
 """Import sources from CSV/Excel files and text file folders."""
 
 import csv
-import random
+import hashlib
+import os
 import sqlite3
+import stat
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from types import MappingProxyType
 
 from ace.models.source import _add_source_no_commit
 
@@ -41,12 +45,6 @@ class _SourceCandidate:
 def _existing_display_ids(conn: sqlite3.Connection) -> set[str]:
     """Return the set of display_ids already present in the source table."""
     return {row[0] for row in conn.execute("SELECT display_id FROM source")}
-
-
-def count_already_present(conn: sqlite3.Connection, folder: str | Path) -> int:
-    """Count text files in ``folder`` whose stem is already a source display_id."""
-    existing = _existing_display_ids(conn)
-    return sum(1 for f in _list_text_files(Path(folder)) if f.stem in existing)
 
 
 def import_csv(
@@ -185,6 +183,523 @@ def import_text_files(
     return _insert_candidates(conn, candidates)
 
 
+# ---------------------------------------------------------------------------
+# Folder import preview seams: recursive scan, classification, manifest.
+#
+# These seams only observe the folder and existing source labels. They never
+# write to SQLite and never sample randomly; the confirmation path is the
+# sole mutation route for the folder-import workflow.
+# ---------------------------------------------------------------------------
+
+FOLDER_CATEGORY_READY = "supported-ready"
+FOLDER_CATEGORY_UNSUPPORTED = "unsupported"
+FOLDER_CATEGORY_UNREADABLE = "unreadable"
+FOLDER_CATEGORY_EMPTY = "empty"
+FOLDER_CATEGORY_DUPLICATE = "duplicate"
+
+_FOLDER_CATEGORIES = (
+    FOLDER_CATEGORY_READY,
+    FOLDER_CATEGORY_UNSUPPORTED,
+    FOLDER_CATEGORY_UNREADABLE,
+    FOLDER_CATEGORY_EMPTY,
+    FOLDER_CATEGORY_DUPLICATE,
+)
+
+_FOLDER_SUPPORTED_SUFFIXES = frozenset({".txt", ".md"})
+
+
+@dataclass(frozen=True)
+class FolderImportFingerprint:
+    """Immutable identity of a ready file as it was at preview time.
+
+    Content hash plus size and mtime_ns lets confirmation detect files that
+    were edited in place; the filesystem identity (device, inode) additionally
+    detects replacements that preserve size and mtime.
+    """
+
+    content_sha256: str
+    size: int
+    mtime_ns: int
+    device: int
+    inode: int
+
+
+@dataclass(frozen=True)
+class FolderImportEntry:
+    """One examined regular folder file, classified into exactly one category.
+
+    Hidden paths and non-regular entries are rejected before totals and never
+    become entries. ``content_text`` and ``fingerprint`` are populated only
+    for ready entries; ``detail`` carries a short, path-free reason for the
+    non-importable categories.
+    """
+
+    relative_path: str
+    display_id: str
+    category: str
+    content_text: str = ""
+    fingerprint: FolderImportFingerprint | None = None
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class FolderImportManifest:
+    """Saved snapshot of one reviewed folder preview.
+
+    Confirmation consumes this manifest and must never rescan the folder:
+    files added after the preview are excluded from the confirmed batch.
+    """
+
+    folder: str
+    entries: tuple[FolderImportEntry, ...]
+
+    @property
+    def ready_entries(self) -> tuple[FolderImportEntry, ...]:
+        return tuple(
+            entry
+            for entry in self.entries
+            if entry.category == FOLDER_CATEGORY_READY
+        )
+
+    @property
+    def counts(self) -> Mapping[str, int]:
+        """Derived, read-only category counts over the immutable entries."""
+        return MappingProxyType(count_folder_import_categories(self.entries))
+
+
+@dataclass(frozen=True)
+class FolderImportPreview:
+    """User-facing aggregate over one saved folder-import manifest.
+
+    Aggregates derive from the manifest's immutable entries, so they cannot
+    drift from the reviewed data nor be mutated after the preview.
+    """
+
+    manifest: FolderImportManifest
+
+    @property
+    def total_files(self) -> int:
+        return len(self.manifest.entries)
+
+    @property
+    def counts(self) -> Mapping[str, int]:
+        return self.manifest.counts
+
+
+@dataclass(frozen=True)
+class FolderImportRepreviewRequired:
+    """Refused folder-import confirmation; a new preview is required.
+
+    Returned by ``confirm_folder_import`` when a saved ready entry no longer
+    matches the folder at confirmation time — changed, deleted, unreadable,
+    or saved content that cannot be verified. No database writes have
+    occurred. ``detail`` is a short, path-free reason; ``relative_path``
+    identifies the offending reviewed entry.
+    """
+
+    relative_path: str
+    detail: str
+
+
+class _RevalidationFailed(Exception):
+    """Internal signal: one saved ready entry failed confirmation revalidation.
+
+    ``detail`` is a short, path-free reason carried into the
+    ``FolderImportRepreviewRequired`` result.
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
+def count_folder_import_categories(
+    entries: Iterable[FolderImportEntry],
+) -> dict[str, int]:
+    """Count entries per category; all five categories are always present."""
+    counts = dict.fromkeys(_FOLDER_CATEGORIES, 0)
+    for entry in entries:
+        counts[entry.category] += 1
+    return counts
+
+
+def _is_hidden_component(name: str) -> bool:
+    """Dot-prefixed names are hidden and excluded from the entire scan."""
+    return name.startswith(".")
+
+
+def _is_regular_file(path: Path) -> bool:
+    """True only for true regular files: symlinks, FIFOs, devices fail."""
+    try:
+        return stat.S_ISREG(path.lstat().st_mode)
+    except OSError:
+        return False
+
+
+def _iter_regular_folder_files(folder: Path) -> list[Path]:
+    """Recursively list regular, non-hidden files under ``folder``.
+
+    Ordered deterministically by POSIX-style relative path. Hidden files,
+    hidden directory subtrees, and every non-regular entry (symlinks, FIFOs,
+    devices, directories themselves) are rejected before totals.
+    """
+    found: list[Path] = []
+    for root, dir_names, file_names in os.walk(folder, followlinks=False):
+        dir_names[:] = sorted(
+            name for name in dir_names if not _is_hidden_component(name)
+        )
+        for name in file_names:
+            if _is_hidden_component(name):
+                continue
+            candidate = Path(root) / name
+            if _is_regular_file(candidate):
+                found.append(candidate)
+    found.sort(key=lambda path: path.relative_to(folder).as_posix())
+    return found
+
+
+def _is_supported_folder_file(path: Path) -> bool:
+    """Recognise supported suffixes case-insensitively (.txt, .md, .TXT, .MD)."""
+    return path.suffix.lower() in _FOLDER_SUPPORTED_SUFFIXES
+
+
+def _read_folder_file_bytes(path: Path) -> bytes:
+    """Read one candidate without blocking on a raced non-regular path."""
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise OSError("file is not a regular file")
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or (
+            opened.st_dev,
+            opened.st_ino,
+        ) != (before.st_dev, before.st_ino):
+            raise OSError("file was replaced during preview")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, _READY_READ_CHUNK)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = path.lstat()
+        if not stat.S_ISREG(after.st_mode) or (
+            after.st_dev,
+            after.st_ino,
+        ) != (opened.st_dev, opened.st_ino):
+            raise OSError("file was replaced during preview")
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def _fingerprint_from_stat(
+    data: bytes,
+    stat_result: os.stat_result,
+) -> FolderImportFingerprint:
+    """Fingerprint content bytes plus identity metadata already captured."""
+    return FolderImportFingerprint(
+        content_sha256=hashlib.sha256(data).hexdigest(),
+        size=stat_result.st_size,
+        mtime_ns=stat_result.st_mtime_ns,
+        device=stat_result.st_dev,
+        inode=stat_result.st_ino,
+    )
+
+
+def _fingerprint_bytes(path: Path, data: bytes) -> FolderImportFingerprint:
+    """Fingerprint raw content bytes plus immutable identity metadata."""
+    return _fingerprint_from_stat(data, path.lstat())
+
+
+def _unreadable_detail(exc: Exception) -> str:
+    """Short, path-free reason for an unreadable classification."""
+    if isinstance(exc, UnicodeDecodeError):
+        return "file is not valid UTF-8"
+    return f"file could not be read ({type(exc).__name__})"
+
+
+def _classify_folder_file(
+    path: Path,
+    relative_path: str,
+    existing_ids: set[str],
+) -> FolderImportEntry:
+    """Classify one examined regular file into exactly one category.
+
+    Precedence matches confirmed import accounting: unsupported is decided
+    before reading, then unreadable, duplicate, empty, and finally ready.
+    ``existing_ids`` covers database labels plus display IDs already claimed
+    by ready entries earlier in the same deterministic scan, so later
+    same-label files classify duplicate exactly as confirmation skips them.
+    """
+    display_id = path.stem
+    if not _is_supported_folder_file(path):
+        return FolderImportEntry(
+            relative_path=relative_path,
+            display_id=display_id,
+            category=FOLDER_CATEGORY_UNSUPPORTED,
+            detail=f"unsupported suffix '{path.suffix.lower()}'",
+        )
+    try:
+        data = _read_folder_file_bytes(path)
+        text = data.decode("utf-8")
+        fingerprint = _fingerprint_bytes(path, data)
+    except (OSError, UnicodeDecodeError) as exc:
+        return FolderImportEntry(
+            relative_path=relative_path,
+            display_id=display_id,
+            category=FOLDER_CATEGORY_UNREADABLE,
+            detail=_unreadable_detail(exc),
+        )
+    if display_id in existing_ids:
+        return FolderImportEntry(
+            relative_path=relative_path,
+            display_id=display_id,
+            category=FOLDER_CATEGORY_DUPLICATE,
+            detail="label already exists",
+        )
+    if not text.strip():
+        return FolderImportEntry(
+            relative_path=relative_path,
+            display_id=display_id,
+            category=FOLDER_CATEGORY_EMPTY,
+            detail="file has no text content",
+        )
+    return FolderImportEntry(
+        relative_path=relative_path,
+        display_id=display_id,
+        category=FOLDER_CATEGORY_READY,
+        content_text=text,
+        fingerprint=fingerprint,
+    )
+
+
+def build_folder_import_preview(
+    folder: str | Path,
+    existing_ids: set[str],
+) -> FolderImportPreview:
+    """Classify every examined regular file under ``folder`` without side effects.
+
+    Pure seam: reads the filesystem and the supplied existing-label set only;
+    never touches SQLite and never samples randomly. Duplicate comparison is
+    against ``existing_ids`` plus labels claimed earlier in this scan, so only
+    the first entry per display ID (deterministic relative-path order)
+    classifies ready and later collisions classify duplicate — matching
+    confirmed import accounting.
+    """
+    folder = Path(folder)
+    claimed_ids = set(existing_ids)
+    entries: list[FolderImportEntry] = []
+    for path in _iter_regular_folder_files(folder):
+        entry = _classify_folder_file(
+            path,
+            path.relative_to(folder).as_posix(),
+            claimed_ids,
+        )
+        if entry.category == FOLDER_CATEGORY_READY:
+            claimed_ids.add(entry.display_id)
+        entries.append(entry)
+    manifest = FolderImportManifest(folder=str(folder), entries=tuple(entries))
+    return FolderImportPreview(manifest=manifest)
+
+
+def preview_folder_import(
+    conn: sqlite3.Connection,
+    folder: str | Path,
+) -> FolderImportPreview:
+    """Build a read-only preview manifest for one folder import.
+
+    Reads existing source labels to classify duplicates but performs no
+    database writes and opens no import transaction.
+    """
+    existing_ids = _existing_display_ids(conn)
+    return build_folder_import_preview(folder, existing_ids)
+
+
+def confirm_folder_import(
+    conn: sqlite3.Connection,
+    manifest: FolderImportManifest,
+) -> ImportResult | FolderImportRepreviewRequired:
+    """Revalidate a saved manifest's ready files, then import them atomically.
+
+    Iterates only the manifest's supported-ready entries — the folder is never
+    rescanned, so files added after the preview cannot join the batch. Each
+    ready file is fresh-read and its fingerprint compared before any
+    transaction begins; a changed, deleted, unreadable, or unverifiable ready
+    file returns ``FolderImportRepreviewRequired`` with no writes and no
+    insertion attempt. Validated candidates are inserted through the single
+    ``BEGIN IMMEDIATE`` batch in ``_insert_candidates``, which keeps duplicate
+    detection inside the transaction and rolls back on every exception.
+
+    Each ready path has its current filesystem type and identity checked
+    before any content read, so a path replaced by a FIFO (or any
+    non-regular file) is refused without opening a blocking read; the read
+    descriptor itself is opened ``O_NONBLOCK`` and fstat-verified so a
+    replacement racing the validation cannot hang or misattribute content.
+    After the read, the open descriptor's metadata and the path's current
+    type/identity are revalidated against the saved fingerprint, so a
+    mutation or replacement racing the read returns re-preview-required
+    instead of accepting stale bytes.
+
+    Confirmed accounting preserves the reviewed manifest: manifest-level
+    duplicate and empty counts are carried into the result, and any label
+    claimed by another source between preview and commit is still skipped
+    inside the transaction. Unavailable or expired manifest tokens are a
+    route-layer concern and are rejected the same way (re-preview required).
+    """
+    candidates: list[_SourceCandidate] = []
+    for entry in manifest.ready_entries:
+        if entry.fingerprint is None:
+            return FolderImportRepreviewRequired(
+                relative_path=entry.relative_path,
+                detail="saved file content is unavailable",
+            )
+        path = Path(manifest.folder) / entry.relative_path
+        try:
+            data, fingerprint = _read_validated_ready_bytes(
+                path, entry.fingerprint
+            )
+            text = data.decode("utf-8")
+        except FileNotFoundError:
+            return FolderImportRepreviewRequired(
+                relative_path=entry.relative_path,
+                detail="file is missing",
+            )
+        except _RevalidationFailed as exc:
+            return FolderImportRepreviewRequired(
+                relative_path=entry.relative_path,
+                detail=exc.detail,
+            )
+        except (OSError, UnicodeDecodeError) as exc:
+            return FolderImportRepreviewRequired(
+                relative_path=entry.relative_path,
+                detail=_unreadable_detail(exc),
+            )
+        if fingerprint != entry.fingerprint:
+            return FolderImportRepreviewRequired(
+                relative_path=entry.relative_path,
+                detail="file changed since preview",
+            )
+        candidates.append(
+            _SourceCandidate(
+                display_id=entry.display_id,
+                content_text=text,
+                source_type="file",
+                filename=path.name,
+                empty=not text.strip(),
+            )
+        )
+
+    result = _insert_candidates(
+        conn,
+        candidates,
+        empty_skipped=manifest.counts[FOLDER_CATEGORY_EMPTY],
+    )
+    return ImportResult(
+        created=result.created,
+        duplicate_skipped=(
+            result.duplicate_skipped + manifest.counts[FOLDER_CATEGORY_DUPLICATE]
+        ),
+        empty_skipped=result.empty_skipped,
+        created_ids=result.created_ids,
+    )
+
+
+_READY_READ_CHUNK = 1 << 20
+
+
+def _read_validated_ready_bytes(
+    path: Path,
+    saved_fingerprint: FolderImportFingerprint,
+) -> tuple[bytes, FolderImportFingerprint]:
+    """Fresh-read one saved ready path without ever blocking on a replacement.
+
+    Validates the path's current filesystem type and identity *before* any
+    content read: a missing file raises ``FileNotFoundError``, and anything
+    that is not a regular file — or whose device, inode, size, or mtime no
+    longer matches ``saved_fingerprint`` — raises ``_RevalidationFailed``.
+    The read descriptor is opened ``O_NONBLOCK``, so a path swapped to a FIFO
+    after that validation cannot block the caller, and the opened descriptor
+    is fstat-verified against the pre-open identity.
+
+    After the read completes, both the open descriptor and the current path
+    are revalidated against ``saved_fingerprint``: a file mutated in place
+    mid-read fails the descriptor's size/mtime check, and a path swapped to
+    another inode (or a non-regular file) while its old inode was still open
+    fails the path identity check. Only a path that is still the reviewed
+    regular file both before and after the read yields content.
+    """
+    stat_result = path.lstat()
+    if not stat.S_ISREG(stat_result.st_mode):
+        raise _RevalidationFailed("file is not a regular file")
+    if (
+        stat_result.st_dev,
+        stat_result.st_ino,
+        stat_result.st_size,
+        stat_result.st_mtime_ns,
+    ) != (
+        saved_fingerprint.device,
+        saved_fingerprint.inode,
+        saved_fingerprint.size,
+        saved_fingerprint.mtime_ns,
+    ):
+        raise _RevalidationFailed("file changed since preview")
+
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise _RevalidationFailed(_unreadable_detail(exc)) from exc
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or (
+            opened.st_dev,
+            opened.st_ino,
+        ) != (stat_result.st_dev, stat_result.st_ino):
+            raise _RevalidationFailed("file changed since preview")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, _READY_READ_CHUNK)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        # Revalidate after the read: the bytes on the descriptor and the file
+        # at the path must both still match the saved fingerprint, so a
+        # mutation or replacement racing the read is never accepted.
+        opened_after = os.fstat(fd)
+        if not stat.S_ISREG(opened_after.st_mode) or (
+            opened_after.st_dev,
+            opened_after.st_ino,
+            opened_after.st_size,
+            opened_after.st_mtime_ns,
+        ) != (
+            saved_fingerprint.device,
+            saved_fingerprint.inode,
+            saved_fingerprint.size,
+            saved_fingerprint.mtime_ns,
+        ):
+            raise _RevalidationFailed("file changed since preview")
+        current = path.lstat()
+        if not stat.S_ISREG(current.st_mode):
+            raise _RevalidationFailed("file is not a regular file")
+        if (current.st_dev, current.st_ino) != (
+            saved_fingerprint.device,
+            saved_fingerprint.inode,
+        ):
+            raise _RevalidationFailed("file changed since preview")
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise _RevalidationFailed(_unreadable_detail(exc)) from exc
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    return data, _fingerprint_from_stat(data, opened_after)
+
+
 def _is_blank_value(value: object) -> bool:
     return value is None or not str(value).strip()
 
@@ -244,44 +759,6 @@ def _insert_candidates(
     return ImportResult(
         len(created_ids), duplicate_skipped, empty_skipped, created_ids
     )
-
-
-def get_random_previews(
-    folder: str | Path,
-    limit: int = 5,
-    max_chars: int = 1200,
-) -> tuple[int, list[dict]]:
-    """Return total text-file count plus a bounded random preview sample."""
-    files = _list_text_files(Path(folder))
-    total = len(files)
-    if total == 0:
-        return 0, []
-
-    sample = random.sample(files, min(limit, total))
-    previews = []
-    for path in sample:
-        content = _read_text_file(path)
-        if len(content) > max_chars:
-            content = content[:max_chars] + "..."
-        previews.append(
-            {
-                "filename": path.name,
-                "snippet": content,
-                "size_label": _format_size(path.stat().st_size),
-            }
-        )
-    return total, previews
-
-
-def _format_size(size: int) -> str:
-    """Return a compact binary size label."""
-    if size < 1024:
-        return f"{size} B"
-    if size < 1024 * 1024:
-        value = size / 1024
-        return f"{value:.1f} KB".replace(".0 KB", " KB")
-    value = size / (1024 * 1024)
-    return f"{value:.1f} MB".replace(".0 MB", " MB")
 
 
 def read_tabular(path: Path) -> tuple[list[dict], list[str]]:

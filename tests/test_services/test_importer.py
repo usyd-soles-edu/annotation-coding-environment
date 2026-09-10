@@ -1,10 +1,12 @@
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import threading
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import openpyxl
 import pytest
@@ -18,40 +20,16 @@ from ace.models.source import (
     list_sources,
 )
 from ace.services.importer import (
+    build_folder_import_preview,
+    confirm_folder_import,
+    FolderImportRepreviewRequired,
+    ImportResult,
     import_csv,
     import_text_files,
-    get_random_previews,
+    preview_folder_import,
     read_tabular,
 )
-
-
-def test_get_random_previews_returns_up_to_five_files(tmp_path):
-    """Random folder previews return a bounded file sample plus total count."""
-    folder = tmp_path / "preview-sample"
-    folder.mkdir()
-    for i in range(7):
-        (folder / f"doc-{i}.txt").write_text(f"Content {i}")
-
-    total, previews = get_random_previews(folder)
-
-    assert total == 7
-    assert len(previews) == 5
-    assert {preview["filename"] for preview in previews} <= {
-        f"doc-{i}.txt" for i in range(7)
-    }
-    assert all(preview["snippet"].startswith("Content ") for preview in previews)
-    assert all(preview["size_label"] == "9 B" for preview in previews)
-
-
-def test_get_random_previews_empty_folder(tmp_path):
-    """Empty folders return a zero total and no previews."""
-    folder = tmp_path / "empty-preview-sample"
-    folder.mkdir()
-
-    total, previews = get_random_previews(folder)
-
-    assert total == 0
-    assert previews == []
+from ace.models.source import add_source
 
 
 def test_import_csv_creates_sources(tmp_db, sample_csv):
@@ -690,3 +668,800 @@ def test_import_csv_latin1(tmp_path):
     content = get_source_content(conn, sources[0]["id"])
     assert content["content_text"] == "caf\u00e9"
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Folder import preview seams: recursive scan, classification, manifest.
+#
+# These cover the read-only preview contract. Confirmation revalidation and
+# atomic insertion behaviour is covered in the section below.
+# ---------------------------------------------------------------------------
+
+
+def _build_folder_import_tree(tmp_path: Path) -> Path:
+    """Create the standard preview fixture tree used by classification tests.
+
+    Examined regular candidates: top.txt, nested/kept.md, image.png.
+    Everything else (hidden file, hidden directory subtree, plain directory,
+    directory carrying a supported suffix) must be rejected before totals.
+    """
+    folder = tmp_path / "import-tree"
+    folder.mkdir()
+    (folder / "top.txt").write_text("Top-level text", encoding="utf-8")
+    nested = folder / "nested"
+    nested.mkdir()
+    (nested / "kept.md").write_text("# Kept markdown", encoding="utf-8")
+    (folder / "image.png").write_bytes(b"\x89PNG fake image bytes")
+    (folder / ".hidden.txt").write_text("hidden top-level", encoding="utf-8")
+    hidden_dir = folder / ".hidden-dir"
+    hidden_dir.mkdir()
+    (hidden_dir / "inside.md").write_text("hidden nested", encoding="utf-8")
+    (folder / "plain-dir").mkdir()
+    (folder / "folder.txt").mkdir()  # directory carrying a supported suffix
+    return folder
+
+
+def _add_posix_non_regular_entries(folder: Path) -> None:
+    """Add a file symlink, a directory symlink, and a FIFO under ``folder``."""
+    (folder / "link-to-top.txt").symlink_to(folder / "top.txt")
+    (folder / "linked-dir").symlink_to(folder / "nested")
+    os.mkfifo(folder / "pipe.txt")
+
+
+def test_folder_import_recursive_discovers_nested_supported_files(tmp_path):
+    """Nested TXT/MD candidates are found recursively in deterministic order."""
+    folder = _build_folder_import_tree(tmp_path)
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    ready_entries = preview.manifest.ready_entries
+    assert [entry.relative_path for entry in ready_entries] == [
+        "nested/kept.md",
+        "top.txt",
+    ]
+    assert [entry.display_id for entry in ready_entries] == ["kept", "top"]
+    contents = {entry.display_id: entry.content_text for entry in ready_entries}
+    assert contents["top"] == "Top-level text"
+    assert contents["kept"] == "# Kept markdown"
+    assert all(entry.fingerprint is not None for entry in ready_entries)
+
+
+def test_folder_import_classification_excludes_hidden_paths_and_directories(tmp_path):
+    """Hidden files, hidden subtrees, and directories never become entries."""
+    folder = _build_folder_import_tree(tmp_path)
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    all_paths = {entry.relative_path for entry in preview.manifest.entries}
+    assert ".hidden.txt" not in all_paths
+    assert ".hidden-dir/inside.md" not in all_paths
+    assert "plain-dir" not in all_paths
+    assert "folder.txt" not in all_paths  # directory despite supported suffix
+    unsupported = [
+        entry
+        for entry in preview.manifest.entries
+        if entry.category == "unsupported"
+    ]
+    assert [entry.relative_path for entry in unsupported] == ["image.png"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symlinks and FIFOs require POSIX")
+def test_folder_import_classification_treats_non_regular_entries_as_excluded(tmp_path):
+    """Symlinks (even to supported files) and FIFOs are not candidates."""
+    folder = _build_folder_import_tree(tmp_path)
+    _add_posix_non_regular_entries(folder)
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    all_paths = {entry.relative_path for entry in preview.manifest.entries}
+    assert "link-to-top.txt" not in all_paths
+    assert "pipe.txt" not in all_paths
+    # The symlinked directory must not be recursed into: kept.md appears once.
+    kept_paths = [
+        entry.relative_path
+        for entry in preview.manifest.entries
+        if entry.display_id == "kept"
+    ]
+    assert kept_paths == ["nested/kept.md"]
+
+
+def test_folder_import_hidden_paths_do_not_affect_totals(tmp_path):
+    """Totals cover examined regular files only; hidden paths add nothing."""
+    folder = _build_folder_import_tree(tmp_path)
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    assert preview.total_files == 3  # top.txt, nested/kept.md, image.png
+    assert preview.counts == {
+        "supported-ready": 2,
+        "unsupported": 1,
+        "unreadable": 0,
+        "empty": 0,
+        "duplicate": 0,
+    }
+
+
+def test_folder_import_classification_counts_each_regular_file_once(tmp_path):
+    """Every examined regular file lands in exactly one of the five categories."""
+    folder = _build_folder_import_tree(tmp_path)
+
+    preview = build_folder_import_preview(folder, existing_ids={"kept"})
+
+    assert sum(preview.counts.values()) == preview.total_files
+    assert preview.counts == {
+        "supported-ready": 1,  # top.txt
+        "unsupported": 1,  # image.png
+        "unreadable": 0,
+        "empty": 0,
+        "duplicate": 1,  # nested/kept.md matches the supplied existing label
+    }
+    categories = {
+        entry.relative_path: entry.category for entry in preview.manifest.entries
+    }
+    assert categories == {
+        "top.txt": "supported-ready",
+        "nested/kept.md": "duplicate",
+        "image.png": "unsupported",
+    }
+
+
+def test_folder_import_classification_reads_utf8_empty_and_unreadable(
+    tmp_path, monkeypatch
+):
+    """Reads use UTF-8; read/decode failures classify without raising."""
+    folder = tmp_path / "readability"
+    folder.mkdir()
+    (folder / "good.txt").write_text("caf\u00e9 unicode", encoding="utf-8")
+    (folder / "empty.txt").write_text("", encoding="utf-8")
+    (folder / "blank.md").write_text("   \n\t", encoding="utf-8")
+    (folder / "binary.md").write_bytes(b"\xff\xfe\x00bad")
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    by_path = {entry.relative_path: entry for entry in preview.manifest.entries}
+    assert by_path["good.txt"].category == "supported-ready"
+    assert by_path["good.txt"].content_text == "caf\u00e9 unicode"
+    assert by_path["empty.txt"].category == "empty"
+    assert by_path["blank.md"].category == "empty"
+    assert by_path["binary.md"].category == "unreadable"
+
+    # Ready fingerprints pin content bytes plus immutable identity metadata.
+    good_path = folder / "good.txt"
+    fingerprint = by_path["good.txt"].fingerprint
+    assert fingerprint is not None
+    assert fingerprint.content_sha256 == hashlib.sha256(
+        good_path.read_bytes()
+    ).hexdigest()
+    assert fingerprint.size == good_path.stat().st_size
+    assert fingerprint.mtime_ns == good_path.stat().st_mtime_ns
+    assert fingerprint.device == good_path.stat().st_dev
+    assert fingerprint.inode == good_path.stat().st_ino
+
+    # A read failure after listing (permissions revoked, etc.) stays inside
+    # the preview: every entry classifies as unreadable, none raises.
+    def broken_reader(path):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(importer, "_read_folder_file_bytes", broken_reader)
+    failed_preview = build_folder_import_preview(folder, existing_ids=set())
+    assert {entry.category for entry in failed_preview.manifest.entries} == {
+        "unreadable"
+    }
+    assert all(entry.fingerprint is None for entry in failed_preview.manifest.entries)
+
+
+def test_folder_import_in_batch_display_id_collisions_classify_one_ready(tmp_path):
+    """Same display ID from several files yields one ready entry, rest duplicate.
+
+    Mirrors confirmed import accounting (``_insert_candidates``): the first
+    entry per label in deterministic relative-path order classifies ready and
+    claims the label; later collisions classify duplicate even when empty, and
+    empty entries claim nothing.
+    """
+    folder = tmp_path / "collide"
+    (folder / "docs").mkdir(parents=True)
+    (folder / "deep" / "notes").mkdir(parents=True)
+    (folder / "report.md").write_text("root report", encoding="utf-8")
+    (folder / "docs" / "report.txt").write_text("nested report", encoding="utf-8")
+    (folder / "deep" / "notes" / "report.md").write_text(
+        "deep report", encoding="utf-8"
+    )
+    # Extension variants collide on the same stem.
+    (folder / "guide.TXT").write_text("upper guide", encoding="utf-8")
+    (folder / "guide.md").write_text("lower guide", encoding="utf-8")
+    # A ready file claims its label: the later empty twin is a duplicate.
+    (folder / "taken.md").write_text("taken content", encoding="utf-8")
+    (folder / "taken.txt").write_text("", encoding="utf-8")
+    # An empty file claims nothing: the later filled twin stays ready.
+    (folder / "dup.md").write_text("", encoding="utf-8")
+    (folder / "dup.txt").write_text("filled", encoding="utf-8")
+    (folder / "blank.md").write_text("", encoding="utf-8")
+    (folder / "blank.txt").write_text("   \n", encoding="utf-8")
+    (folder / "unique.txt").write_text("unique", encoding="utf-8")
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    categories = {
+        entry.relative_path: entry.category for entry in preview.manifest.entries
+    }
+    assert categories == {
+        "blank.md": "empty",
+        "blank.txt": "empty",
+        "deep/notes/report.md": "supported-ready",
+        "docs/report.txt": "duplicate",
+        "dup.md": "empty",
+        "dup.txt": "supported-ready",
+        "guide.TXT": "supported-ready",
+        "guide.md": "duplicate",
+        "report.md": "duplicate",
+        "taken.md": "supported-ready",
+        "taken.txt": "duplicate",
+        "unique.txt": "supported-ready",
+    }
+    assert preview.counts == {
+        "supported-ready": 5,
+        "unsupported": 0,
+        "unreadable": 0,
+        "empty": 3,
+        "duplicate": 4,
+    }
+    assert sum(preview.counts.values()) == preview.total_files == 12
+
+
+def test_folder_import_preview_counts_are_immutable_and_derived(tmp_path):
+    """Counts derive from the immutable entries and reject external mutation."""
+    folder = _build_folder_import_tree(tmp_path)
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    assert preview.counts == preview.manifest.counts
+    assert preview.total_files == len(preview.manifest.entries) == 3
+    with pytest.raises(TypeError):
+        preview.counts["supported-ready"] = 99
+    with pytest.raises(TypeError):
+        preview.manifest.counts["unsupported"] = 99
+
+
+def test_folder_import_fingerprint_includes_filesystem_identity(tmp_path):
+    """Fingerprints pin device/inode alongside content, size, and mtime."""
+    folder = tmp_path / "fingerprint"
+    folder.mkdir()
+    path = folder / "note.txt"
+    path.write_text("original", encoding="utf-8")
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+    fingerprint = preview.manifest.ready_entries[0].fingerprint
+
+    stat_result = path.lstat()
+    assert fingerprint is not None
+    assert fingerprint.content_sha256 == hashlib.sha256(
+        path.read_bytes()
+    ).hexdigest()
+    assert fingerprint.size == stat_result.st_size
+    assert fingerprint.mtime_ns == stat_result.st_mtime_ns
+    assert fingerprint.device == stat_result.st_dev
+    assert fingerprint.inode == stat_result.st_ino
+    # An untouched file keeps a stable fingerprint across previews.
+    again = build_folder_import_preview(folder, existing_ids=set())
+    assert again.manifest.ready_entries[0].fingerprint == fingerprint
+
+
+def test_folder_import_fingerprint_detects_metadata_preserving_replacement(tmp_path):
+    """Replacement is detected even when size and mtime are preserved.
+
+    Two replacement shapes must both change the fingerprint: an in-place
+    rewrite with same-length bytes and a restored mtime (content changes), and
+    identical content moved into place under a fresh inode (identity changes).
+    """
+    folder = tmp_path / "replacement"
+    folder.mkdir()
+    path = folder / "note.txt"
+    path.write_bytes(b"original-bytes")
+
+    fingerprint = build_folder_import_preview(
+        folder, existing_ids=set()
+    ).manifest.ready_entries[0].fingerprint
+    assert fingerprint is not None
+
+    # In-place same-length rewrite with the original mtime restored.
+    original_stat = path.lstat()
+    path.write_bytes(b"REPLACED-bytes")
+    os.utime(path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+    rewritten = build_folder_import_preview(folder, existing_ids=set())
+    rewritten_fp = rewritten.manifest.ready_entries[0].fingerprint
+    assert rewritten_fp is not None
+    assert rewritten_fp.size == fingerprint.size
+    assert rewritten_fp.mtime_ns == fingerprint.mtime_ns
+    assert rewritten_fp.content_sha256 != fingerprint.content_sha256
+    assert rewritten_fp != fingerprint
+
+    # Identical content restored via a fresh inode, mtime restored again.
+    fresh_stat = path.lstat()
+    swap = folder / "swap.tmp"
+    swap.write_bytes(b"original-bytes")
+    os.replace(swap, path)
+    os.utime(path, ns=(fresh_stat.st_atime_ns, fresh_stat.st_mtime_ns))
+    swapped_stat = path.lstat()
+    if swapped_stat.st_ino == fresh_stat.st_ino:
+        pytest.skip("filesystem reused the inode; identity change unobservable")
+    restored = build_folder_import_preview(folder, existing_ids=set())
+    restored_fp = restored.manifest.ready_entries[0].fingerprint
+    assert restored_fp is not None
+    assert restored_fp.content_sha256 == fingerprint.content_sha256
+    assert restored_fp.size == fingerprint.size
+    assert restored_fp.mtime_ns == fingerprint.mtime_ns
+    assert restored_fp.inode != fingerprint.inode
+    assert restored_fp != fingerprint
+
+
+def test_folder_import_classification_recognises_uppercase_suffixes(tmp_path):
+    """Suffix matching is case-insensitive: .TXT and .MD are supported."""
+    folder = tmp_path / "uppercase"
+    folder.mkdir()
+    (folder / "UPPER.TXT").write_text("Upper", encoding="utf-8")
+    (folder / "Notes.MD").write_text("# Notes", encoding="utf-8")
+    (folder / "photo.PNG").write_bytes(b"\x89PNG")
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    assert [entry.display_id for entry in preview.manifest.ready_entries] == [
+        "Notes",
+        "UPPER",
+    ]
+    assert preview.counts["unsupported"] == 1
+
+
+def test_folder_import_preview_performs_no_database_writes(tmp_path, tmp_db):
+    """Previewing must not create sources or leave a transaction open."""
+    folder = _build_folder_import_tree(tmp_path)
+    conn = create_project(tmp_path / "preview.ace", "test")
+
+    try:
+        before = list_sources(conn)
+        preview = preview_folder_import(conn, folder)
+
+        assert list_sources(conn) == before
+        assert not conn.in_transaction
+        by_path = {entry.relative_path: entry for entry in preview.manifest.entries}
+        assert by_path["nested/kept.md"].category == "supported-ready"
+    finally:
+        conn.close()
+
+
+def test_folder_import_duplicate_against_live_database_labels(tmp_path, tmp_db):
+    """Duplicate classification reads current labels without mutating them."""
+    folder = tmp_path / "dup-tree"
+    folder.mkdir()
+    (folder / "new.txt").write_text("New content", encoding="utf-8")
+    (folder / "taken.md").write_text("Taken content", encoding="utf-8")
+    conn = create_project(tmp_path / "dup.ace", "test")
+
+    try:
+        add_source(
+            conn,
+            display_id="taken",
+            content_text="Existing source",
+            source_type="file",
+        )
+
+        preview = preview_folder_import(conn, folder)
+
+        by_path = {entry.relative_path: entry for entry in preview.manifest.entries}
+        assert by_path["taken.md"].category == "duplicate"
+        assert by_path["new.txt"].category == "supported-ready"
+        assert preview.counts["duplicate"] == 1
+        assert len(list_sources(conn)) == 1  # preview added nothing
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Folder import confirmation: revalidate saved ready entries, then insert
+# the validated batch through one atomic transaction.
+# ---------------------------------------------------------------------------
+
+
+def _build_confirm_tree(tmp_path: Path) -> Path:
+    """Create a two-ready-file folder (one nested) for confirmation tests."""
+    folder = tmp_path / "confirm-tree"
+    folder.mkdir()
+    (folder / "alpha.txt").write_text("Alpha content", encoding="utf-8")
+    nested = folder / "nested"
+    nested.mkdir()
+    (nested / "beta.md").write_text("Beta content", encoding="utf-8")
+    return folder
+
+
+def _spy_on_insert_candidates(monkeypatch) -> list:
+    """Replace the insertion seam with a recorder; return the call log."""
+    calls: list = []
+    monkeypatch.setattr(
+        importer,
+        "_insert_candidates",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    return calls
+
+
+def test_folder_import_confirm_requires_repreview_when_ready_file_modified(
+    tmp_path, monkeypatch
+):
+    """A ready file edited after preview aborts confirmation before any write."""
+    folder = tmp_path / "modified"
+    folder.mkdir()
+    (folder / "alpha.txt").write_text("Alpha content", encoding="utf-8")
+    (folder / "beta.txt").write_text("Beta content", encoding="utf-8")
+    conn = create_project(tmp_path / "modified.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+        (folder / "alpha.txt").write_text("Alpha content changed", encoding="utf-8")
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_requires_repreview_when_ready_file_deleted(
+    tmp_path, monkeypatch
+):
+    """A ready file removed after preview aborts confirmation before any write."""
+    folder = tmp_path / "deleted"
+    folder.mkdir()
+    (folder / "alpha.txt").write_text("Alpha content", encoding="utf-8")
+    (folder / "beta.txt").write_text("Beta content", encoding="utf-8")
+    conn = create_project(tmp_path / "deleted.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+        (folder / "alpha.txt").unlink()
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_requires_repreview_when_fresh_read_fails(
+    tmp_path, monkeypatch
+):
+    """A ready file that no longer reads aborts confirmation before any write."""
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "unreadable.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+
+        def broken_reader(path, saved_fingerprint):
+            raise OSError(13, "Permission denied")
+
+        monkeypatch.setattr(
+            importer, "_read_validated_ready_bytes", broken_reader
+        )
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert result.detail == "file could not be read (PermissionError)"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "mkfifo"),
+    reason="POSIX FIFOs unavailable on this platform",
+)
+def test_folder_import_confirm_requires_repreview_when_ready_file_replaced_by_fifo(
+    tmp_path, monkeypatch
+):
+    """A ready path swapped to a FIFO aborts promptly, unread and uninserted.
+
+    Regression: confirmation must validate the path's file type before any
+    content read — opening a FIFO replacement for a blocking read would hang
+    forever with no writer. A live timeout guard fails instead of hanging if
+    the implementation ever blocks.
+    """
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "fifo.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+
+        victim = folder / "alpha.txt"
+        victim.unlink()
+        os.mkfifo(victim)
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        outcome: dict = {}
+
+        def _confirm():
+            try:
+                outcome["result"] = confirm_folder_import(conn, preview.manifest)
+            except BaseException as exc:  # surfaced on the main thread below
+                outcome["error"] = exc
+
+        reader = threading.Thread(target=_confirm, daemon=True, name="confirm-fifo")
+        reader.start()
+        reader.join(timeout=10)
+        if reader.is_alive():
+            pytest.fail(
+                "confirm_folder_import blocked on a FIFO replacement; it must "
+                "validate the file type before any content read"
+            )
+
+        result = outcome.get("result", outcome.get("error"))
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert result.detail == "file is not a regular file"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "mkfifo"),
+    reason="POSIX FIFOs unavailable on this platform",
+)
+def test_folder_import_preview_replacement_by_fifo_returns_unreadable_promptly(
+    tmp_path, monkeypatch
+):
+    """Preview must not block when an enumerated file becomes a FIFO before read."""
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    victim = folder / "victim.txt"
+    victim.write_text("content", encoding="utf-8")
+
+    original_reader = importer._read_folder_file_bytes
+
+    def replace_then_read(path):
+        path.unlink()
+        os.mkfifo(path)
+        return original_reader(path)
+
+    monkeypatch.setattr(importer, "_read_folder_file_bytes", replace_then_read)
+    outcome: dict = {}
+
+    def _preview():
+        try:
+            outcome["result"] = build_folder_import_preview(folder, set())
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    reader = threading.Thread(target=_preview, daemon=True, name="preview-fifo")
+    reader.start()
+    reader.join(timeout=2)
+    if reader.is_alive():
+        pytest.fail("build_folder_import_preview blocked reading a FIFO replacement")
+
+    result = outcome.get("result", outcome.get("error"))
+    assert result.manifest.entries[0].category == "unreadable"
+
+
+def test_folder_import_confirm_requires_repreview_when_path_replaced_during_read(
+    tmp_path, monkeypatch
+):
+    """A ready path swapped mid-read must re-preview, not import stale bytes.
+
+    Regression: the descriptor is opened and fstat-verified before the read,
+    so a replacement landing between that check and the read is only caught
+    by revalidating the path after the read. The injected ``os.read`` hook
+    swaps the path to a new inode with different content while the old inode
+    is still open — without the post-read check the old bytes plus the
+    pre-read stat match the saved fingerprint and the stale content would be
+    imported.
+    """
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "midread-swap.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+
+        victim = folder / "alpha.txt"
+        real_read = os.read
+        hooked = {"swapped": False}
+
+        def hooked_read(fd, nbytes):
+            if not hooked["swapped"]:
+                hooked["swapped"] = True
+                victim.unlink()
+                victim.write_text("Replaced during read", encoding="utf-8")
+            return real_read(fd, nbytes)
+
+        monkeypatch.setattr(os, "read", hooked_read)
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert hooked["swapped"]
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert result.detail == "file changed since preview"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_requires_repreview_when_file_mutated_during_read(
+    tmp_path, monkeypatch
+):
+    """In-place metadata-only mutation during the read forces re-preview.
+
+    Regression: rewriting a ready file with identical bytes mid-read keeps
+    content, size, and inode stable, so only the post-read descriptor
+    revalidation (size/mtime against the saved fingerprint) can catch it.
+    Without that check the stale pre-read stat plus unchanged bytes would be
+    accepted and imported.
+    """
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "midread-mutate.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+        saved = preview.manifest.ready_entries[0].fingerprint
+        assert saved is not None
+
+        victim = folder / "alpha.txt"
+        original = victim.read_text(encoding="utf-8")
+        real_read = os.read
+        hooked = {"touched": False, "mtime_advanced": False}
+
+        def hooked_read(fd, nbytes):
+            if not hooked["touched"]:
+                hooked["touched"] = True
+                fd_write = os.open(victim, os.O_WRONLY | os.O_TRUNC)
+                try:
+                    os.write(fd_write, original.encode("utf-8"))
+                finally:
+                    os.close(fd_write)
+                hooked["mtime_advanced"] = (
+                    victim.stat().st_mtime_ns != saved.mtime_ns
+                )
+            return real_read(fd, nbytes)
+
+        monkeypatch.setattr(os, "read", hooked_read)
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert hooked["mtime_advanced"]
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert result.detail == "file changed since preview"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_excludes_files_added_after_preview(tmp_path):
+    """Confirmation imports the saved manifest only; later files never join."""
+
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "added.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+        (folder / "gamma.txt").write_text("Late arrival", encoding="utf-8")
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert isinstance(result, ImportResult)
+        assert result.created == 2
+        sources = list_sources(conn)
+        assert {s["display_id"] for s in sources} == {"alpha", "beta"}
+        assert len(result.created_ids) == 2
+        assert not conn.in_transaction
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_rolls_back_batch_when_second_source_fails(tmp_path):
+    """An insertion failure mid-batch rolls back the whole confirmed batch."""
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "confirm-rollback.ace", "test")
+    conn.execute(
+        """
+        CREATE TRIGGER fail_second_confirm_source
+        BEFORE INSERT ON source
+        WHEN NEW.display_id = 'beta'
+        BEGIN
+            SELECT RAISE(ABORT, 'injected import failure');
+        END
+        """
+    )
+    conn.commit()
+
+    try:
+        preview = preview_folder_import(conn, folder)
+
+        with pytest.raises(Exception, match="injected import failure"):
+            confirm_folder_import(conn, preview.manifest)
+
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_preserves_preview_accounting(tmp_path):
+    """Confirmed counts match the reviewed manifest; IDs are committed ones."""
+    folder = tmp_path / "accounting"
+    folder.mkdir()
+    (folder / "taken.md").write_text("Taken content", encoding="utf-8")
+    (folder / "empty.txt").write_text("", encoding="utf-8")
+    (folder / "alpha.txt").write_text("Alpha content", encoding="utf-8")
+    (folder / "beta.md").write_text("Beta content", encoding="utf-8")
+    conn = create_project(tmp_path / "accounting.ace", "test")
+
+    try:
+        add_source(
+            conn,
+            display_id="taken",
+            content_text="Existing source",
+            source_type="file",
+        )
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts == {
+            "supported-ready": 2,
+            "unsupported": 0,
+            "unreadable": 0,
+            "empty": 1,
+            "duplicate": 1,
+        }
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert isinstance(result, ImportResult)
+        assert (
+            result.created,
+            result.duplicate_skipped,
+            result.empty_skipped,
+        ) == (
+            preview.counts["supported-ready"],
+            preview.counts["duplicate"],
+            preview.counts["empty"],
+        )
+        sources = list_sources(conn)
+        by_label = {s["display_id"]: s for s in sources}
+        assert set(by_label) == {"taken", "alpha", "beta"}
+        assert (
+            get_source_content(conn, by_label["taken"]["id"])["content_text"]
+            == "Existing source"
+        )
+        assert set(result.created_ids) == {
+            by_label["alpha"]["id"],
+            by_label["beta"]["id"],
+        }
+        assert not conn.in_transaction
+    finally:
+        conn.close()
