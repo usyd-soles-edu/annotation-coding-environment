@@ -816,6 +816,105 @@ def test_project_create_clears_saved_folder_import_manifests(client_with_project
         conn.close()
 
 
+def _make_other_project(tmp_path: Path, with_source: bool = False) -> Path:
+    """A second .ace project to switch to, optionally seeded with a source."""
+    other = tmp_path / "other.ace"
+    conn = create_project(str(other), "Other")
+    try:
+        if with_source:
+            add_source(
+                conn, display_id="seed", content_text="Seed text", source_type="file"
+            )
+    finally:
+        conn.close()
+    return other
+
+
+def test_project_open_clears_saved_folder_import_manifests(client_with_project):
+    """Switching via /api/project/open refuses tokens previewed in the old project."""
+    client, tmp_path = client_with_project
+    app = client.app
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    other = _make_other_project(tmp_path)
+    opened = client.post("/api/project/open", data={"path": str(other)})
+
+    assert opened.status_code == 200
+    assert opened.headers["hx-redirect"] == "/import"
+    assert app.state.project_path == str(other)
+
+    confirm = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+    assert 'data-repreview-required="true"' in confirm.text
+    assert "Import complete" not in confirm.text
+
+    conn = open_project(other)
+    try:
+        assert list_sources(conn) == []
+    finally:
+        conn.close()
+
+    # The switch must not break the flow: a fresh preview confirms normally.
+    fresh = client.post("/api/import/folder", data={"path": str(folder)})
+    fresh_token = _extract_manifest_token(fresh.text)
+    ok = client.post("/api/import/folder/confirm", data={"manifest_token": fresh_token})
+    assert "Import complete" in ok.text
+    assert _source_display_ids(other) == ["one"]
+
+
+def test_coding_page_open_clears_saved_folder_import_manifests(client_with_project):
+    """Switching via /code?open= refuses tokens previewed in the old project."""
+    client, tmp_path = client_with_project
+    app = client.app
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    other = _make_other_project(tmp_path, with_source=True)
+    opened = client.get("/code", params={"open": str(other)})
+
+    assert opened.status_code == 200
+    assert app.state.project_path == str(other)
+
+    confirm = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+    assert 'data-repreview-required="true"' in confirm.text
+    assert "Import complete" not in confirm.text
+
+    conn = open_project(other)
+    try:
+        assert [source["display_id"] for source in list_sources(conn)] == ["seed"]
+    finally:
+        conn.close()
+
+
+def test_failed_project_open_keeps_saved_folder_import_manifests(client_with_project):
+    """Only a successful switch drops manifests — a failed open stays in A."""
+    client, tmp_path = client_with_project
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    (folder / "one.txt").write_text("First document", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    refused = client.post(
+        "/api/project/open", data={"path": str(tmp_path / "missing.ace")}
+    )
+    assert refused.status_code == 200
+    assert client.app.state.project_path == str(tmp_path / "test.ace")
+
+    confirm = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+    assert "Import complete" in confirm.text
+    assert _source_display_ids(tmp_path / "test.ace") == ["one"]
+
+
 def test_import_remove_last_deletes_stored_sources(client_with_project):
     """POST /api/import/remove-last deletes the stored source ids + dependents,
     clears the stored ids, and reloads the page."""

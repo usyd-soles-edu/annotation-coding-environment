@@ -129,12 +129,24 @@ def _discard_quarantined_sidecars(
             logger.warning("Could not remove quarantined SQLite sidecar at %s", quarantine)
 
 
-def _clear_project_transient_state(request: Request, project_path: str) -> None:
-    request.app.state.undo_managers.pop(project_path, None)
-    request.app.state.last_import_source_ids = None
+def _clear_folder_import_manifests(request: Request) -> None:
+    """Drop every saved folder-import preview manifest.
+
+    Manifests are only valid for the project that was current when their
+    preview was made, so every successful project switch must clear the
+    store BEFORE the new project is published — confirmation imports into
+    the current database, and an old token must never confirm a batch
+    previewed for a different project.
+    """
     manifest_store = getattr(request.app.state, "folder_import_manifests", None)
     if manifest_store is not None:
         manifest_store.clear()
+
+
+def _clear_project_transient_state(request: Request, project_path: str) -> None:
+    request.app.state.undo_managers.pop(project_path, None)
+    request.app.state.last_import_source_ids = None
+    _clear_folder_import_manifests(request)
 
     import_tmp_path = getattr(request.app.state, "import_tmp_path", None)
     if import_tmp_path and getattr(request.app.state, "import_tmp_cleanup", True):
@@ -353,6 +365,7 @@ async def project_open(request: Request, path: str = Form(...)):
     finally:
         conn.close()
 
+    _clear_folder_import_manifests(request)
     request.app.state.project_path = str(file_path)
     if coder_id:
         request.app.state.coder_id = coder_id

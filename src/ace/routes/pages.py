@@ -27,6 +27,7 @@ from ace.models.source import (
     list_sources,
 )
 from ace.models.source_note import get_note, source_ids_with_notes
+from ace.routes.api_project_import import _clear_folder_import_manifests
 
 router = APIRouter()
 
@@ -304,6 +305,10 @@ async def coding_page(
             coders = list_coders(conn)
         finally:
             conn.close()
+        # A preview made for the previous project must not survive the switch:
+        # confirmation imports into the current database, so drop the store
+        # before the newly opened project is published.
+        _clear_folder_import_manifests(request)
         request.app.state.project_path = str(open_path)
         if coders:
             request.app.state.coder_id = coders[0]["id"]
