@@ -380,6 +380,8 @@ class TestOpenPathStartsFreshServer:
         assert _check_server_live(info2["port"], info2["token"])
 
         _kill_server_info(info1)
+
+
 class TestStaleRuntimeCleanup:
     """Stale runtime metadata (dead PID) is cleaned/replaced."""
 
