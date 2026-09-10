@@ -4,6 +4,7 @@ import html
 import json
 import os
 import re
+from html.parser import HTMLParser
 from pathlib import Path
 
 import openpyxl
@@ -421,6 +422,72 @@ def test_import_page_has_consistent_buttons(client_with_project):
     assert "data-folder-preview-confirm" in resp.text
     assert 'data-repreview-required="true"' in resp.text
     assert 'showStep("step-columns")' in resp.text
+
+
+class _MarkupElements(HTMLParser):
+    """Collect element tags and attributes for rendered-fragment contracts."""
+
+    def __init__(self):
+        super().__init__()
+        self.elements: list[tuple[str, dict[str, str | None]]] = []
+
+    def handle_starttag(self, tag, attrs):
+        self.elements.append((tag, dict(attrs)))
+
+
+def _elements_with_attribute(markup: str, attribute: str) -> list[tuple[str, dict[str, str | None]]]:
+    parser = _MarkupElements()
+    parser.feed(markup)
+    return [element for element in parser.elements if attribute in element[1]]
+
+
+def test_folder_preview_canvas_display_selectors_target_only_canvas_elements(
+    client_with_project,
+):
+    """Selection display selectors cannot resolve to per-row button metadata."""
+    client, tmp_path = client_with_project
+    folder = tmp_path / "display-contract"
+    folder.mkdir()
+    (folder / "one.txt").write_text("Short preview", encoding="utf-8")
+    (folder / "two.txt").write_text("x" * 8_001, encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    assert preview.status_code == 200
+
+    display_selectors = {
+        "data-folder-preview-canvas-title": "h2",
+        "data-folder-preview-canvas-meta": "span",
+        "data-folder-preview-canvas-text": "pre",
+        "data-folder-preview-canvas-truncated": "p",
+    }
+    for selector, intended_tag in display_selectors.items():
+        matches = _elements_with_attribute(preview.text, selector)
+        assert [tag for tag, _ in matches] == [intended_tag]
+
+    row_elements = _elements_with_attribute(preview.text, "data-folder-preview-row")
+    assert len(row_elements) == 2
+    assert all(
+        not set(attributes).intersection(display_selectors)
+        for _, attributes in row_elements
+    )
+
+    page = client.get("/import")
+    for selector in display_selectors:
+        assert f'workspace.querySelector("[{selector}]")' in page.text
+
+
+def test_show_step_focuses_and_announces_folder_preview_heading(client_with_project):
+    """Entering the preview step focuses its heading for the live announcement."""
+    client, _ = client_with_project
+
+    page = client.get("/import")
+
+    assert (
+        'step.querySelector(".ace-wizard-title, .ace-wizard-count, '
+        '.ace-folder-preview-title")'
+    ) in page.text
+    assert "title.focus();" in page.text
+    assert "setImportMessage(title.textContent.trim(), \"\");" in page.text
 
 
 # -------------------------------------------------------------------------

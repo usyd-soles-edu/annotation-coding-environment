@@ -309,10 +309,10 @@ def _folder_import_preview_workspace_fragment(
         source_meta = html.escape(f"{selected.relative_path} · Text file")
         canvas_text = html.escape(selected_content)
         truncated_html = (
-            '<p class="ace-folder-preview-truncated" data-folder-preview-truncated>'
+            '<p class="ace-folder-preview-truncated" data-folder-preview-canvas-truncated>'
             "Preview shows the beginning of this file.</p>"
             if selected_truncated
-            else '<p class="ace-folder-preview-truncated" data-folder-preview-truncated hidden>'
+            else '<p class="ace-folder-preview-truncated" data-folder-preview-canvas-truncated hidden>'
             "Preview shows the beginning of this file.</p>"
         )
         confirm_form = (
@@ -365,10 +365,10 @@ def _folder_import_preview_workspace_fragment(
         '<section class="ace-folder-preview-canvas" aria-label="Selected file preview">'
         '<header class="ace-folder-preview-source-header"><div>'
         '<p>Previewing</p>'
-        f'<h2 data-folder-preview-title>{source_header}</h2></div>'
-        f'<span data-folder-preview-meta>{source_meta}</span></header>'
+        f'<h2 data-folder-preview-canvas-title>{source_header}</h2></div>'
+        f'<span data-folder-preview-canvas-meta>{source_meta}</span></header>'
         '<div class="ace-folder-preview-reading" tabindex="0">'
-        f'<pre data-folder-preview-text>{canvas_text}</pre>{truncated_html}'
+        f'<pre data-folder-preview-canvas-text>{canvas_text}</pre>{truncated_html}'
         "</div></section></div>"
         f'<details class="ace-folder-preview-exclusions"{disclosure_open}>'
         f'<summary>Files not included ({excluded_count})</summary>'
