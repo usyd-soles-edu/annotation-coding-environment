@@ -1,5 +1,6 @@
 """FastAPI application factory for ACE."""
 
+import asyncio
 import json
 import os
 import secrets
@@ -148,6 +149,8 @@ DbDep = Annotated[sqlite3.Connection, Depends(get_db)]
 # check a preview, short enough that a stale token can never confirm an old
 # batch. Expiry is rechecked on every take.
 FOLDER_IMPORT_MANIFEST_TTL_SECONDS = 600.0
+FOLDER_IMPORT_MANIFEST_MAX_RECORDS = 256
+FOLDER_IMPORT_MANIFEST_PURGE_INTERVAL_SECONDS = 1.0
 
 
 class FolderImportManifestStore:
@@ -160,13 +163,23 @@ class FolderImportManifestStore:
     behave exactly like unknown or expired ones and require a new preview.
     """
 
-    def __init__(self, ttl_seconds: float = FOLDER_IMPORT_MANIFEST_TTL_SECONDS) -> None:
+    def __init__(
+        self,
+        ttl_seconds: float = FOLDER_IMPORT_MANIFEST_TTL_SECONDS,
+        max_records: int = FOLDER_IMPORT_MANIFEST_MAX_RECORDS,
+    ) -> None:
         self.ttl_seconds = ttl_seconds
+        self.max_records = max_records
         self._records: dict[str, tuple["FolderImportManifest", float]] = {}
 
     def put(self, token: str, manifest: "FolderImportManifest") -> None:
         """Save one manifest under ``token`` with a fresh expiry."""
         self._purge_expired()
+        if self.max_records <= 0:
+            return
+        while len(self._records) >= self.max_records:
+            oldest = min(self._records, key=lambda key: self._records[key][1])
+            del self._records[oldest]
         self._records[token] = (manifest, time.monotonic() + self.ttl_seconds)
 
     def take(self, token: str) -> "FolderImportManifest | None":
@@ -187,6 +200,10 @@ class FolderImportManifestStore:
         """Drop every saved manifest (the project changed)."""
         self._records.clear()
 
+    def purge_expired(self) -> None:
+        """Remove expired records without requiring a token operation."""
+        self._purge_expired()
+
     def _purge_expired(self) -> None:
         now = time.monotonic()
         expired = [
@@ -202,6 +219,18 @@ class FolderImportManifestStore:
 # Lifespan
 # ---------------------------------------------------------------------------
 
+
+async def _purge_folder_import_manifests(
+    store: FolderImportManifestStore,
+    stop: asyncio.Event,
+) -> None:
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(
+                stop.wait(), timeout=FOLDER_IMPORT_MANIFEST_PURGE_INTERVAL_SECONDS
+            )
+        except asyncio.TimeoutError:
+            store.purge_expired()
 
 
 def _runtime_config_from_env() -> BrowserRuntimeConfig:
@@ -261,6 +290,13 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.folder_import_manifests = FolderImportManifestStore(
         FOLDER_IMPORT_MANIFEST_TTL_SECONDS
     )
+    manifest_purge_stop = asyncio.Event()
+    app.state.folder_import_manifest_purge_stop = manifest_purge_stop
+    app.state.folder_import_manifest_purge_task = asyncio.create_task(
+        _purge_folder_import_manifests(
+            app.state.folder_import_manifests, manifest_purge_stop
+        )
+    )
     app.state.migrated_paths = set()
     app.state.active_projects = set()
     app.state.browser_runtime_config = _runtime_config_from_env()
@@ -280,6 +316,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
+        manifest_purge_stop.set()
+        purge_task = getattr(app.state, "folder_import_manifest_purge_task", None)
+        if purge_task is not None:
+            await purge_task
+            app.state.folder_import_manifest_purge_task = None
         monitor: BrowserRuntimeMonitor | None = getattr(
             app.state,
             "browser_runtime_monitor",

@@ -3,7 +3,6 @@
 import csv
 import hashlib
 import os
-import random
 import sqlite3
 import stat
 from collections.abc import Iterable, Mapping
@@ -46,12 +45,6 @@ class _SourceCandidate:
 def _existing_display_ids(conn: sqlite3.Connection) -> set[str]:
     """Return the set of display_ids already present in the source table."""
     return {row[0] for row in conn.execute("SELECT display_id FROM source")}
-
-
-def count_already_present(conn: sqlite3.Connection, folder: str | Path) -> int:
-    """Count text files in ``folder`` whose stem is already a source display_id."""
-    existing = _existing_display_ids(conn)
-    return sum(1 for f in _list_text_files(Path(folder)) if f.stem in existing)
 
 
 def import_csv(
@@ -740,44 +733,6 @@ def _insert_candidates(
     return ImportResult(
         len(created_ids), duplicate_skipped, empty_skipped, created_ids
     )
-
-
-def get_random_previews(
-    folder: str | Path,
-    limit: int = 5,
-    max_chars: int = 1200,
-) -> tuple[int, list[dict]]:
-    """Return total text-file count plus a bounded random preview sample."""
-    files = _list_text_files(Path(folder))
-    total = len(files)
-    if total == 0:
-        return 0, []
-
-    sample = random.sample(files, min(limit, total))
-    previews = []
-    for path in sample:
-        content = _read_text_file(path)
-        if len(content) > max_chars:
-            content = content[:max_chars] + "..."
-        previews.append(
-            {
-                "filename": path.name,
-                "snippet": content,
-                "size_label": _format_size(path.stat().st_size),
-            }
-        )
-    return total, previews
-
-
-def _format_size(size: int) -> str:
-    """Return a compact binary size label."""
-    if size < 1024:
-        return f"{size} B"
-    if size < 1024 * 1024:
-        value = size / 1024
-        return f"{value:.1f} KB".replace(".0 KB", " KB")
-    value = size / (1024 * 1024)
-    return f"{value:.1f} MB".replace(".0 MB", " MB")
 
 
 def read_tabular(path: Path) -> tuple[list[dict], list[str]]:

@@ -650,6 +650,18 @@ def test_import_folder_preview_token_is_opaque(client_with_project):
     assert _extract_manifest_token(again.text) != token
 
 
+def test_folder_preview_css_wraps_long_metadata_and_stacks_header():
+    css = Path("src/ace/static/css/ace.css").read_text(encoding="utf-8")
+    toolbar = re.search(r"\.ace-folder-preview-toolbar \{([^}]*)\}", css)
+    assert toolbar and "flex-wrap: wrap" in toolbar.group(1)
+    crumb = re.search(r"\.ace-folder-preview-crumb \{([^}]*)\}", css)
+    assert crumb and "overflow-wrap: anywhere" in crumb.group(1)
+    header = re.search(r"\.ace-folder-preview-source-header \{([^}]*)\}", css)
+    assert header and "flex-wrap: wrap" in css[header.start():]
+    assert ".ace-folder-preview-source-header > div { min-width: 0; }" in css
+    assert "grid-template-columns: 1fr" in css
+
+
 def test_import_folder_confirm_excludes_files_added_after_preview(client_with_project):
     """Confirmation imports the saved manifest, never a fresh folder scan."""
     client, tmp_path = client_with_project

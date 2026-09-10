@@ -1,13 +1,19 @@
 """Tests for the FastAPI app scaffold."""
 
 import os
+import time
 
 import sqlite3
 
 import pytest
 from fastapi.testclient import TestClient
 
-from ace.app import HtmxRedirect, _build_allowed_origins, create_app
+from ace.app import (
+    FolderImportManifestStore,
+    HtmxRedirect,
+    _build_allowed_origins,
+    create_app,
+)
 
 
 @pytest.fixture()
@@ -19,6 +25,33 @@ def app():
 def client(app):
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
+
+
+def test_manifest_store_is_bounded_and_purges_expiry_without_access():
+    store = FolderImportManifestStore(ttl_seconds=0.01, max_records=2)
+    manifests = [object(), object(), object()]
+    store.put("one", manifests[0])
+    store.put("two", manifests[1])
+    store.put("three", manifests[2])
+    assert len(store._records) == 2
+    assert store.take("one") is None
+    import time
+    time.sleep(0.02)
+    store.purge_expired()
+    assert store._records == {}
+
+
+def test_lifespan_periodically_purges_manifest_store(monkeypatch, app):
+    import ace.app as app_module
+
+    monkeypatch.setattr(app_module, "FOLDER_IMPORT_MANIFEST_PURGE_INTERVAL_SECONDS", 0.01)
+    with TestClient(app):
+        store = app.state.folder_import_manifests
+        store.ttl_seconds = 0.01
+        store.put("expired", object())
+        time.sleep(0.05)
+        assert store._records == {}
+    assert app.state.folder_import_manifest_purge_task is None
 
 
 def test_base_template_exposes_live_regions(client):

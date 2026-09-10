@@ -26,40 +26,10 @@ from ace.services.importer import (
     ImportResult,
     import_csv,
     import_text_files,
-    get_random_previews,
     preview_folder_import,
     read_tabular,
 )
 from ace.models.source import add_source
-
-
-def test_get_random_previews_returns_up_to_five_files(tmp_path):
-    """Random folder previews return a bounded file sample plus total count."""
-    folder = tmp_path / "preview-sample"
-    folder.mkdir()
-    for i in range(7):
-        (folder / f"doc-{i}.txt").write_text(f"Content {i}")
-
-    total, previews = get_random_previews(folder)
-
-    assert total == 7
-    assert len(previews) == 5
-    assert {preview["filename"] for preview in previews} <= {
-        f"doc-{i}.txt" for i in range(7)
-    }
-    assert all(preview["snippet"].startswith("Content ") for preview in previews)
-    assert all(preview["size_label"] == "9 B" for preview in previews)
-
-
-def test_get_random_previews_empty_folder(tmp_path):
-    """Empty folders return a zero total and no previews."""
-    folder = tmp_path / "empty-preview-sample"
-    folder.mkdir()
-
-    total, previews = get_random_previews(folder)
-
-    assert total == 0
-    assert previews == []
 
 
 def test_import_csv_creates_sources(tmp_db, sample_csv):

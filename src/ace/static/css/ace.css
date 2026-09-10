@@ -1130,6 +1130,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--ace-space-4);
   min-height: 48px;
   padding: var(--ace-space-2) var(--ace-space-5);
@@ -1147,6 +1148,7 @@ body {
   font-family: var(--ace-font-mono);
   font-size: var(--ace-font-size-2xs);
   white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .ace-folder-preview-crumb b {
   overflow: hidden;
@@ -1391,6 +1393,15 @@ body {
     border-bottom: 1px solid var(--ace-border-light);
   }
   .ace-folder-preview-list { max-height: 280px; }
+  .ace-folder-preview-source-header {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: var(--ace-space-2);
+  }
+  .ace-folder-preview-source-header > span {
+    flex-basis: 100%;
+    text-align: left;
+  }
   .ace-folder-preview-reading {
     min-height: 320px;
     padding: var(--ace-space-5) var(--ace-space-4) var(--ace-space-6);
