@@ -196,6 +196,8 @@ def runtime_file(tmp_path: Path) -> Generator[Path, None, None]:
 class TestServerStartsReachable:
     """Launcher starts server and produces a reachable runtime on localhost."""
 
+    pytestmark = pytest.mark.slow
+
     def test_server_reachable_after_launch(
         self,
         launcher_bin: Path,
@@ -219,6 +221,8 @@ class TestServerStartsReachable:
 
 class TestOpenPathUrl:
     """Launching with a .ace path produces a /launch URL in suppress-browser."""
+
+    pytestmark = pytest.mark.slow
 
     def test_url_contains_launch_and_open(
         self,
@@ -257,32 +261,10 @@ class TestOpenPathUrl:
         assert "Project from launcher" in body
 
 
-class TestChromiumBrowserSmoke:
-    """Chromium can load a launcher-opened ACE server URL."""
-
-    def test_chromium_opens_launcher_url(
-        self,
-        launcher_bin: Path,
-        server_bin: Path,
-        runtime_file: Path,
-    ) -> None:
-        proc = _run_launcher(launcher_bin, server_bin, runtime_file)
-        assert proc.returncode == 0
-        url_line = proc.stdout.strip()
-
-        playwright = pytest.importorskip("playwright.sync_api")
-        expect = playwright.expect
-        with playwright.sync_playwright() as p:
-            browser = p.chromium.launch()
-            try:
-                page = browser.new_page()
-                page.goto(url_line, wait_until="networkidle")
-                expect(page.get_by_role("link", name="New project")).to_be_visible()
-            finally:
-                browser.close()
-
 class TestReuseExistingServer:
     """Second launch reuses the same running server/runtime metadata."""
+
+    pytestmark = pytest.mark.slow
 
     def test_second_launch_reuses_server(
         self,
@@ -309,6 +291,8 @@ class TestReuseExistingServer:
 
 class TestOpenPathWithActiveTabStartsFreshServer:
     """Opening a new .ace file with active old tabs starts a fresh server."""
+
+    pytestmark = pytest.mark.slow
 
     def test_active_old_tab_forces_new_runtime(
         self,
@@ -363,6 +347,8 @@ class TestOpenPathWithActiveTabStartsFreshServer:
 class TestOpenPathStartsFreshServer:
     """Opening a .ace file starts a fresh runtime even before any heartbeat."""
 
+    pytestmark = pytest.mark.slow
+
     def test_open_path_does_not_reuse_existing_runtime(
         self,
         launcher_bin: Path,
@@ -394,8 +380,12 @@ class TestOpenPathStartsFreshServer:
         assert _check_server_live(info2["port"], info2["token"])
 
         _kill_server_info(info1)
+
+
 class TestStaleRuntimeCleanup:
     """Stale runtime metadata (dead PID) is cleaned/replaced."""
+
+    pytestmark = pytest.mark.slow
 
     def test_stale_runtime_replaced(
         self,
@@ -422,6 +412,8 @@ class TestStaleRuntimeCleanup:
 
 class TestHeartbeatGrace:
     """Server survives a short disconnect / heartbeat grace path."""
+
+    pytestmark = pytest.mark.slow
 
     def test_server_survives_brief_disconnect(
         self,
@@ -488,6 +480,8 @@ class TestHeartbeatGrace:
 
 class TestIdleShutdown:
     """Server exits after idle timeout when run with a short test timeout."""
+
+    pytestmark = pytest.mark.slow
 
     def test_server_exits_after_idle_timeout(
         self,

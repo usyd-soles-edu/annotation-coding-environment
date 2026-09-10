@@ -56,7 +56,12 @@ Then switch back to main and pull: `git checkout main && git pull`.
 
 ## Testing
 
-Please make sure all tests pass before you push. Run `uv run pytest` and check.
+The suite has one registered marker, `slow` (see `pyproject.toml`), covering the launcher-lifecycle tests that wait on real process start-up and shutdown:
+
+- **Fast routine (default loop):** `uv run pytest -m "not slow"` — no process waits. Run this before every push.
+- **Full suite:** `uv run pytest` — run once before a release.
+
+GitHub Actions executes no pytest at all — that is a standing boundary, not an accident. If CI ever gains a pytest job, it must use the fast-loop command only.
 
 If you're adding new behaviour, write a test for it. If you're fixing a bug, write a test that reproduces it first, then fix it.
 
@@ -70,11 +75,12 @@ To release:
 2. Bump the release number in `src/ace/__init__.py`, `desktop/launcher/Cargo.toml`, `desktop/launcher/Cargo.lock`, `desktop/launcher/Packager.toml`, `.zenodo.json`, `CITATION.cff`, the README citation, and the website citation on `website/index.qmd`
 3. Check `CITATION.cff` has the intended `version`, `date-released`, DOI, authors, license, and repository URL. Zenodo reads citation metadata from the tagged archive, so stale or uncommitted metadata changes can appear on the DOI record.
 4. Run `uv run python scripts/check_release_metadata.py` and `uv lock --check`
-5. Stage only the release metadata files, then commit them: `git commit -m "chore(release): X.Y.Z"`
-6. Push `main`: `git push origin main`
-7. Create an annotated tag from the release commit on `main`: `git tag -a vX.Y.Z -m "X.Y.Z"`
-8. Push the tag: `git push origin vX.Y.Z`
-9. Confirm the `Release Desktop App` GitHub Actions workflow succeeds, audits the locked runtime dependencies, and publishes a draft GitHub release using the matching changelog section
+5. Run the full suite once: `uv run pytest`
+6. Stage only the release metadata files, then commit them: `git commit -m "chore(release): X.Y.Z"`
+7. Push `main`: `git push origin main`
+8. Create an annotated tag from the release commit on `main`: `git tag -a vX.Y.Z -m "X.Y.Z"`
+9. Push the tag: `git push origin vX.Y.Z`
+10. Confirm the `Release Desktop App` GitHub Actions workflow succeeds, audits the locked runtime dependencies, and publishes a draft GitHub release using the matching changelog section
 
 ### Writing the changelog
 
