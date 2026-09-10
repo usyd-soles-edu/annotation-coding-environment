@@ -6,10 +6,11 @@ import os
 import random
 import sqlite3
 import stat
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from types import MappingProxyType
 
 from ace.models.source import _add_source_no_commit
 
@@ -219,12 +220,15 @@ class FolderImportFingerprint:
     """Immutable identity of a ready file as it was at preview time.
 
     Content hash plus size and mtime_ns lets confirmation detect files that
-    were edited in place or replaced between preview and confirmation.
+    were edited in place; the filesystem identity (device, inode) additionally
+    detects replacements that preserve size and mtime.
     """
 
     content_sha256: str
     size: int
     mtime_ns: int
+    device: int
+    inode: int
 
 
 @dataclass(frozen=True)
@@ -265,17 +269,28 @@ class FolderImportManifest:
         )
 
     @property
-    def counts(self) -> dict[str, int]:
-        return count_folder_import_categories(self.entries)
+    def counts(self) -> Mapping[str, int]:
+        """Derived, read-only category counts over the immutable entries."""
+        return MappingProxyType(count_folder_import_categories(self.entries))
 
 
 @dataclass(frozen=True)
 class FolderImportPreview:
-    """User-facing aggregate over one saved folder-import manifest."""
+    """User-facing aggregate over one saved folder-import manifest.
 
-    total_files: int
-    counts: dict[str, int]
+    Aggregates derive from the manifest's immutable entries, so they cannot
+    drift from the reviewed data nor be mutated after the preview.
+    """
+
     manifest: FolderImportManifest
+
+    @property
+    def total_files(self) -> int:
+        return len(self.manifest.entries)
+
+    @property
+    def counts(self) -> Mapping[str, int]:
+        return self.manifest.counts
 
 
 def count_folder_import_categories(
@@ -340,6 +355,8 @@ def _fingerprint_bytes(path: Path, data: bytes) -> FolderImportFingerprint:
         content_sha256=hashlib.sha256(data).hexdigest(),
         size=stat_result.st_size,
         mtime_ns=stat_result.st_mtime_ns,
+        device=stat_result.st_dev,
+        inode=stat_result.st_ino,
     )
 
 
@@ -359,6 +376,9 @@ def _classify_folder_file(
 
     Precedence matches confirmed import accounting: unsupported is decided
     before reading, then unreadable, duplicate, empty, and finally ready.
+    ``existing_ids`` covers database labels plus display IDs already claimed
+    by ready entries earlier in the same deterministic scan, so later
+    same-label files classify duplicate exactly as confirmation skips them.
     """
     display_id = path.stem
     if not _is_supported_folder_file(path):
@@ -410,23 +430,25 @@ def build_folder_import_preview(
 
     Pure seam: reads the filesystem and the supplied existing-label set only;
     never touches SQLite and never samples randomly. Duplicate comparison is
-    against ``existing_ids`` alone.
+    against ``existing_ids`` plus labels claimed earlier in this scan, so only
+    the first entry per display ID (deterministic relative-path order)
+    classifies ready and later collisions classify duplicate — matching
+    confirmed import accounting.
     """
     folder = Path(folder)
-    entries = tuple(
-        _classify_folder_file(
+    claimed_ids = set(existing_ids)
+    entries: list[FolderImportEntry] = []
+    for path in _iter_regular_folder_files(folder):
+        entry = _classify_folder_file(
             path,
             path.relative_to(folder).as_posix(),
-            existing_ids,
+            claimed_ids,
         )
-        for path in _iter_regular_folder_files(folder)
-    )
-    manifest = FolderImportManifest(folder=str(folder), entries=entries)
-    return FolderImportPreview(
-        total_files=len(entries),
-        counts=count_folder_import_categories(entries),
-        manifest=manifest,
-    )
+        if entry.category == FOLDER_CATEGORY_READY:
+            claimed_ids.add(entry.display_id)
+        entries.append(entry)
+    manifest = FolderImportManifest(folder=str(folder), entries=tuple(entries))
+    return FolderImportPreview(manifest=manifest)
 
 
 def preview_folder_import(

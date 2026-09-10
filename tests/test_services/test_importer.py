@@ -861,6 +861,8 @@ def test_folder_import_classification_reads_utf8_empty_and_unreadable(
     ).hexdigest()
     assert fingerprint.size == good_path.stat().st_size
     assert fingerprint.mtime_ns == good_path.stat().st_mtime_ns
+    assert fingerprint.device == good_path.stat().st_dev
+    assert fingerprint.inode == good_path.stat().st_ino
 
     # A read failure after listing (permissions revoked, etc.) stays inside
     # the preview: every entry classifies as unreadable, none raises.
@@ -873,6 +875,150 @@ def test_folder_import_classification_reads_utf8_empty_and_unreadable(
         "unreadable"
     }
     assert all(entry.fingerprint is None for entry in failed_preview.manifest.entries)
+
+
+def test_folder_import_in_batch_display_id_collisions_classify_one_ready(tmp_path):
+    """Same display ID from several files yields one ready entry, rest duplicate.
+
+    Mirrors confirmed import accounting (``_insert_candidates``): the first
+    entry per label in deterministic relative-path order classifies ready and
+    claims the label; later collisions classify duplicate even when empty, and
+    empty entries claim nothing.
+    """
+    folder = tmp_path / "collide"
+    (folder / "docs").mkdir(parents=True)
+    (folder / "deep" / "notes").mkdir(parents=True)
+    (folder / "report.md").write_text("root report", encoding="utf-8")
+    (folder / "docs" / "report.txt").write_text("nested report", encoding="utf-8")
+    (folder / "deep" / "notes" / "report.md").write_text(
+        "deep report", encoding="utf-8"
+    )
+    # Extension variants collide on the same stem.
+    (folder / "guide.TXT").write_text("upper guide", encoding="utf-8")
+    (folder / "guide.md").write_text("lower guide", encoding="utf-8")
+    # A ready file claims its label: the later empty twin is a duplicate.
+    (folder / "taken.md").write_text("taken content", encoding="utf-8")
+    (folder / "taken.txt").write_text("", encoding="utf-8")
+    # An empty file claims nothing: the later filled twin stays ready.
+    (folder / "dup.md").write_text("", encoding="utf-8")
+    (folder / "dup.txt").write_text("filled", encoding="utf-8")
+    (folder / "blank.md").write_text("", encoding="utf-8")
+    (folder / "blank.txt").write_text("   \n", encoding="utf-8")
+    (folder / "unique.txt").write_text("unique", encoding="utf-8")
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    categories = {
+        entry.relative_path: entry.category for entry in preview.manifest.entries
+    }
+    assert categories == {
+        "blank.md": "empty",
+        "blank.txt": "empty",
+        "deep/notes/report.md": "supported-ready",
+        "docs/report.txt": "duplicate",
+        "dup.md": "empty",
+        "dup.txt": "supported-ready",
+        "guide.TXT": "supported-ready",
+        "guide.md": "duplicate",
+        "report.md": "duplicate",
+        "taken.md": "supported-ready",
+        "taken.txt": "duplicate",
+        "unique.txt": "supported-ready",
+    }
+    assert preview.counts == {
+        "supported-ready": 5,
+        "unsupported": 0,
+        "unreadable": 0,
+        "empty": 3,
+        "duplicate": 4,
+    }
+    assert sum(preview.counts.values()) == preview.total_files == 12
+
+
+def test_folder_import_preview_counts_are_immutable_and_derived(tmp_path):
+    """Counts derive from the immutable entries and reject external mutation."""
+    folder = _build_folder_import_tree(tmp_path)
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    assert preview.counts == preview.manifest.counts
+    assert preview.total_files == len(preview.manifest.entries) == 3
+    with pytest.raises(TypeError):
+        preview.counts["supported-ready"] = 99
+    with pytest.raises(TypeError):
+        preview.manifest.counts["unsupported"] = 99
+
+
+def test_folder_import_fingerprint_includes_filesystem_identity(tmp_path):
+    """Fingerprints pin device/inode alongside content, size, and mtime."""
+    folder = tmp_path / "fingerprint"
+    folder.mkdir()
+    path = folder / "note.txt"
+    path.write_text("original", encoding="utf-8")
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+    fingerprint = preview.manifest.ready_entries[0].fingerprint
+
+    stat_result = path.lstat()
+    assert fingerprint is not None
+    assert fingerprint.content_sha256 == hashlib.sha256(
+        path.read_bytes()
+    ).hexdigest()
+    assert fingerprint.size == stat_result.st_size
+    assert fingerprint.mtime_ns == stat_result.st_mtime_ns
+    assert fingerprint.device == stat_result.st_dev
+    assert fingerprint.inode == stat_result.st_ino
+    # An untouched file keeps a stable fingerprint across previews.
+    again = build_folder_import_preview(folder, existing_ids=set())
+    assert again.manifest.ready_entries[0].fingerprint == fingerprint
+
+
+def test_folder_import_fingerprint_detects_metadata_preserving_replacement(tmp_path):
+    """Replacement is detected even when size and mtime are preserved.
+
+    Two replacement shapes must both change the fingerprint: an in-place
+    rewrite with same-length bytes and a restored mtime (content changes), and
+    identical content moved into place under a fresh inode (identity changes).
+    """
+    folder = tmp_path / "replacement"
+    folder.mkdir()
+    path = folder / "note.txt"
+    path.write_bytes(b"original-bytes")
+
+    fingerprint = build_folder_import_preview(
+        folder, existing_ids=set()
+    ).manifest.ready_entries[0].fingerprint
+    assert fingerprint is not None
+
+    # In-place same-length rewrite with the original mtime restored.
+    original_stat = path.lstat()
+    path.write_bytes(b"REPLACED-bytes")
+    os.utime(path, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+    rewritten = build_folder_import_preview(folder, existing_ids=set())
+    rewritten_fp = rewritten.manifest.ready_entries[0].fingerprint
+    assert rewritten_fp is not None
+    assert rewritten_fp.size == fingerprint.size
+    assert rewritten_fp.mtime_ns == fingerprint.mtime_ns
+    assert rewritten_fp.content_sha256 != fingerprint.content_sha256
+    assert rewritten_fp != fingerprint
+
+    # Identical content restored via a fresh inode, mtime restored again.
+    fresh_stat = path.lstat()
+    swap = folder / "swap.tmp"
+    swap.write_bytes(b"original-bytes")
+    os.replace(swap, path)
+    os.utime(path, ns=(fresh_stat.st_atime_ns, fresh_stat.st_mtime_ns))
+    swapped_stat = path.lstat()
+    if swapped_stat.st_ino == fresh_stat.st_ino:
+        pytest.skip("filesystem reused the inode; identity change unobservable")
+    restored = build_folder_import_preview(folder, existing_ids=set())
+    restored_fp = restored.manifest.ready_entries[0].fingerprint
+    assert restored_fp is not None
+    assert restored_fp.content_sha256 == fingerprint.content_sha256
+    assert restored_fp.size == fingerprint.size
+    assert restored_fp.mtime_ns == fingerprint.mtime_ns
+    assert restored_fp.inode != fingerprint.inode
+    assert restored_fp != fingerprint
 
 
 def test_folder_import_classification_recognises_uppercase_suffixes(tmp_path):
