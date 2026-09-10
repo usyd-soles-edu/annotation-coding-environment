@@ -1,10 +1,12 @@
 import hashlib
 import json
+import os
 import re
 import sqlite3
 import threading
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import openpyxl
 import pytest
@@ -18,11 +20,14 @@ from ace.models.source import (
     list_sources,
 )
 from ace.services.importer import (
+    build_folder_import_preview,
     import_csv,
     import_text_files,
     get_random_previews,
+    preview_folder_import,
     read_tabular,
 )
+from ace.models.source import add_source
 
 
 def test_get_random_previews_returns_up_to_five_files(tmp_path):
@@ -690,3 +695,242 @@ def test_import_csv_latin1(tmp_path):
     content = get_source_content(conn, sources[0]["id"])
     assert content["content_text"] == "caf\u00e9"
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Folder import preview seams: recursive scan, classification, manifest.
+#
+# These cover the read-only preview contract only. Confirmation/insertion
+# behaviour is covered separately once the confirmation seam exists.
+# ---------------------------------------------------------------------------
+
+
+def _build_folder_import_tree(tmp_path: Path) -> Path:
+    """Create the standard preview fixture tree used by classification tests.
+
+    Examined regular candidates: top.txt, nested/kept.md, image.png.
+    Everything else (hidden file, hidden directory subtree, plain directory,
+    directory carrying a supported suffix) must be rejected before totals.
+    """
+    folder = tmp_path / "import-tree"
+    folder.mkdir()
+    (folder / "top.txt").write_text("Top-level text", encoding="utf-8")
+    nested = folder / "nested"
+    nested.mkdir()
+    (nested / "kept.md").write_text("# Kept markdown", encoding="utf-8")
+    (folder / "image.png").write_bytes(b"\x89PNG fake image bytes")
+    (folder / ".hidden.txt").write_text("hidden top-level", encoding="utf-8")
+    hidden_dir = folder / ".hidden-dir"
+    hidden_dir.mkdir()
+    (hidden_dir / "inside.md").write_text("hidden nested", encoding="utf-8")
+    (folder / "plain-dir").mkdir()
+    (folder / "folder.txt").mkdir()  # directory carrying a supported suffix
+    return folder
+
+
+def _add_posix_non_regular_entries(folder: Path) -> None:
+    """Add a file symlink, a directory symlink, and a FIFO under ``folder``."""
+    (folder / "link-to-top.txt").symlink_to(folder / "top.txt")
+    (folder / "linked-dir").symlink_to(folder / "nested")
+    os.mkfifo(folder / "pipe.txt")
+
+
+def test_folder_import_recursive_discovers_nested_supported_files(tmp_path):
+    """Nested TXT/MD candidates are found recursively in deterministic order."""
+    folder = _build_folder_import_tree(tmp_path)
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    ready_entries = preview.manifest.ready_entries
+    assert [entry.relative_path for entry in ready_entries] == [
+        "nested/kept.md",
+        "top.txt",
+    ]
+    assert [entry.display_id for entry in ready_entries] == ["kept", "top"]
+    contents = {entry.display_id: entry.content_text for entry in ready_entries}
+    assert contents["top"] == "Top-level text"
+    assert contents["kept"] == "# Kept markdown"
+    assert all(entry.fingerprint is not None for entry in ready_entries)
+
+
+def test_folder_import_classification_excludes_hidden_paths_and_directories(tmp_path):
+    """Hidden files, hidden subtrees, and directories never become entries."""
+    folder = _build_folder_import_tree(tmp_path)
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    all_paths = {entry.relative_path for entry in preview.manifest.entries}
+    assert ".hidden.txt" not in all_paths
+    assert ".hidden-dir/inside.md" not in all_paths
+    assert "plain-dir" not in all_paths
+    assert "folder.txt" not in all_paths  # directory despite supported suffix
+    unsupported = [
+        entry
+        for entry in preview.manifest.entries
+        if entry.category == "unsupported"
+    ]
+    assert [entry.relative_path for entry in unsupported] == ["image.png"]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="symlinks and FIFOs require POSIX")
+def test_folder_import_classification_treats_non_regular_entries_as_excluded(tmp_path):
+    """Symlinks (even to supported files) and FIFOs are not candidates."""
+    folder = _build_folder_import_tree(tmp_path)
+    _add_posix_non_regular_entries(folder)
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    all_paths = {entry.relative_path for entry in preview.manifest.entries}
+    assert "link-to-top.txt" not in all_paths
+    assert "pipe.txt" not in all_paths
+    # The symlinked directory must not be recursed into: kept.md appears once.
+    kept_paths = [
+        entry.relative_path
+        for entry in preview.manifest.entries
+        if entry.display_id == "kept"
+    ]
+    assert kept_paths == ["nested/kept.md"]
+
+
+def test_folder_import_hidden_paths_do_not_affect_totals(tmp_path):
+    """Totals cover examined regular files only; hidden paths add nothing."""
+    folder = _build_folder_import_tree(tmp_path)
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    assert preview.total_files == 3  # top.txt, nested/kept.md, image.png
+    assert preview.counts == {
+        "supported-ready": 2,
+        "unsupported": 1,
+        "unreadable": 0,
+        "empty": 0,
+        "duplicate": 0,
+    }
+
+
+def test_folder_import_classification_counts_each_regular_file_once(tmp_path):
+    """Every examined regular file lands in exactly one of the five categories."""
+    folder = _build_folder_import_tree(tmp_path)
+
+    preview = build_folder_import_preview(folder, existing_ids={"kept"})
+
+    assert sum(preview.counts.values()) == preview.total_files
+    assert preview.counts == {
+        "supported-ready": 1,  # top.txt
+        "unsupported": 1,  # image.png
+        "unreadable": 0,
+        "empty": 0,
+        "duplicate": 1,  # nested/kept.md matches the supplied existing label
+    }
+    categories = {
+        entry.relative_path: entry.category for entry in preview.manifest.entries
+    }
+    assert categories == {
+        "top.txt": "supported-ready",
+        "nested/kept.md": "duplicate",
+        "image.png": "unsupported",
+    }
+
+
+def test_folder_import_classification_reads_utf8_empty_and_unreadable(
+    tmp_path, monkeypatch
+):
+    """Reads use UTF-8; read/decode failures classify without raising."""
+    folder = tmp_path / "readability"
+    folder.mkdir()
+    (folder / "good.txt").write_text("caf\u00e9 unicode", encoding="utf-8")
+    (folder / "empty.txt").write_text("", encoding="utf-8")
+    (folder / "blank.md").write_text("   \n\t", encoding="utf-8")
+    (folder / "binary.md").write_bytes(b"\xff\xfe\x00bad")
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    by_path = {entry.relative_path: entry for entry in preview.manifest.entries}
+    assert by_path["good.txt"].category == "supported-ready"
+    assert by_path["good.txt"].content_text == "caf\u00e9 unicode"
+    assert by_path["empty.txt"].category == "empty"
+    assert by_path["blank.md"].category == "empty"
+    assert by_path["binary.md"].category == "unreadable"
+
+    # Ready fingerprints pin content bytes plus immutable identity metadata.
+    good_path = folder / "good.txt"
+    fingerprint = by_path["good.txt"].fingerprint
+    assert fingerprint is not None
+    assert fingerprint.content_sha256 == hashlib.sha256(
+        good_path.read_bytes()
+    ).hexdigest()
+    assert fingerprint.size == good_path.stat().st_size
+    assert fingerprint.mtime_ns == good_path.stat().st_mtime_ns
+
+    # A read failure after listing (permissions revoked, etc.) stays inside
+    # the preview: every entry classifies as unreadable, none raises.
+    def broken_reader(path):
+        raise OSError(13, "Permission denied")
+
+    monkeypatch.setattr(importer, "_read_folder_file_bytes", broken_reader)
+    failed_preview = build_folder_import_preview(folder, existing_ids=set())
+    assert {entry.category for entry in failed_preview.manifest.entries} == {
+        "unreadable"
+    }
+    assert all(entry.fingerprint is None for entry in failed_preview.manifest.entries)
+
+
+def test_folder_import_classification_recognises_uppercase_suffixes(tmp_path):
+    """Suffix matching is case-insensitive: .TXT and .MD are supported."""
+    folder = tmp_path / "uppercase"
+    folder.mkdir()
+    (folder / "UPPER.TXT").write_text("Upper", encoding="utf-8")
+    (folder / "Notes.MD").write_text("# Notes", encoding="utf-8")
+    (folder / "photo.PNG").write_bytes(b"\x89PNG")
+
+    preview = build_folder_import_preview(folder, existing_ids=set())
+
+    assert [entry.display_id for entry in preview.manifest.ready_entries] == [
+        "Notes",
+        "UPPER",
+    ]
+    assert preview.counts["unsupported"] == 1
+
+
+def test_folder_import_preview_performs_no_database_writes(tmp_path, tmp_db):
+    """Previewing must not create sources or leave a transaction open."""
+    folder = _build_folder_import_tree(tmp_path)
+    conn = create_project(tmp_path / "preview.ace", "test")
+
+    try:
+        before = list_sources(conn)
+        preview = preview_folder_import(conn, folder)
+
+        assert list_sources(conn) == before
+        assert not conn.in_transaction
+        by_path = {entry.relative_path: entry for entry in preview.manifest.entries}
+        assert by_path["nested/kept.md"].category == "supported-ready"
+    finally:
+        conn.close()
+
+
+def test_folder_import_duplicate_against_live_database_labels(tmp_path, tmp_db):
+    """Duplicate classification reads current labels without mutating them."""
+    folder = tmp_path / "dup-tree"
+    folder.mkdir()
+    (folder / "new.txt").write_text("New content", encoding="utf-8")
+    (folder / "taken.md").write_text("Taken content", encoding="utf-8")
+    conn = create_project(tmp_path / "dup.ace", "test")
+
+    try:
+        add_source(
+            conn,
+            display_id="taken",
+            content_text="Existing source",
+            source_type="file",
+        )
+
+        preview = preview_folder_import(conn, folder)
+
+        by_path = {entry.relative_path: entry for entry in preview.manifest.entries}
+        assert by_path["taken.md"].category == "duplicate"
+        assert by_path["new.txt"].category == "supported-ready"
+        assert preview.counts["duplicate"] == 1
+        assert len(list_sources(conn)) == 1  # preview added nothing
+    finally:
+        conn.close()

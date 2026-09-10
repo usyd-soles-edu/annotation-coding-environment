@@ -1,8 +1,12 @@
 """Import sources from CSV/Excel files and text file folders."""
 
 import csv
+import hashlib
+import os
 import random
 import sqlite3
+import stat
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -183,6 +187,259 @@ def import_text_files(
         )
 
     return _insert_candidates(conn, candidates)
+
+
+# ---------------------------------------------------------------------------
+# Folder import preview seams: recursive scan, classification, manifest.
+#
+# These seams only observe the folder and existing source labels. They never
+# write to SQLite and never sample randomly; the confirmation path is the
+# sole mutation route for the folder-import workflow.
+# ---------------------------------------------------------------------------
+
+FOLDER_CATEGORY_READY = "supported-ready"
+FOLDER_CATEGORY_UNSUPPORTED = "unsupported"
+FOLDER_CATEGORY_UNREADABLE = "unreadable"
+FOLDER_CATEGORY_EMPTY = "empty"
+FOLDER_CATEGORY_DUPLICATE = "duplicate"
+
+_FOLDER_CATEGORIES = (
+    FOLDER_CATEGORY_READY,
+    FOLDER_CATEGORY_UNSUPPORTED,
+    FOLDER_CATEGORY_UNREADABLE,
+    FOLDER_CATEGORY_EMPTY,
+    FOLDER_CATEGORY_DUPLICATE,
+)
+
+_FOLDER_SUPPORTED_SUFFIXES = frozenset({".txt", ".md"})
+
+
+@dataclass(frozen=True)
+class FolderImportFingerprint:
+    """Immutable identity of a ready file as it was at preview time.
+
+    Content hash plus size and mtime_ns lets confirmation detect files that
+    were edited in place or replaced between preview and confirmation.
+    """
+
+    content_sha256: str
+    size: int
+    mtime_ns: int
+
+
+@dataclass(frozen=True)
+class FolderImportEntry:
+    """One examined regular folder file, classified into exactly one category.
+
+    Hidden paths and non-regular entries are rejected before totals and never
+    become entries. ``content_text`` and ``fingerprint`` are populated only
+    for ready entries; ``detail`` carries a short, path-free reason for the
+    non-importable categories.
+    """
+
+    relative_path: str
+    display_id: str
+    category: str
+    content_text: str = ""
+    fingerprint: FolderImportFingerprint | None = None
+    detail: str | None = None
+
+
+@dataclass(frozen=True)
+class FolderImportManifest:
+    """Saved snapshot of one reviewed folder preview.
+
+    Confirmation consumes this manifest and must never rescan the folder:
+    files added after the preview are excluded from the confirmed batch.
+    """
+
+    folder: str
+    entries: tuple[FolderImportEntry, ...]
+
+    @property
+    def ready_entries(self) -> tuple[FolderImportEntry, ...]:
+        return tuple(
+            entry
+            for entry in self.entries
+            if entry.category == FOLDER_CATEGORY_READY
+        )
+
+    @property
+    def counts(self) -> dict[str, int]:
+        return count_folder_import_categories(self.entries)
+
+
+@dataclass(frozen=True)
+class FolderImportPreview:
+    """User-facing aggregate over one saved folder-import manifest."""
+
+    total_files: int
+    counts: dict[str, int]
+    manifest: FolderImportManifest
+
+
+def count_folder_import_categories(
+    entries: Iterable[FolderImportEntry],
+) -> dict[str, int]:
+    """Count entries per category; all five categories are always present."""
+    counts = dict.fromkeys(_FOLDER_CATEGORIES, 0)
+    for entry in entries:
+        counts[entry.category] += 1
+    return counts
+
+
+def _is_hidden_component(name: str) -> bool:
+    """Dot-prefixed names are hidden and excluded from the entire scan."""
+    return name.startswith(".")
+
+
+def _is_regular_file(path: Path) -> bool:
+    """True only for true regular files: symlinks, FIFOs, devices fail."""
+    try:
+        return stat.S_ISREG(path.lstat().st_mode)
+    except OSError:
+        return False
+
+
+def _iter_regular_folder_files(folder: Path) -> list[Path]:
+    """Recursively list regular, non-hidden files under ``folder``.
+
+    Ordered deterministically by POSIX-style relative path. Hidden files,
+    hidden directory subtrees, and every non-regular entry (symlinks, FIFOs,
+    devices, directories themselves) are rejected before totals.
+    """
+    found: list[Path] = []
+    for root, dir_names, file_names in os.walk(folder, followlinks=False):
+        dir_names[:] = sorted(
+            name for name in dir_names if not _is_hidden_component(name)
+        )
+        for name in file_names:
+            if _is_hidden_component(name):
+                continue
+            candidate = Path(root) / name
+            if _is_regular_file(candidate):
+                found.append(candidate)
+    found.sort(key=lambda path: path.relative_to(folder).as_posix())
+    return found
+
+
+def _is_supported_folder_file(path: Path) -> bool:
+    """Recognise supported suffixes case-insensitively (.txt, .md, .TXT, .MD)."""
+    return path.suffix.lower() in _FOLDER_SUPPORTED_SUFFIXES
+
+
+def _read_folder_file_bytes(path: Path) -> bytes:
+    """Read one candidate's raw bytes; classification handles read failures."""
+    return path.read_bytes()
+
+
+def _fingerprint_bytes(path: Path, data: bytes) -> FolderImportFingerprint:
+    """Fingerprint raw content bytes plus immutable identity metadata."""
+    stat_result = path.lstat()
+    return FolderImportFingerprint(
+        content_sha256=hashlib.sha256(data).hexdigest(),
+        size=stat_result.st_size,
+        mtime_ns=stat_result.st_mtime_ns,
+    )
+
+
+def _unreadable_detail(exc: Exception) -> str:
+    """Short, path-free reason for an unreadable classification."""
+    if isinstance(exc, UnicodeDecodeError):
+        return "file is not valid UTF-8"
+    return f"file could not be read ({type(exc).__name__})"
+
+
+def _classify_folder_file(
+    path: Path,
+    relative_path: str,
+    existing_ids: set[str],
+) -> FolderImportEntry:
+    """Classify one examined regular file into exactly one category.
+
+    Precedence matches confirmed import accounting: unsupported is decided
+    before reading, then unreadable, duplicate, empty, and finally ready.
+    """
+    display_id = path.stem
+    if not _is_supported_folder_file(path):
+        return FolderImportEntry(
+            relative_path=relative_path,
+            display_id=display_id,
+            category=FOLDER_CATEGORY_UNSUPPORTED,
+            detail=f"unsupported suffix '{path.suffix.lower()}'",
+        )
+    try:
+        data = _read_folder_file_bytes(path)
+        text = data.decode("utf-8")
+        fingerprint = _fingerprint_bytes(path, data)
+    except (OSError, UnicodeDecodeError) as exc:
+        return FolderImportEntry(
+            relative_path=relative_path,
+            display_id=display_id,
+            category=FOLDER_CATEGORY_UNREADABLE,
+            detail=_unreadable_detail(exc),
+        )
+    if display_id in existing_ids:
+        return FolderImportEntry(
+            relative_path=relative_path,
+            display_id=display_id,
+            category=FOLDER_CATEGORY_DUPLICATE,
+            detail="label already exists",
+        )
+    if not text.strip():
+        return FolderImportEntry(
+            relative_path=relative_path,
+            display_id=display_id,
+            category=FOLDER_CATEGORY_EMPTY,
+            detail="file has no text content",
+        )
+    return FolderImportEntry(
+        relative_path=relative_path,
+        display_id=display_id,
+        category=FOLDER_CATEGORY_READY,
+        content_text=text,
+        fingerprint=fingerprint,
+    )
+
+
+def build_folder_import_preview(
+    folder: str | Path,
+    existing_ids: set[str],
+) -> FolderImportPreview:
+    """Classify every examined regular file under ``folder`` without side effects.
+
+    Pure seam: reads the filesystem and the supplied existing-label set only;
+    never touches SQLite and never samples randomly. Duplicate comparison is
+    against ``existing_ids`` alone.
+    """
+    folder = Path(folder)
+    entries = tuple(
+        _classify_folder_file(
+            path,
+            path.relative_to(folder).as_posix(),
+            existing_ids,
+        )
+        for path in _iter_regular_folder_files(folder)
+    )
+    manifest = FolderImportManifest(folder=str(folder), entries=entries)
+    return FolderImportPreview(
+        total_files=len(entries),
+        counts=count_folder_import_categories(entries),
+        manifest=manifest,
+    )
+
+
+def preview_folder_import(
+    conn: sqlite3.Connection,
+    folder: str | Path,
+) -> FolderImportPreview:
+    """Build a read-only preview manifest for one folder import.
+
+    Reads existing source labels to classify duplicates but performs no
+    database writes and opens no import transaction.
+    """
+    existing_ids = _existing_display_ids(conn)
+    return build_folder_import_preview(folder, existing_ids)
 
 
 def _is_blank_value(value: object) -> bool:
