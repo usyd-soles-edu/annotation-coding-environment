@@ -1,9 +1,12 @@
 """Tests for the FastAPI app scaffold."""
 
+import asyncio
+import json
 import os
 import time
 
 import sqlite3
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -39,6 +42,44 @@ def test_manifest_store_is_bounded_and_purges_expiry_without_access():
     time.sleep(0.02)
     store.purge_expired()
     assert store._records == {}
+
+
+def test_lifespan_cancellation_during_manifest_purge_still_cleans_up(monkeypatch, app, tmp_path):
+    """A cancelled purge wait must not skip the rest of lifespan teardown."""
+    import ace.app as app_module
+
+    events = []
+
+    class Monitor:
+        def __init__(self, tracker, shutdown):
+            events.append("monitor-init")
+        def start(self):
+            events.append("monitor-start")
+        def stop(self):
+            events.append("monitor-stop")
+
+    monkeypatch.setattr(app_module, "BrowserRuntimeMonitor", Monitor)
+    monkeypatch.setenv("ACE_LAUNCHER_TOKEN", "test-token")
+    runtime_file = tmp_path / "runtime.json"
+    runtime_file.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    monkeypatch.setenv("ACE_RUNTIME_FILE", str(runtime_file))
+    closed = []
+    monkeypatch.setattr(app_module, "checkpoint_and_close", lambda conn: closed.append(conn))
+
+    async def exercise():
+        manager = app_module._lifespan(app)
+        await manager.__aenter__()
+        app.state.db = sqlite3.connect(":memory:")
+        purge_task = app.state.folder_import_manifest_purge_task
+        purge_task.cancel()
+        await manager.__aexit__(None, None, None)
+
+    asyncio.run(exercise())
+    assert "monitor-stop" in events
+    assert closed
+    assert app.state.db is None
+    assert not runtime_file.exists()
+    assert app.state.folder_import_manifest_purge_task is None
 
 
 def test_lifespan_periodically_purges_manifest_store(monkeypatch, app):

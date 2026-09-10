@@ -319,8 +319,14 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         manifest_purge_stop.set()
         purge_task = getattr(app.state, "folder_import_manifest_purge_task", None)
         if purge_task is not None:
-            await purge_task
-            app.state.folder_import_manifest_purge_task = None
+            # Shield the worker from cancellation of lifespan teardown, then
+            # consume a worker cancellation without skipping later cleanup.
+            try:
+                await asyncio.shield(purge_task)
+            except asyncio.CancelledError:
+                await asyncio.gather(purge_task, return_exceptions=True)
+            finally:
+                app.state.folder_import_manifest_purge_task = None
         monitor: BrowserRuntimeMonitor | None = getattr(
             app.state,
             "browser_runtime_monitor",

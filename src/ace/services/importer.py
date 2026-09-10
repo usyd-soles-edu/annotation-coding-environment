@@ -364,8 +364,34 @@ def _is_supported_folder_file(path: Path) -> bool:
 
 
 def _read_folder_file_bytes(path: Path) -> bytes:
-    """Read one candidate's raw bytes; classification handles read failures."""
-    return path.read_bytes()
+    """Read one candidate without blocking on a raced non-regular path."""
+    before = path.lstat()
+    if not stat.S_ISREG(before.st_mode):
+        raise OSError("file is not a regular file")
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(path, flags)
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or (
+            opened.st_dev,
+            opened.st_ino,
+        ) != (before.st_dev, before.st_ino):
+            raise OSError("file was replaced during preview")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, _READY_READ_CHUNK)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        after = path.lstat()
+        if not stat.S_ISREG(after.st_mode) or (
+            after.st_dev,
+            after.st_ino,
+        ) != (opened.st_dev, opened.st_ino):
+            raise OSError("file was replaced during preview")
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 def _fingerprint_from_stat(

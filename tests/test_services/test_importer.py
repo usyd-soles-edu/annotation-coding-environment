@@ -1222,6 +1222,45 @@ def test_folder_import_confirm_requires_repreview_when_ready_file_replaced_by_fi
         conn.close()
 
 
+@pytest.mark.skipif(
+    not hasattr(os, "mkfifo"),
+    reason="POSIX FIFOs unavailable on this platform",
+)
+def test_folder_import_preview_replacement_by_fifo_returns_unreadable_promptly(
+    tmp_path, monkeypatch
+):
+    """Preview must not block when an enumerated file becomes a FIFO before read."""
+    folder = tmp_path / "texts"
+    folder.mkdir()
+    victim = folder / "victim.txt"
+    victim.write_text("content", encoding="utf-8")
+
+    original_reader = importer._read_folder_file_bytes
+
+    def replace_then_read(path):
+        path.unlink()
+        os.mkfifo(path)
+        return original_reader(path)
+
+    monkeypatch.setattr(importer, "_read_folder_file_bytes", replace_then_read)
+    outcome: dict = {}
+
+    def _preview():
+        try:
+            outcome["result"] = build_folder_import_preview(folder, set())
+        except BaseException as exc:
+            outcome["error"] = exc
+
+    reader = threading.Thread(target=_preview, daemon=True, name="preview-fifo")
+    reader.start()
+    reader.join(timeout=2)
+    if reader.is_alive():
+        pytest.fail("build_folder_import_preview blocked reading a FIFO replacement")
+
+    result = outcome.get("result", outcome.get("error"))
+    assert result.manifest.entries[0].category == "unreadable"
+
+
 def test_folder_import_confirm_requires_repreview_when_path_replaced_during_read(
     tmp_path, monkeypatch
 ):
