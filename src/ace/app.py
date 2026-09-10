@@ -316,30 +316,32 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         yield
     finally:
-        manifest_purge_stop.set()
-        purge_task = getattr(app.state, "folder_import_manifest_purge_task", None)
-        if purge_task is not None:
-            # Shield the worker from cancellation of lifespan teardown, then
-            # consume a worker cancellation without skipping later cleanup.
-            try:
-                await asyncio.shield(purge_task)
-            except asyncio.CancelledError:
-                await asyncio.gather(purge_task, return_exceptions=True)
-            finally:
-                app.state.folder_import_manifest_purge_task = None
-        monitor: BrowserRuntimeMonitor | None = getattr(
-            app.state,
-            "browser_runtime_monitor",
-            None,
-        )
-        if monitor is not None:
-            monitor.stop()
-            app.state.browser_runtime_monitor = None
-        conn: sqlite3.Connection | None = getattr(app.state, "db", None)
-        if conn is not None:
-            checkpoint_and_close(conn)
-            app.state.db = None
-        _remove_runtime_file_for_current_process(app.state.browser_runtime_config)
+        try:
+            manifest_purge_stop.set()
+            purge_task = getattr(app.state, "folder_import_manifest_purge_task", None)
+            if purge_task is not None:
+                # Shield the worker from cancellation of lifespan teardown, then
+                # consume a worker cancellation without skipping later cleanup.
+                try:
+                    await asyncio.shield(purge_task)
+                except asyncio.CancelledError:
+                    await asyncio.gather(purge_task, return_exceptions=True)
+                finally:
+                    app.state.folder_import_manifest_purge_task = None
+        finally:
+            monitor: BrowserRuntimeMonitor | None = getattr(
+                app.state,
+                "browser_runtime_monitor",
+                None,
+            )
+            if monitor is not None:
+                monitor.stop()
+                app.state.browser_runtime_monitor = None
+            conn: sqlite3.Connection | None = getattr(app.state, "db", None)
+            if conn is not None:
+                checkpoint_and_close(conn)
+                app.state.db = None
+            _remove_runtime_file_for_current_process(app.state.browser_runtime_config)
 
 
 # ---------------------------------------------------------------------------

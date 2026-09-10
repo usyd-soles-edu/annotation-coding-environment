@@ -82,6 +82,54 @@ def test_lifespan_cancellation_during_manifest_purge_still_cleans_up(monkeypatch
     assert app.state.folder_import_manifest_purge_task is None
 
 
+def test_lifespan_repeated_cancellation_during_purge_gather_still_cleans_up(
+    monkeypatch, app, tmp_path
+):
+    """A second teardown cancellation cannot bypass the remaining cleanup."""
+    import ace.app as app_module
+
+    events = []
+
+    class Monitor:
+        def __init__(self, tracker, shutdown):
+            pass
+        def start(self):
+            pass
+        def stop(self):
+            events.append("monitor-stop")
+
+    monkeypatch.setattr(app_module, "BrowserRuntimeMonitor", Monitor)
+    monkeypatch.setenv("ACE_LAUNCHER_TOKEN", "test-token")
+    runtime_file = tmp_path / "runtime.json"
+    runtime_file.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    monkeypatch.setenv("ACE_RUNTIME_FILE", str(runtime_file))
+    monkeypatch.setattr(
+        app_module, "checkpoint_and_close", lambda conn: events.append("db-close")
+    )
+    original_gather = app_module.asyncio.gather
+
+    async def cancel_teardown_again(*tasks, **kwargs):
+        events.append("purge-gather")
+        asyncio.current_task().cancel()
+        await asyncio.sleep(0)
+        return await original_gather(*tasks, **kwargs)
+
+    monkeypatch.setattr(app_module.asyncio, "gather", cancel_teardown_again)
+
+    async def exercise():
+        manager = app_module._lifespan(app)
+        await manager.__aenter__()
+        app.state.db = sqlite3.connect(":memory:")
+        app.state.folder_import_manifest_purge_task.cancel()
+        await manager.__aexit__(None, None, None)
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(exercise())
+    assert events == ["purge-gather", "monitor-stop", "db-close"]
+    assert app.state.db is None
+    assert not runtime_file.exists()
+
+
 def test_lifespan_periodically_purges_manifest_store(monkeypatch, app):
     import ace.app as app_module
 

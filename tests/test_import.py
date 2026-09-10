@@ -662,6 +662,28 @@ def test_folder_preview_css_wraps_long_metadata_and_stacks_header():
     assert "grid-template-columns: 1fr" in css
 
 
+def test_folder_preview_metadata_can_shrink_and_wrap():
+    css = Path("src/ace/static/css/ace.css").read_text(encoding="utf-8")
+
+    selectors = (
+        ".ace-folder-preview-crumb b",
+        ".ace-folder-preview-row b,\n.ace-folder-preview-row small,\n"
+        ".ace-folder-preview-exclusion b,\n.ace-folder-preview-exclusion small",
+        ".ace-folder-preview-source-header > span",
+    )
+    for selector in selectors:
+        match = re.search(re.escape(selector) + r" \{([^}]*)\}", css)
+        assert match, f"missing metadata rule for {selector}"
+        declarations = match.group(1)
+        assert "min-width: 0" in declarations
+        assert "overflow-wrap: anywhere" in declarations
+
+    source_meta = re.search(
+        r"\.ace-folder-preview-source-header > span \{([^}]*)\}", css
+    )
+    assert source_meta and "flex: 1 1 auto" in source_meta.group(1)
+
+
 def test_import_folder_confirm_excludes_files_added_after_preview(client_with_project):
     """Confirmation imports the saved manifest, never a fresh folder scan."""
     client, tmp_path = client_with_project

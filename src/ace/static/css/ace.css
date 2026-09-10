@@ -1151,7 +1151,9 @@ body {
   overflow-wrap: anywhere;
 }
 .ace-folder-preview-crumb b {
+  min-width: 0;
   overflow: hidden;
+  overflow-wrap: anywhere;
   text-overflow: ellipsis;
   font-weight: var(--ace-weight-medium);
 }
@@ -1214,8 +1216,9 @@ body {
   display: block;
   min-width: 0;
   overflow: hidden;
+  overflow-wrap: anywhere;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 .ace-folder-preview-row b,
 .ace-folder-preview-exclusion b {
@@ -1258,7 +1261,9 @@ body {
   line-height: var(--ace-leading-tight);
 }
 .ace-folder-preview-source-header > span {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-family: var(--ace-font-mono);
   font-size: var(--ace-font-size-2xs);
   text-align: right;
