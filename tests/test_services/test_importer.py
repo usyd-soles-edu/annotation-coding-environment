@@ -21,6 +21,9 @@ from ace.models.source import (
 )
 from ace.services.importer import (
     build_folder_import_preview,
+    confirm_folder_import,
+    FolderImportRepreviewRequired,
+    ImportResult,
     import_csv,
     import_text_files,
     get_random_previews,
@@ -700,8 +703,8 @@ def test_import_csv_latin1(tmp_path):
 # ---------------------------------------------------------------------------
 # Folder import preview seams: recursive scan, classification, manifest.
 #
-# These cover the read-only preview contract only. Confirmation/insertion
-# behaviour is covered separately once the confirmation seam exists.
+# These cover the read-only preview contract. Confirmation revalidation and
+# atomic insertion behaviour is covered in the section below.
 # ---------------------------------------------------------------------------
 
 
@@ -1078,5 +1081,220 @@ def test_folder_import_duplicate_against_live_database_labels(tmp_path, tmp_db):
         assert by_path["new.txt"].category == "supported-ready"
         assert preview.counts["duplicate"] == 1
         assert len(list_sources(conn)) == 1  # preview added nothing
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Folder import confirmation: revalidate saved ready entries, then insert
+# the validated batch through one atomic transaction.
+# ---------------------------------------------------------------------------
+
+
+def _build_confirm_tree(tmp_path: Path) -> Path:
+    """Create a two-ready-file folder (one nested) for confirmation tests."""
+    folder = tmp_path / "confirm-tree"
+    folder.mkdir()
+    (folder / "alpha.txt").write_text("Alpha content", encoding="utf-8")
+    nested = folder / "nested"
+    nested.mkdir()
+    (nested / "beta.md").write_text("Beta content", encoding="utf-8")
+    return folder
+
+
+def _spy_on_insert_candidates(monkeypatch) -> list:
+    """Replace the insertion seam with a recorder; return the call log."""
+    calls: list = []
+    monkeypatch.setattr(
+        importer,
+        "_insert_candidates",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    return calls
+
+
+def test_folder_import_confirm_requires_repreview_when_ready_file_modified(
+    tmp_path, monkeypatch
+):
+    """A ready file edited after preview aborts confirmation before any write."""
+    folder = tmp_path / "modified"
+    folder.mkdir()
+    (folder / "alpha.txt").write_text("Alpha content", encoding="utf-8")
+    (folder / "beta.txt").write_text("Beta content", encoding="utf-8")
+    conn = create_project(tmp_path / "modified.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+        (folder / "alpha.txt").write_text("Alpha content changed", encoding="utf-8")
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_requires_repreview_when_ready_file_deleted(
+    tmp_path, monkeypatch
+):
+    """A ready file removed after preview aborts confirmation before any write."""
+    folder = tmp_path / "deleted"
+    folder.mkdir()
+    (folder / "alpha.txt").write_text("Alpha content", encoding="utf-8")
+    (folder / "beta.txt").write_text("Beta content", encoding="utf-8")
+    conn = create_project(tmp_path / "deleted.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+        (folder / "alpha.txt").unlink()
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_requires_repreview_when_fresh_read_fails(
+    tmp_path, monkeypatch
+):
+    """A ready file that no longer reads aborts confirmation before any write."""
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "unreadable.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+
+        def broken_reader(path):
+            raise OSError(13, "Permission denied")
+
+        monkeypatch.setattr(importer, "_read_folder_file_bytes", broken_reader)
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert result.detail == "file could not be read (PermissionError)"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_excludes_files_added_after_preview(tmp_path):
+    """Confirmation imports the saved manifest only; later files never join."""
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "added.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+        (folder / "gamma.txt").write_text("Late arrival", encoding="utf-8")
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert isinstance(result, ImportResult)
+        assert result.created == 2
+        sources = list_sources(conn)
+        assert {s["display_id"] for s in sources} == {"alpha", "beta"}
+        assert len(result.created_ids) == 2
+        assert not conn.in_transaction
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_rolls_back_batch_when_second_source_fails(tmp_path):
+    """An insertion failure mid-batch rolls back the whole confirmed batch."""
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "confirm-rollback.ace", "test")
+    conn.execute(
+        """
+        CREATE TRIGGER fail_second_confirm_source
+        BEFORE INSERT ON source
+        WHEN NEW.display_id = 'beta'
+        BEGIN
+            SELECT RAISE(ABORT, 'injected import failure');
+        END
+        """
+    )
+    conn.commit()
+
+    try:
+        preview = preview_folder_import(conn, folder)
+
+        with pytest.raises(Exception, match="injected import failure"):
+            confirm_folder_import(conn, preview.manifest)
+
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+    finally:
+        conn.close()
+
+
+def test_folder_import_confirm_preserves_preview_accounting(tmp_path):
+    """Confirmed counts match the reviewed manifest; IDs are committed ones."""
+    folder = tmp_path / "accounting"
+    folder.mkdir()
+    (folder / "taken.md").write_text("Taken content", encoding="utf-8")
+    (folder / "empty.txt").write_text("", encoding="utf-8")
+    (folder / "alpha.txt").write_text("Alpha content", encoding="utf-8")
+    (folder / "beta.md").write_text("Beta content", encoding="utf-8")
+    conn = create_project(tmp_path / "accounting.ace", "test")
+
+    try:
+        add_source(
+            conn,
+            display_id="taken",
+            content_text="Existing source",
+            source_type="file",
+        )
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts == {
+            "supported-ready": 2,
+            "unsupported": 0,
+            "unreadable": 0,
+            "empty": 1,
+            "duplicate": 1,
+        }
+
+        result = confirm_folder_import(conn, preview.manifest)
+
+        assert isinstance(result, ImportResult)
+        assert (
+            result.created,
+            result.duplicate_skipped,
+            result.empty_skipped,
+        ) == (
+            preview.counts["supported-ready"],
+            preview.counts["duplicate"],
+            preview.counts["empty"],
+        )
+        sources = list_sources(conn)
+        by_label = {s["display_id"]: s for s in sources}
+        assert set(by_label) == {"taken", "alpha", "beta"}
+        assert (
+            get_source_content(conn, by_label["taken"]["id"])["content_text"]
+            == "Existing source"
+        )
+        assert set(result.created_ids) == {
+            by_label["alpha"]["id"],
+            by_label["beta"]["id"],
+        }
+        assert not conn.in_transaction
     finally:
         conn.close()

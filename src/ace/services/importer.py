@@ -293,6 +293,21 @@ class FolderImportPreview:
         return self.manifest.counts
 
 
+@dataclass(frozen=True)
+class FolderImportRepreviewRequired:
+    """Refused folder-import confirmation; a new preview is required.
+
+    Returned by ``confirm_folder_import`` when a saved ready entry no longer
+    matches the folder at confirmation time — changed, deleted, unreadable,
+    or saved content that cannot be verified. No database writes have
+    occurred. ``detail`` is a short, path-free reason; ``relative_path``
+    identifies the offending reviewed entry.
+    """
+
+    relative_path: str
+    detail: str
+
+
 def count_folder_import_categories(
     entries: Iterable[FolderImportEntry],
 ) -> dict[str, int]:
@@ -462,6 +477,79 @@ def preview_folder_import(
     """
     existing_ids = _existing_display_ids(conn)
     return build_folder_import_preview(folder, existing_ids)
+
+
+def confirm_folder_import(
+    conn: sqlite3.Connection,
+    manifest: FolderImportManifest,
+) -> ImportResult | FolderImportRepreviewRequired:
+    """Revalidate a saved manifest's ready files, then import them atomically.
+
+    Iterates only the manifest's supported-ready entries — the folder is never
+    rescanned, so files added after the preview cannot join the batch. Each
+    ready file is fresh-read and its fingerprint compared before any
+    transaction begins; a changed, deleted, unreadable, or unverifiable ready
+    file returns ``FolderImportRepreviewRequired`` with no writes and no
+    insertion attempt. Validated candidates are inserted through the single
+    ``BEGIN IMMEDIATE`` batch in ``_insert_candidates``, which keeps duplicate
+    detection inside the transaction and rolls back on every exception.
+
+    Confirmed accounting preserves the reviewed manifest: manifest-level
+    duplicate and empty counts are carried into the result, and any label
+    claimed by another source between preview and commit is still skipped
+    inside the transaction. Unavailable or expired manifest tokens are a
+    route-layer concern and are rejected the same way (re-preview required).
+    """
+    candidates: list[_SourceCandidate] = []
+    for entry in manifest.ready_entries:
+        if entry.fingerprint is None:
+            return FolderImportRepreviewRequired(
+                relative_path=entry.relative_path,
+                detail="saved file content is unavailable",
+            )
+        path = Path(manifest.folder) / entry.relative_path
+        try:
+            data = _read_folder_file_bytes(path)
+            text = data.decode("utf-8")
+            fingerprint = _fingerprint_bytes(path, data)
+        except FileNotFoundError:
+            return FolderImportRepreviewRequired(
+                relative_path=entry.relative_path,
+                detail="file is missing",
+            )
+        except (OSError, UnicodeDecodeError) as exc:
+            return FolderImportRepreviewRequired(
+                relative_path=entry.relative_path,
+                detail=_unreadable_detail(exc),
+            )
+        if fingerprint != entry.fingerprint:
+            return FolderImportRepreviewRequired(
+                relative_path=entry.relative_path,
+                detail="file changed since preview",
+            )
+        candidates.append(
+            _SourceCandidate(
+                display_id=entry.display_id,
+                content_text=text,
+                source_type="file",
+                filename=path.name,
+                empty=not text.strip(),
+            )
+        )
+
+    result = _insert_candidates(
+        conn,
+        candidates,
+        empty_skipped=manifest.counts[FOLDER_CATEGORY_EMPTY],
+    )
+    return ImportResult(
+        created=result.created,
+        duplicate_skipped=(
+            result.duplicate_skipped + manifest.counts[FOLDER_CATEGORY_DUPLICATE]
+        ),
+        empty_skipped=result.empty_skipped,
+        created_ids=result.created_ids,
+    )
 
 
 def _is_blank_value(value: object) -> bool:
