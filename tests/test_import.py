@@ -384,8 +384,8 @@ def test_import_commit_xlsx_comma_nbsp_header_end_to_end(client_with_project):
         conn.close()
 
 
-def test_import_preview_returns_snippet(client_with_project):
-    """GET /api/import/preview returns a file-browser preview fragment."""
+def test_import_preview_returns_reviewed_workspace(client_with_project):
+    """The legacy preview route now returns the reviewed Workspace, not a sample."""
     client, tmp_path = client_with_project
 
     folder = tmp_path / "prev"
@@ -395,47 +395,18 @@ def test_import_preview_returns_snippet(client_with_project):
     )
 
     resp = client.get("/api/import/preview", params={"folder": str(folder)})
-    assert resp.status_code == 200
-    assert 'id="import-preview"' in resp.text
-    assert "ace-folder-import-browser" in resp.text
-    assert "data-preview-json=" in resp.text
-    assert "Preview content here.\\nSecond line." in resp.text
-    assert "Random sample" in resp.text
-    assert "Previewing" in resp.text
-    assert "doc.txt" in resp.text
-    assert "Preview content here." in resp.text
-    assert "Showing 1 of 1" in resp.text
-    assert 'title="Preview another file"' in resp.text
-    assert 'aria-label="Preview another file"' in resp.text
-
-
-def test_import_preview_shows_five_file_sample(client_with_project):
-    """Folder preview lists a random sample of five files, not every file."""
-    client, tmp_path = client_with_project
-
-    folder = tmp_path / "many"
-    folder.mkdir()
-    for i in range(7):
-        (folder / f"doc-{i}.txt").write_text(f"Preview content {i}.")
-
-    resp = client.get("/api/import/preview", params={"folder": str(folder)})
 
     assert resp.status_code == 200
-    assert resp.text.count("data-import-preview-file") == 5
-    assert "Showing 5 of 7" in resp.text
-    assert "2 more files imported" in resp.text
-
-
-def test_import_preview_empty_folder(client_with_project):
-    """GET /api/import/preview with empty folder returns fallback."""
-    client, tmp_path = client_with_project
-
-    folder = tmp_path / "empty"
-    folder.mkdir()
-
-    resp = client.get("/api/import/preview", params={"folder": str(folder)})
-    assert resp.status_code == 200
-    assert "No text files" in resp.text
+    assert "ace-folder-preview-workspace" in resp.text
+    assert "ace-folder-preview-toolbar" in resp.text
+    assert "ace-folder-preview-source-header" in resp.text
+    assert "data-folder-preview-row" in resp.text
+    assert 'aria-current="true"' in resp.text
+    assert "Preview content here.\nSecond line." in resp.text
+    assert "Confirm to add 1 file to your project; 0 will be left out." in resp.text
+    assert "Random sample" not in resp.text
+    assert "Showing " not in resp.text
+    assert '<details class="ace-folder-preview-exclusions">' in resp.text
 
 
 def test_import_page_has_consistent_buttons(client_with_project):
@@ -445,6 +416,11 @@ def test_import_page_has_consistent_buttons(client_with_project):
     assert resp.status_code == 200
     assert "ace-wizard-dropzone" not in resp.text
     assert "ace-wizard-option" in resp.text
+    assert 'postFragment("/api/import/folder", { path: path }, "#step-columns")' in resp.text
+    assert "data-folder-preview-row" in resp.text
+    assert "data-folder-preview-confirm" in resp.text
+    assert 'data-repreview-required="true"' in resp.text
+    assert 'showStep("step-columns")' in resp.text
 
 
 # -------------------------------------------------------------------------
@@ -504,16 +480,47 @@ def test_import_folder_preview_creates_no_sources_and_reports_totals(
     resp = client.post("/api/import/folder", data={"path": str(folder)})
 
     assert resp.status_code == 200
-    # 3 examined regular files; hidden paths and the FIFO are absent from
-    # totals entirely.
-    assert "3 files" in resp.text
-    assert "Import 2 files" in resp.text
+    # Three examined regular files: two reviewed ready files plus one excluded
+    # unsupported file. Hidden paths and the FIFO are absent entirely.
+    assert "ace-folder-preview-toolbar" in resp.text
+    assert "ace-folder-preview-source-header" in resp.text
+    assert resp.text.count("data-folder-preview-row") == 2
+    assert 'class="ace-folder-preview-row is-selected"' in resp.text
+    assert "Confirm to add 2 files to your project; 1 will be left out." in resp.text
+    assert "Random sample" not in resp.text
+    assert "Showing " not in resp.text
     assert "top.txt" in resp.text
     assert "nested/kept.md" in resp.text
     assert "image.png" in resp.text
-    assert ".hidden" not in resp.text
-    assert "pipe" not in resp.text
+    assert "Files not included (1)" in resp.text
+    assert '<details class="ace-folder-preview-exclusions">' in resp.text
+    assert "Not a text or Markdown file" in resp.text
+    confirm_form = re.search(
+        r'<form[^>]+data-folder-preview-confirm[^>]*>(.*?)</form>',
+        resp.text,
+        flags=re.DOTALL,
+    )
+    assert confirm_form
+    assert re.findall(r'name="([^"]+)"', confirm_form.group(1)) == ["manifest_token"]
     assert _source_display_ids(tmp_path / "test.ace") == []
+
+
+def test_import_folder_preview_opens_exclusions_when_nothing_is_importable(
+    client_with_project,
+):
+    client, tmp_path = client_with_project
+    folder = tmp_path / "unsupported"
+    folder.mkdir()
+    (folder / "image.png").write_bytes(b"not a text file")
+
+    resp = client.post("/api/import/folder", data={"path": str(folder)})
+
+    assert resp.status_code == 200
+    assert "No files can be added to your project; 1 will be left out." in resp.text
+    assert "Files not included (1)" in resp.text
+    assert '<details class="ace-folder-preview-exclusions" open>' in resp.text
+    assert "manifest_token" not in resp.text
+    assert "Confirm import" not in resp.text
 
 
 def test_import_folder_preview_then_confirm_creates_sources(client_with_project):
@@ -634,7 +641,10 @@ def test_import_folder_confirm_requires_repreview_and_writes_nothing(
     assert 'data-repreview-required="true"' in resp.text
     assert "one.txt" in resp.text
     assert expected_detail in resp.text
+    assert "Preview the folder again" in resp.text
+    assert "Choose folder again" in resp.text
     assert "Import complete" not in resp.text
+    assert "Added " not in resp.text
     assert _source_display_ids(tmp_path / "test.ace") == []
     assert _last_import_source_ids(app) is None
 

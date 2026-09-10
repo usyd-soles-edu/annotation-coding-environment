@@ -13,7 +13,6 @@ import sqlite3
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import quote
 
 from fastapi import (
     APIRouter,
@@ -165,7 +164,9 @@ from ace.routes.api_support import (
     _codebook_import_payload,
     _codebook_mapping_select,
     _csv_download,
-    _folder_import_preview_fragment,
+    _folder_import_completed_fragment,
+    _folder_import_preview_workspace_fragment,
+    _folder_repreview_required_fragment,
     _import_result_fragment,
     _native_selection_path,
     _normalise_codebook_mapping_column,
@@ -465,112 +466,6 @@ async def import_commit(
     )
 
 
-def _folder_status_labels() -> dict[str, str]:
-    """Short, file-name-free status wording per folder-import category."""
-    from ace.services.importer import (
-        FOLDER_CATEGORY_DUPLICATE,
-        FOLDER_CATEGORY_EMPTY,
-        FOLDER_CATEGORY_READY,
-        FOLDER_CATEGORY_UNREADABLE,
-        FOLDER_CATEGORY_UNSUPPORTED,
-    )
-
-    return {
-        FOLDER_CATEGORY_READY: "ready to import",
-        FOLDER_CATEGORY_UNSUPPORTED: "unsupported file type",
-        FOLDER_CATEGORY_UNREADABLE: "could not be read",
-        FOLDER_CATEGORY_EMPTY: "empty",
-        FOLDER_CATEGORY_DUPLICATE: "label already in project",
-    }
-
-
-def _folder_preview_workspace_fragment(
-    preview: "FolderImportPreview",
-    manifest_token: str,
-) -> str:
-    """Render the reviewed preview workspace for one saved manifest.
-
-    The fragment carries only the opaque token — never the saved manifest
-    itself, the raw folder path, or absolute paths. Totals derive from the
-    manifest entries (hidden and non-regular paths are absent entirely), and
-    confirmation is offered only when ready entries exist.
-    """
-    from ace.services.importer import FOLDER_CATEGORY_READY
-
-    manifest = preview.manifest
-    counts = manifest.counts
-    total = preview.total_files
-    ready_count = counts[FOLDER_CATEGORY_READY]
-    labels = _folder_status_labels()
-    folder_name = html.escape(Path(manifest.folder).name)
-
-    rows = "".join(
-        '<li class="ace-folder-preview-entry" '
-        f'data-folder-entry="{html.escape(entry.category, quote=True)}">'
-        f"<span>{html.escape(entry.relative_path)}</span>"
-        f"<small>{labels[entry.category]}"
-        + (f" · {html.escape(entry.detail)}" if entry.detail else "")
-        + "</small></li>"
-        for entry in manifest.entries
-    )
-    summary_bits = [
-        f"{counts[category]} {label}"
-        for category, label in labels.items()
-        if counts[category]
-    ]
-    summary = ", ".join(summary_bits) if summary_bits else "nothing to import"
-
-    if ready_count:
-        confirm_form = (
-            '<form class="ace-folder-preview-confirm" '
-            'hx-post="/api/import/folder/confirm" '
-            'hx-target="#step-done" hx-swap="innerHTML">'
-            '<input type="hidden" name="manifest_token" '
-            f'value="{html.escape(manifest_token, quote=True)}">'
-            '<button type="submit" class="ace-btn ace-btn--primary">'
-            f'Import {ready_count} file{"s" if ready_count != 1 else ""}'
-            "</button></form>"
-        )
-    else:
-        confirm_form = ""
-
-    return (
-        '<div class="ace-folder-preview-workspace" data-folder-import-preview>'
-        '<div class="ace-import-result-top">'
-        '<span class="ace-wizard-crumb">Folder import</span>'
-        f'<span class="ace-wizard-pill">{folder_name}/ · '
-        f'{total} file{"s" if total != 1 else ""} found</span>'
-        "</div>"
-        '<h1 class="ace-wizard-title" tabindex="-1">Review folder files</h1>'
-        f'<p class="ace-wizard-hint">{summary}.</p>'
-        f'<ul class="ace-folder-preview-entries">{rows}</ul>'
-        f"{confirm_form}"
-        "</div>"
-    )
-
-
-def _folder_repreview_required_fragment(reason: str) -> str:
-    """Preview-again fragment for every refused confirmation.
-
-    Covers changed/deleted/unreadable ready files, failed batches, and
-    unknown/expired/consumed tokens; it never claims an import happened.
-    """
-    return (
-        '<div class="ace-import-result ace-folder-repreview" '
-        'data-repreview-required="true" role="alert">'
-        '<div class="ace-import-result-top">'
-        '<span class="ace-wizard-crumb">Folder import</span>'
-        "</div>"
-        '<h1 class="ace-wizard-title" tabindex="-1">Preview the folder again</h1>'
-        f"<p>{html.escape(reason)} The files were not imported.</p>"
-        '<div class="ace-import-result-actions">'
-        '<button class="ace-btn" type="button" '
-        "onclick=\"showStep('step-choose')\">Choose folder again</button>"
-        "</div>"
-        "</div>"
-    )
-
-
 @router.post("/import/folder")
 async def import_folder(
     request: Request,
@@ -604,7 +499,7 @@ async def import_folder(
     manifest_store = getattr(request.app.state, "folder_import_manifests", None)
     if manifest_store is not None:
         manifest_store.put(token, preview.manifest)
-    return HTMLResponse(_folder_preview_workspace_fragment(preview, token))
+    return HTMLResponse(_folder_import_preview_workspace_fragment(preview, token))
 
 
 def _take_folder_import_manifest(
@@ -678,14 +573,8 @@ async def import_folder_confirm(
     # created ids — preview, expiry, rejection, and rollback never touch it.
     request.app.state.last_import_source_ids = list(result.created_ids)
 
-    count_label = f'{result.created} source{"s" if result.created != 1 else ""}'
     return HTMLResponse(
-        _import_result_fragment(
-            count_label,
-            Path(manifest.folder).name,
-            skipped=result.duplicate_skipped,
-            empty_skipped=result.empty_skipped,
-        )
+        _folder_import_completed_fragment(result, Path(manifest.folder).name)
     )
 
 
@@ -732,29 +621,20 @@ async def import_remove_last(request: Request):
 
 @router.get("/import/preview")
 async def import_preview(request: Request, folder: str = Query(...)):
-    """Return an HTML fragment previewing a random text file from the folder."""
-    from ace.services.importer import count_already_present, get_random_previews
+    """Return the reviewed Workspace for a directly requested folder preview."""
+    from ace.services.importer import preview_folder_import
 
-    folder_path = Path(folder)
+    folder_path = _native_selection_path(folder)
     if not folder_path.is_dir():
         return HTMLResponse('<p style="color:var(--ace-text-muted)">Invalid folder.</p>')
 
-    total, previews = get_random_previews(folder_path)
-    escaped_folder = html.escape(quote(folder, safe=""))
-
-    # Count how many files in the folder are already sources in the open
-    # project so the preview can flag duplicates before import.
-    already_present = 0
-    project_path = getattr(request.app.state, "project_path", None)
-    if project_path and Path(project_path).exists():
-        with _project_db(request) as conn:
-            already_present = count_already_present(conn, folder_path)
-
-    return HTMLResponse(
-        _folder_import_preview_fragment(
-            previews, total, escaped_folder, already_present=already_present
-        )
-    )
+    with _project_db(request) as conn:
+        preview = preview_folder_import(conn, folder_path)
+    token = secrets.token_urlsafe(32)
+    manifest_store = getattr(request.app.state, "folder_import_manifests", None)
+    if manifest_store is not None:
+        manifest_store.put(token, preview.manifest)
+    return HTMLResponse(_folder_import_preview_workspace_fragment(preview, token))
 
 
 @router.get("/export/annotations")

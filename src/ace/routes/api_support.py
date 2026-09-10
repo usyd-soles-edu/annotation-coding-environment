@@ -213,104 +213,196 @@ def _import_result_fragment(
     )
 
 
-def _folder_preview_teaser(snippet: str, max_chars: int = 72) -> str:
-    teaser = " ".join(snippet.split())
-    if not teaser:
-        return "(empty file)"
-    if len(teaser) > max_chars:
-        return teaser[:max_chars].rstrip() + "..."
-    return teaser
-
-
-def _folder_preview_button(preview: dict, selected: bool) -> str:
-    filename = str(preview["filename"])
-    snippet = str(preview["snippet"])
-    size_label = str(preview["size_label"])
-    selected_class = " is-selected" if selected else ""
-    aria_current = ' aria-current="true"' if selected else ""
-    return (
-        f'<button class="ace-folder-import-file{selected_class}" type="button"'
-        f' data-import-preview-file data-filename="{html.escape(filename, quote=True)}"'
-        f' data-size-label="{html.escape(size_label, quote=True)}"'
-        f' data-preview-json="{html.escape(json.dumps(snippet), quote=True)}"{aria_current}>'
-        f"<b>{html.escape(filename)}</b>"
-        f"<span>{html.escape(size_label)}</span>"
-        f"<small>{html.escape(_folder_preview_teaser(snippet))}</small>"
-        "</button>"
+def _folder_preview_status_labels() -> dict[str, str]:
+    """Return the visible category labels for a reviewed folder manifest."""
+    from ace.services.importer import (
+        FOLDER_CATEGORY_DUPLICATE,
+        FOLDER_CATEGORY_EMPTY,
+        FOLDER_CATEGORY_READY,
+        FOLDER_CATEGORY_UNREADABLE,
+        FOLDER_CATEGORY_UNSUPPORTED,
     )
 
-
-def _folder_preview_panel(preview: dict) -> str:
-    return (
-        '<section class="ace-folder-import-preview" aria-live="polite">'
-        '<div class="ace-folder-import-preview-head">'
-        "<div>"
-        "<span>Previewing</span>"
-        f'<strong data-import-preview-title>{html.escape(str(preview["filename"]))}</strong>'
-        "</div>"
-        f'<span data-import-preview-size>{html.escape(str(preview["size_label"]))}</span>'
-        "</div>"
-        '<div class="ace-folder-import-preview-body" tabindex="0">'
-        f'<pre data-import-preview-text>{html.escape(str(preview["snippet"]))}</pre>'
-        "</div>"
-        "</section>"
-    )
+    return {
+        FOLDER_CATEGORY_READY: "Ready to import",
+        FOLDER_CATEGORY_UNSUPPORTED: "Not a text or Markdown file",
+        FOLDER_CATEGORY_UNREADABLE: "Could not be read",
+        FOLDER_CATEGORY_EMPTY: "No text in this file",
+        FOLDER_CATEGORY_DUPLICATE: "Already in this project",
+    }
 
 
-def _folder_import_preview_fragment(
-    previews: list[dict],
-    total: int,
-    escaped_folder: str,
-    *,
-    already_present: int = 0,
-) -> str:
-    """Return the #import-preview HTML fragment (outerHTML-swappable)."""
-    if not previews:
+def _folder_preview_content(text: str, max_chars: int = 8000) -> tuple[str, bool]:
+    """Bound a reading-canvas preview without exposing a full source in attributes."""
+    if len(text) <= max_chars:
+        return text, False
+    return text[:max_chars].rstrip(), True
+
+
+def _folder_preview_outcome(ready_count: int, excluded_count: int) -> str:
+    ready_unit = "file" if ready_count == 1 else "files"
+    if ready_count:
         return (
-            '<div id="import-preview" class="ace-folder-import-empty">'
-            '<p>No text files found.</p>'
-            "</div>"
+            f"Confirm to add {ready_count} {ready_unit} to your project; "
+            f"{excluded_count} will be left out."
         )
+    return f"No files can be added to your project; {excluded_count} will be left out."
 
-    first = previews[0]
-    buttons = "".join(
-        _folder_preview_button(preview, selected=(i == 0))
-        for i, preview in enumerate(previews)
-    )
-    visible = len(previews)
-    remaining = max(total - visible, 0)
-    more_label = (
-        f"{remaining} more file{'s' if remaining != 1 else ''} imported"
-        if remaining
-        else "All files shown"
-    )
-    dup_html = ""
-    if already_present > 0:
-        unit = "file" if already_present == 1 else "files"
-        dup_html = (
-            f'<p class="ace-folder-import-duplicates">'
-            f"{already_present} {unit} already in this project."
-            f"</p>"
+
+def _folder_exclusion_summary(counts: dict[str, int], labels: dict[str, str]) -> str:
+    parts = []
+    for category, label in labels.items():
+        if category == "supported-ready" or not counts[category]:
+            continue
+        count = counts[category]
+        parts.append(f"{count} {label.lower()}")
+    if not parts:
+        return "All reviewed files can be added."
+    return "; ".join(parts) + "."
+
+
+def _folder_import_preview_workspace_fragment(
+    preview,
+    manifest_token: str,
+    *,
+    has_error: bool = False,
+) -> str:
+    """Render the bounded reviewed-folder Workspace fragment.
+
+    Only the opaque token is included in a form field. Relative paths and file
+    text are escaped before rendering or serialising into DOM data attributes.
+    """
+    from ace.services.importer import FOLDER_CATEGORY_READY
+
+    manifest = preview.manifest
+    counts = dict(manifest.counts)
+    labels = _folder_preview_status_labels()
+    ready_entries = manifest.ready_entries
+    ready_count = len(ready_entries)
+    excluded_entries = [
+        entry for entry in manifest.entries if entry.category != FOLDER_CATEGORY_READY
+    ]
+    excluded_count = len(excluded_entries)
+    folder_name = Path(manifest.folder).name
+
+    if ready_entries:
+        selected = ready_entries[0]
+        selected_content, selected_truncated = _folder_preview_content(selected.content_text)
+        ready_rows = []
+        for index, entry in enumerate(ready_entries):
+            content, truncated = _folder_preview_content(entry.content_text)
+            selected_class = " is-selected" if index == 0 else ""
+            current = ' aria-current="true"' if index == 0 else ""
+            ready_rows.append(
+                f'<button class="ace-folder-preview-row{selected_class}" type="button" '
+                'data-folder-preview-row '
+                f'data-folder-preview-name="{html.escape(entry.relative_path, quote=True)}" '
+                f'data-folder-preview-meta="{html.escape(entry.relative_path + " · Text file", quote=True)}" '
+                f'data-folder-preview-content="{html.escape(json.dumps(content), quote=True)}" '
+                f'data-folder-preview-truncated="{"true" if truncated else "false"}"{current}>'
+                f'<b>{html.escape(Path(entry.relative_path).name)}</b>'
+                f'<small>{html.escape(entry.relative_path)} · {html.escape(labels[entry.category])}</small>'
+                "</button>"
+            )
+        rows_html = "".join(ready_rows)
+        source_header = html.escape(selected.relative_path)
+        source_meta = html.escape(f"{selected.relative_path} · Text file")
+        canvas_text = html.escape(selected_content)
+        truncated_html = (
+            '<p class="ace-folder-preview-truncated" data-folder-preview-truncated>'
+            "Preview shows the beginning of this file.</p>"
+            if selected_truncated
+            else '<p class="ace-folder-preview-truncated" data-folder-preview-truncated hidden>'
+            "Preview shows the beginning of this file.</p>"
         )
+        confirm_form = (
+            '<form class="ace-folder-preview-confirm" data-folder-preview-confirm '
+            'hx-post="/api/import/folder/confirm" hx-target="#step-done" hx-swap="innerHTML">'
+            '<input type="hidden" name="manifest_token" '
+            f'value="{html.escape(manifest_token, quote=True)}">'
+            '<button type="submit" class="ace-btn ace-btn--primary">Confirm import</button>'
+            "</form>"
+        )
+    else:
+        rows_html = '<p class="ace-folder-preview-empty">No files are ready to import.</p>'
+        source_header = "No importable file"
+        source_meta = "Review the files not included below."
+        canvas_text = "There is no file available to preview."
+        truncated_html = ""
+        confirm_form = ""
+
+    exclusion_rows = "".join(
+        '<p class="ace-folder-preview-exclusion">'
+        f'<b>{html.escape(Path(entry.relative_path).name)}</b>'
+        f'<small>{html.escape(entry.relative_path)} · '
+        f'{html.escape(labels[entry.category])}'
+        + (f' — {html.escape(entry.detail)}' if entry.detail else "")
+        + "</small></p>"
+        for entry in excluded_entries
+    ) or '<p class="ace-folder-preview-exclusion-summary">All reviewed files are ready to import.</p>'
+    disclosure_open = " open" if has_error or not ready_entries else ""
+
     return (
-        '<div id="import-preview" class="ace-folder-import-browser">'
-        '<aside class="ace-folder-import-list" aria-label="Imported files">'
-        '<div class="ace-folder-import-list-head">'
-        '<div class="ace-folder-import-list-title">'
-        "<strong>Random sample</strong>"
-        f"<span>Showing {visible} of {total}</span>"
+        '<div class="ace-folder-preview-workspace" data-folder-import-preview>'
+        '<header class="ace-folder-preview-titlebar">'
+        '<span aria-hidden="true"></span>'
+        '<span>Import folder — ACE</span><span aria-hidden="true"></span>'
+        "</header>"
+        '<header class="ace-folder-preview-toolbar">'
+        '<nav class="ace-folder-preview-crumb" aria-label="Location">'
+        '<span>Import folder</span><span aria-hidden="true">›</span>'
+        f'<b>{html.escape(folder_name)}</b></nav>'
+        '<div class="ace-folder-preview-toolbar-actions">'
+        '<button class="ace-btn" type="button" onclick="showStep(\'step-choose\')">Choose another folder</button>'
+        f"{confirm_form}</div></header>"
+        '<div class="ace-folder-preview-panes">'
+        '<section class="ace-folder-preview-list-pane" aria-label="Files that will be added">'
+        '<header class="ace-folder-preview-list-head">'
+        '<h1 class="ace-folder-preview-title" tabindex="-1">Add files to this project</h1>'
+        f'<p class="ace-folder-preview-outcome">{html.escape(_folder_preview_outcome(ready_count, excluded_count))}</p>'
+        "</header>"
+        f'<div class="ace-folder-preview-list">{rows_html}</div></section>'
+        '<section class="ace-folder-preview-canvas" aria-label="Selected file preview">'
+        '<header class="ace-folder-preview-source-header"><div>'
+        '<p>Previewing</p>'
+        f'<h2 data-folder-preview-title>{source_header}</h2></div>'
+        f'<span data-folder-preview-meta>{source_meta}</span></header>'
+        '<div class="ace-folder-preview-reading" tabindex="0">'
+        f'<pre data-folder-preview-text>{canvas_text}</pre>{truncated_html}'
+        "</div></section></div>"
+        f'<details class="ace-folder-preview-exclusions"{disclosure_open}>'
+        f'<summary>Files not included ({excluded_count})</summary>'
+        f'<p class="ace-folder-preview-exclusions-summary">{html.escape(_folder_exclusion_summary(counts, labels))}</p>'
+        f'<div class="ace-folder-preview-exclusion-list">{exclusion_rows}</div>'
+        "</details></div>"
+    )
+
+
+def _folder_repreview_required_fragment(reason: str) -> str:
+    """Render a non-successful confirmation outcome that requires a new preview."""
+    return (
+        '<div class="ace-folder-repreview" data-repreview-required="true" role="alert">'
+        '<span class="ace-wizard-crumb">Folder import</span>'
+        '<h1 class="ace-wizard-title" tabindex="-1">Preview the folder again</h1>'
+        f'<p>{html.escape(reason)} The files were not imported.</p>'
+        '<button class="ace-btn ace-btn--primary" type="button" '
+        "onclick=\"showStep('step-choose')\">Choose folder again</button>"
         "</div>"
-        f'<button class="ace-folder-import-refresh" type="button"'
-        f' hx-get="/api/import/preview?folder={escaped_folder}"'
-        f' hx-target="#import-preview" hx-swap="outerHTML"'
-        f' title="Preview another file"'
-        f' aria-label="Preview another file">&#x21BB;</button>'
-        "</div>"
-        f'<div class="ace-folder-import-files">{buttons}</div>'
-        f'<div class="ace-folder-import-more">{html.escape(more_label)}</div>'
-        f"{dup_html}"
-        "</aside>"
-        f"{_folder_preview_panel(first)}"
+    )
+
+
+def _folder_import_completed_fragment(result, folder_name: str) -> str:
+    """Render the successful, completed state for a confirmed folder manifest."""
+    source_unit = "source" if result.created == 1 else "sources"
+    skipped = _skipped_html(result.duplicate_skipped, "source")
+    empty_skipped = _empty_skipped_html(result.empty_skipped, "source")
+    return (
+        '<div class="ace-folder-import-complete">'
+        '<span class="ace-wizard-crumb">Folder import</span>'
+        '<h1 class="ace-wizard-title" tabindex="-1">Import complete</h1>'
+        f'<p class="ace-folder-import-complete-summary">Added {result.created} {source_unit} '
+        f'to your project from <span>{html.escape(folder_name)}</span>.</p>'
+        f"{skipped}{empty_skipped}{_import_done_actions(include_back=True)}"
         "</div>"
     )
 
