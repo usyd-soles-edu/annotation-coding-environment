@@ -21,16 +21,7 @@ website/.quarto/
 .worktrees/
 /desktop/launcher/target/
 /desktop/launcher/resources/
-# Playwright (kept local, never committed)
-/test-results/
-/playwright-report/
-/blob-report/
-/playwright/.cache/
-/playwright/.auth/
-/e2e/
-/playwright.config.ts
-/package.json
-/package-lock.json
+# Playwright MCP (manual browser verification; kept local, never committed)
 /.playwright-mcp/
 
 # Local debugging screenshots
