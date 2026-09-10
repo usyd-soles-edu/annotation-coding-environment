@@ -308,6 +308,18 @@ class FolderImportRepreviewRequired:
     detail: str
 
 
+class _RevalidationFailed(Exception):
+    """Internal signal: one saved ready entry failed confirmation revalidation.
+
+    ``detail`` is a short, path-free reason carried into the
+    ``FolderImportRepreviewRequired`` result.
+    """
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(detail)
+        self.detail = detail
+
+
 def count_folder_import_categories(
     entries: Iterable[FolderImportEntry],
 ) -> dict[str, int]:
@@ -363,9 +375,11 @@ def _read_folder_file_bytes(path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _fingerprint_bytes(path: Path, data: bytes) -> FolderImportFingerprint:
-    """Fingerprint raw content bytes plus immutable identity metadata."""
-    stat_result = path.lstat()
+def _fingerprint_from_stat(
+    data: bytes,
+    stat_result: os.stat_result,
+) -> FolderImportFingerprint:
+    """Fingerprint content bytes plus identity metadata already captured."""
     return FolderImportFingerprint(
         content_sha256=hashlib.sha256(data).hexdigest(),
         size=stat_result.st_size,
@@ -373,6 +387,11 @@ def _fingerprint_bytes(path: Path, data: bytes) -> FolderImportFingerprint:
         device=stat_result.st_dev,
         inode=stat_result.st_ino,
     )
+
+
+def _fingerprint_bytes(path: Path, data: bytes) -> FolderImportFingerprint:
+    """Fingerprint raw content bytes plus immutable identity metadata."""
+    return _fingerprint_from_stat(data, path.lstat())
 
 
 def _unreadable_detail(exc: Exception) -> str:
@@ -494,6 +513,12 @@ def confirm_folder_import(
     ``BEGIN IMMEDIATE`` batch in ``_insert_candidates``, which keeps duplicate
     detection inside the transaction and rolls back on every exception.
 
+    Each ready path has its current filesystem type and identity checked
+    before any content read, so a path replaced by a FIFO (or any
+    non-regular file) is refused without opening a blocking read; the read
+    descriptor itself is opened ``O_NONBLOCK`` and fstat-verified so a
+    replacement racing the validation cannot hang or misattribute content.
+
     Confirmed accounting preserves the reviewed manifest: manifest-level
     duplicate and empty counts are carried into the result, and any label
     claimed by another source between preview and commit is still skipped
@@ -509,13 +534,19 @@ def confirm_folder_import(
             )
         path = Path(manifest.folder) / entry.relative_path
         try:
-            data = _read_folder_file_bytes(path)
+            data, fingerprint = _read_validated_ready_bytes(
+                path, entry.fingerprint
+            )
             text = data.decode("utf-8")
-            fingerprint = _fingerprint_bytes(path, data)
         except FileNotFoundError:
             return FolderImportRepreviewRequired(
                 relative_path=entry.relative_path,
                 detail="file is missing",
+            )
+        except _RevalidationFailed as exc:
+            return FolderImportRepreviewRequired(
+                relative_path=entry.relative_path,
+                detail=exc.detail,
             )
         except (OSError, UnicodeDecodeError) as exc:
             return FolderImportRepreviewRequired(
@@ -550,6 +581,68 @@ def confirm_folder_import(
         empty_skipped=result.empty_skipped,
         created_ids=result.created_ids,
     )
+
+
+_READY_READ_CHUNK = 1 << 20
+
+
+def _read_validated_ready_bytes(
+    path: Path,
+    saved_fingerprint: FolderImportFingerprint,
+) -> tuple[bytes, FolderImportFingerprint]:
+    """Fresh-read one saved ready path without ever blocking on a replacement.
+
+    Validates the path's current filesystem type and identity *before* any
+    content read: a missing file raises ``FileNotFoundError``, and anything
+    that is not a regular file — or whose device, inode, size, or mtime no
+    longer matches ``saved_fingerprint`` — raises ``_RevalidationFailed``.
+    The read descriptor is opened ``O_NONBLOCK``, so a path swapped to a FIFO
+    after that validation cannot block the caller, and the opened descriptor
+    is fstat-verified against the pre-open identity, so the returned
+    fingerprint always describes the bytes actually read.
+    """
+    stat_result = path.lstat()
+    if not stat.S_ISREG(stat_result.st_mode):
+        raise _RevalidationFailed("file is not a regular file")
+    if (
+        stat_result.st_dev,
+        stat_result.st_ino,
+        stat_result.st_size,
+        stat_result.st_mtime_ns,
+    ) != (
+        saved_fingerprint.device,
+        saved_fingerprint.inode,
+        saved_fingerprint.size,
+        saved_fingerprint.mtime_ns,
+    ):
+        raise _RevalidationFailed("file changed since preview")
+
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_CLOEXEC", 0)
+    try:
+        fd = os.open(path, flags)
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise _RevalidationFailed(_unreadable_detail(exc)) from exc
+    try:
+        opened = os.fstat(fd)
+        if not stat.S_ISREG(opened.st_mode) or (
+            opened.st_dev,
+            opened.st_ino,
+        ) != (stat_result.st_dev, stat_result.st_ino):
+            raise _RevalidationFailed("file changed since preview")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, _READY_READ_CHUNK)
+            if not chunk:
+                break
+            chunks.append(chunk)
+    except OSError as exc:
+        raise _RevalidationFailed(_unreadable_detail(exc)) from exc
+    finally:
+        os.close(fd)
+    data = b"".join(chunks)
+    return data, _fingerprint_from_stat(data, opened)
 
 
 def _is_blank_value(value: object) -> bool:

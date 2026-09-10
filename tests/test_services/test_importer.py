@@ -1178,10 +1178,12 @@ def test_folder_import_confirm_requires_repreview_when_fresh_read_fails(
         preview = preview_folder_import(conn, folder)
         assert preview.counts["supported-ready"] == 2
 
-        def broken_reader(path):
+        def broken_reader(path, saved_fingerprint):
             raise OSError(13, "Permission denied")
 
-        monkeypatch.setattr(importer, "_read_folder_file_bytes", broken_reader)
+        monkeypatch.setattr(
+            importer, "_read_validated_ready_bytes", broken_reader
+        )
         insert_calls = _spy_on_insert_candidates(monkeypatch)
 
         result = confirm_folder_import(conn, preview.manifest)
@@ -1189,6 +1191,60 @@ def test_folder_import_confirm_requires_repreview_when_fresh_read_fails(
         assert isinstance(result, FolderImportRepreviewRequired)
         assert result.relative_path == "alpha.txt"
         assert result.detail == "file could not be read (PermissionError)"
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+        assert insert_calls == []
+    finally:
+        conn.close()
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "mkfifo"),
+    reason="POSIX FIFOs unavailable on this platform",
+)
+def test_folder_import_confirm_requires_repreview_when_ready_file_replaced_by_fifo(
+    tmp_path, monkeypatch
+):
+    """A ready path swapped to a FIFO aborts promptly, unread and uninserted.
+
+    Regression: confirmation must validate the path's file type before any
+    content read — opening a FIFO replacement for a blocking read would hang
+    forever with no writer. A live timeout guard fails instead of hanging if
+    the implementation ever blocks.
+    """
+    folder = _build_confirm_tree(tmp_path)
+    conn = create_project(tmp_path / "fifo.ace", "test")
+
+    try:
+        preview = preview_folder_import(conn, folder)
+        assert preview.counts["supported-ready"] == 2
+
+        victim = folder / "alpha.txt"
+        victim.unlink()
+        os.mkfifo(victim)
+        insert_calls = _spy_on_insert_candidates(monkeypatch)
+
+        outcome: dict = {}
+
+        def _confirm():
+            try:
+                outcome["result"] = confirm_folder_import(conn, preview.manifest)
+            except BaseException as exc:  # surfaced on the main thread below
+                outcome["error"] = exc
+
+        reader = threading.Thread(target=_confirm, daemon=True, name="confirm-fifo")
+        reader.start()
+        reader.join(timeout=10)
+        if reader.is_alive():
+            pytest.fail(
+                "confirm_folder_import blocked on a FIFO replacement; it must "
+                "validate the file type before any content read"
+            )
+
+        result = outcome.get("result", outcome.get("error"))
+        assert isinstance(result, FolderImportRepreviewRequired)
+        assert result.relative_path == "alpha.txt"
+        assert result.detail == "file is not a regular file"
         assert list_sources(conn) == []
         assert not conn.in_transaction
         assert insert_calls == []
