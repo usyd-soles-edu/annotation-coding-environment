@@ -619,6 +619,45 @@ async def import_remove_last(request: Request):
         return _oob_status("Could not remove the last import.", "err")
 
 
+@router.get("/import/folder/preview-file")
+async def import_folder_preview_file(
+    request: Request,
+    manifest_token: str = Query(default=""),
+    path: str = Query(default=""),
+) -> JSONResponse:
+    """Return bounded JSON preview content for one ready file in a folder manifest.
+
+    Uses ``peek`` (not ``take``) so the manifest remains available for the
+    confirm step.  Only paths that are exactly a ready entry's ``relative_path``
+    are served; any other path — including unknown or expired tokens — returns
+    a 404 JSON response so the caller can show a re-preview prompt.
+    """
+    from ace.routes.api_support import _folder_preview_content
+
+    manifest_store = getattr(request.app.state, "folder_import_manifests", None)
+    manifest = None
+    if manifest_store is not None and manifest_token:
+        manifest = manifest_store.peek(manifest_token)
+
+    if manifest is None:
+        return JSONResponse(
+            {"error": "Preview not available. Please choose the folder again."},
+            status_code=404,
+        )
+
+    # Only serve paths that appear in ready entries; refuse everything else.
+    ready_map = {entry.relative_path: entry for entry in manifest.ready_entries}
+    entry = ready_map.get(path)
+    if entry is None:
+        return JSONResponse(
+            {"error": "File not available for preview."},
+            status_code=404,
+        )
+
+    content, truncated = _folder_preview_content(entry.content_text)
+    return JSONResponse({"content": content, "truncated": truncated})
+
+
 @router.get("/import/preview")
 async def import_preview(request: Request, folder: str = Query(...)):
     """Return the reviewed Workspace for a directly requested folder preview."""

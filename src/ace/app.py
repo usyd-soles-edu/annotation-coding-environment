@@ -182,6 +182,22 @@ class FolderImportManifestStore:
             del self._records[oldest]
         self._records[token] = (manifest, time.monotonic() + self.ttl_seconds)
 
+    def peek(self, token: str) -> "FolderImportManifest | None":
+        """Return the live manifest for ``token`` without consuming it.
+
+        Like ``take`` it checks expiry, so an expired token returns None.
+        Unlike ``take`` it leaves the record in place so ``take`` still works
+        for the confirm step after any number of peek calls.
+        """
+        record = self._records.get(token)
+        if record is None:
+            return None
+        manifest, expires_at = record
+        if time.monotonic() >= expires_at:
+            del self._records[token]
+            return None
+        return manifest
+
     def take(self, token: str) -> "FolderImportManifest | None":
         """Pop the live manifest for ``token``; None when unknown or expired.
 

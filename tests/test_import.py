@@ -864,7 +864,7 @@ def test_import_folder_confirm_sets_last_import_and_retains_duplicate_accounting
 
     assert resp.status_code == 200
     assert "1 source" in resp.text
-    assert "Skipped 1 source already present in this project." in resp.text
+    assert "Skipped 1 source with a label already in use in this project." in resp.text
     assert _source_display_ids(project_path) == ["dup", "one"]
     assert app.state.last_import_source_ids == [
         _source_ids_by_label(project_path)["one"]
@@ -1130,3 +1130,263 @@ def test_import_remove_last_with_no_stored_ids(client_with_project):
     resp = client.post("/api/import/remove-last")
     assert resp.status_code == 200
     assert "No import to remove." in resp.text
+
+
+# -------------------------------------------------------------------------
+# PR #123 review findings
+# -------------------------------------------------------------------------
+
+
+# Finding (1): File-type label — _folder_file_kind_label
+# -------------------------------------------------------------------------
+
+def test_folder_file_kind_label_markdown_extensions():
+    """_folder_file_kind_label returns 'Markdown file' for .md and .markdown."""
+    from ace.routes.api_support import _folder_file_kind_label
+
+    assert _folder_file_kind_label("readme.md") == "Markdown file"
+    assert _folder_file_kind_label("notes.markdown") == "Markdown file"
+    assert _folder_file_kind_label("nested/doc.MD") == "Markdown file"
+    assert _folder_file_kind_label("nested/doc.MARKDOWN") == "Markdown file"
+
+
+def test_folder_file_kind_label_text_files():
+    """_folder_file_kind_label returns 'Text file' for .txt and any other extension."""
+    from ace.routes.api_support import _folder_file_kind_label
+
+    assert _folder_file_kind_label("doc.txt") == "Text file"
+    assert _folder_file_kind_label("doc.TXT") == "Text file"
+    assert _folder_file_kind_label("doc.csv") == "Text file"
+    assert _folder_file_kind_label("no_extension") == "Text file"
+
+
+def test_folder_preview_row_meta_uses_file_kind_label_for_md(client_with_project):
+    """Row small-text and canvas meta show 'Markdown file' for .md entries."""
+    client, tmp_path = client_with_project
+    folder = tmp_path / "mixed-kinds"
+    folder.mkdir()
+    (folder / "readme.md").write_text("Markdown content", encoding="utf-8")
+    (folder / "prose.txt").write_text("Plain text content", encoding="utf-8")
+
+    resp = client.post("/api/import/folder", data={"path": str(folder)})
+
+    assert resp.status_code == 200
+    # The .md file should show 'Markdown file' on both surfaces
+    assert "Markdown file" in resp.text
+    # The .txt file should show 'Text file' on the initial canvas (it's selected first
+    # or the md file canvas meta shows Markdown file)
+    assert "Text file" in resp.text
+
+
+def test_folder_preview_initial_canvas_meta_reflects_file_kind(client_with_project):
+    """First selected file canvas meta string includes the correct file-type label."""
+    client, tmp_path = client_with_project
+    folder = tmp_path / "md-only"
+    folder.mkdir()
+    (folder / "alpha.md").write_text("Markdown document", encoding="utf-8")
+
+    resp = client.post("/api/import/folder", data={"path": str(folder)})
+
+    assert resp.status_code == 200
+    # Canvas meta for initial selection must contain 'Markdown file'
+    assert "Markdown file" in resp.text
+    assert "Text file" not in resp.text
+
+
+# Finding (2): Lazy bounded preview — no inline content on rows; GET endpoint
+# -------------------------------------------------------------------------
+
+def test_folder_preview_rows_have_no_inline_content_attribute(client_with_project):
+    """Row buttons must not carry data-folder-preview-content or -truncated."""
+    client, tmp_path = client_with_project
+    folder = tmp_path / "lazy-preview"
+    folder.mkdir()
+    (folder / "short.txt").write_text("Short content", encoding="utf-8")
+    (folder / "long.txt").write_text("x" * 9_000, encoding="utf-8")
+
+    resp = client.post("/api/import/folder", data={"path": str(folder)})
+
+    assert resp.status_code == 200
+    assert "data-folder-preview-content" not in resp.text
+    assert "data-folder-preview-truncated" not in resp.text
+
+
+def test_preview_file_route_returns_bounded_content(client_with_project):
+    """GET /api/import/folder/preview-file returns {content, truncated} for ready path."""
+    client, tmp_path = client_with_project
+    folder = tmp_path / "lazy-fetch"
+    folder.mkdir()
+    long_text = "y" * 9_000
+    (folder / "big.txt").write_text(long_text, encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    resp = client.get(
+        "/api/import/folder/preview-file",
+        params={"manifest_token": token, "path": "big.txt"},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "content" in data
+    assert "truncated" in data
+    assert data["truncated"] is True
+    assert len(data["content"]) <= 8_000
+
+
+def test_preview_file_route_short_file_not_truncated(client_with_project):
+    """GET /api/import/folder/preview-file: short file has truncated=False."""
+    client, tmp_path = client_with_project
+    folder = tmp_path / "lazy-short"
+    folder.mkdir()
+    (folder / "small.txt").write_text("Hello world", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    resp = client.get(
+        "/api/import/folder/preview-file",
+        params={"manifest_token": token, "path": "small.txt"},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["content"] == "Hello world"
+    assert data["truncated"] is False
+
+
+def test_preview_file_route_unknown_token_refused(client_with_project):
+    """GET /api/import/folder/preview-file: unknown token → 404 JSON."""
+    client, _ = client_with_project
+
+    resp = client.get(
+        "/api/import/folder/preview-file",
+        params={"manifest_token": "bogus-token", "path": "any.txt"},
+    )
+
+    assert resp.status_code == 404
+    assert resp.headers.get("content-type", "").startswith("application/json")
+
+
+def test_preview_file_route_expired_token_refused(client_with_project):
+    """GET /api/import/folder/preview-file: expired token → 404 JSON."""
+    client, tmp_path = client_with_project
+    client.app.state.folder_import_manifests.ttl_seconds = 0.0
+
+    folder = tmp_path / "expired-lazy"
+    folder.mkdir()
+    (folder / "doc.txt").write_text("Content", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    resp = client.get(
+        "/api/import/folder/preview-file",
+        params={"manifest_token": token, "path": "doc.txt"},
+    )
+
+    assert resp.status_code == 404
+
+
+def test_preview_file_route_non_ready_path_refused(client_with_project):
+    """GET /api/import/folder/preview-file: path not in ready entries → 404."""
+    client, tmp_path = client_with_project
+    folder = tmp_path / "non-ready"
+    folder.mkdir()
+    (folder / "ok.txt").write_text("Good content", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    resp = client.get(
+        "/api/import/folder/preview-file",
+        params={"manifest_token": token, "path": "nonexistent.txt"},
+    )
+
+    assert resp.status_code == 404
+
+
+def test_peek_does_not_consume_token_confirm_still_works(client_with_project):
+    """Several peek calls do not consume the token; confirm still imports once."""
+    client, tmp_path = client_with_project
+    folder = tmp_path / "peek-test"
+    folder.mkdir()
+    (folder / "doc.txt").write_text("Document content", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    # Several peek calls via the preview-file route
+    for _ in range(3):
+        peek = client.get(
+            "/api/import/folder/preview-file",
+            params={"manifest_token": token, "path": "doc.txt"},
+        )
+        assert peek.status_code == 200
+
+    # Token is still live; confirm should import successfully
+    confirm = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+    assert "Import complete" in confirm.text
+    assert _source_display_ids(tmp_path / "test.ace") == ["doc"]
+
+    # Token now consumed; second confirm fails
+    second = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+    assert 'data-repreview-required="true"' in second.text
+
+
+# Finding (3)+(4): Duplicate wording
+# -------------------------------------------------------------------------
+
+def test_folder_preview_status_label_duplicate_is_label_already_in_use(
+    client_with_project,
+):
+    """Duplicate category shows 'Label already in use' in the exclusions panel."""
+    client, tmp_path = client_with_project
+    project_path = tmp_path / "test.ace"
+
+    conn = open_project(project_path)
+    try:
+        add_source(conn, display_id="dup", content_text="Existing", source_type="file")
+    finally:
+        conn.close()
+
+    folder = tmp_path / "dup-check"
+    folder.mkdir()
+    (folder / "dup.txt").write_text("Duplicate label text", encoding="utf-8")
+    (folder / "ok.txt").write_text("New file text", encoding="utf-8")
+
+    resp = client.post("/api/import/folder", data={"path": str(folder)})
+
+    assert resp.status_code == 200
+    assert "Label already in use" in resp.text
+    assert "Already in this project" not in resp.text
+
+
+def test_folder_import_completed_uses_label_already_in_use_phrasing(
+    client_with_project,
+):
+    """Confirmed folder import skipped-duplicate notice says 'label already in use'."""
+    client, tmp_path = client_with_project
+    project_path = tmp_path / "test.ace"
+
+    conn = open_project(project_path)
+    try:
+        add_source(conn, display_id="dup", content_text="Existing", source_type="file")
+    finally:
+        conn.close()
+
+    folder = tmp_path / "dup-confirm"
+    folder.mkdir()
+    (folder / "dup.txt").write_text("Duplicate label text", encoding="utf-8")
+    (folder / "new.txt").write_text("New file text", encoding="utf-8")
+
+    preview = client.post("/api/import/folder", data={"path": str(folder)})
+    token = _extract_manifest_token(preview.text)
+
+    resp = client.post("/api/import/folder/confirm", data={"manifest_token": token})
+
+    assert resp.status_code == 200
+    # The skipped-duplicate notice must use 'label already in use' phrasing
+    assert "label already in use" in resp.text.lower()
+    assert "already present in this project" not in resp.text

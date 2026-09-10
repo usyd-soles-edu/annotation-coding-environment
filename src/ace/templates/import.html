@@ -86,13 +86,50 @@
     return !!(xhr && xhr.status >= 200 && xhr.status < 300);
   }
 
-  function folderPreviewTextForRow(row) {
-    try {
-      return JSON.parse(row.dataset.folderPreviewContent || "\"\"");
-    } catch (_) {
-      return "";
-    }
+  function folderPreviewFetchContent(workspace, row, title, meta, text, truncated) {
+    var tokenInput = workspace.querySelector("[data-folder-preview-token]");
+    var token = tokenInput ? tokenInput.value : "";
+    var path = row.dataset.folderPreviewPath || "";
+    if (!token || !path) return;
+    var url = "/api/import/folder/preview-file?" + new URLSearchParams({
+      manifest_token: token,
+      path: path
+    }).toString();
+    fetch(url)
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        if (text) text.textContent = data.content || "";
+        if (truncated) truncated.hidden = !data.truncated;
+      })
+      .catch(function() {
+        if (text) text.textContent = "";
+        if (truncated) truncated.hidden = true;
+      });
   }
+
+  document.addEventListener("click", function(evt) {
+    var row = evt.target.closest("[data-folder-preview-row]");
+    if (!row) return;
+    var workspace = row.closest("[data-folder-import-preview]");
+    if (!workspace) return;
+    workspace.querySelectorAll("[data-folder-preview-row]").forEach(function(other) {
+      other.classList.remove("is-selected");
+      other.removeAttribute("aria-current");
+    });
+    row.classList.add("is-selected");
+    row.setAttribute("aria-current", "true");
+    var title = workspace.querySelector("[data-folder-preview-canvas-title]");
+    var meta = workspace.querySelector("[data-folder-preview-canvas-meta]");
+    var text = workspace.querySelector("[data-folder-preview-canvas-text]");
+    var truncated = workspace.querySelector("[data-folder-preview-canvas-truncated]");
+    if (title) title.textContent = row.dataset.folderPreviewName || "";
+    if (meta) meta.textContent = row.dataset.folderPreviewMeta || "";
+    if (text) text.textContent = "";
+    if (truncated) truncated.hidden = true;
+    var reading = workspace.querySelector(".ace-folder-preview-reading");
+    if (reading) reading.scrollTop = 0;
+    folderPreviewFetchContent(workspace, row, title, meta, text, truncated);
+  });
 
   window.showStep = function(id) {
     document.querySelectorAll(".ace-wizard-step").forEach(function(el) {
@@ -217,29 +254,6 @@
         setImportMessage(pickerErrorMessage(error, "Could not open the file picker."), "err");
       });
   };
-
-  document.addEventListener("click", function(evt) {
-    var row = evt.target.closest("[data-folder-preview-row]");
-    if (!row) return;
-    var workspace = row.closest("[data-folder-import-preview]");
-    if (!workspace) return;
-    workspace.querySelectorAll("[data-folder-preview-row]").forEach(function(other) {
-      other.classList.remove("is-selected");
-      other.removeAttribute("aria-current");
-    });
-    row.classList.add("is-selected");
-    row.setAttribute("aria-current", "true");
-    var title = workspace.querySelector("[data-folder-preview-canvas-title]");
-    var meta = workspace.querySelector("[data-folder-preview-canvas-meta]");
-    var text = workspace.querySelector("[data-folder-preview-canvas-text]");
-    var truncated = workspace.querySelector("[data-folder-preview-canvas-truncated]");
-    if (title) title.textContent = row.dataset.folderPreviewName || "";
-    if (meta) meta.textContent = row.dataset.folderPreviewMeta || "";
-    if (text) text.textContent = folderPreviewTextForRow(row);
-    if (truncated) truncated.hidden = row.dataset.folderPreviewTruncated !== "true";
-    var reading = workspace.querySelector(".ace-folder-preview-reading");
-    if (reading) reading.scrollTop = 0;
-  });
 
   document.addEventListener("htmx:afterRequest", function(evt) {
     var form = evt.detail.elt;

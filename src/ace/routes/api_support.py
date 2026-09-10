@@ -213,6 +213,14 @@ def _import_result_fragment(
     )
 
 
+def _folder_file_kind_label(relative_path: str) -> str:
+    """Return 'Markdown file' for .md/.markdown paths, else 'Text file'."""
+    suffix = Path(relative_path).suffix.lower()
+    if suffix in {".md", ".markdown"}:
+        return "Markdown file"
+    return "Text file"
+
+
 def _folder_preview_status_labels() -> dict[str, str]:
     """Return the visible category labels for a reviewed folder manifest."""
     from ace.services.importer import (
@@ -228,7 +236,7 @@ def _folder_preview_status_labels() -> dict[str, str]:
         FOLDER_CATEGORY_UNSUPPORTED: "Not a text or Markdown file",
         FOLDER_CATEGORY_UNREADABLE: "Could not be read",
         FOLDER_CATEGORY_EMPTY: "No text in this file",
-        FOLDER_CATEGORY_DUPLICATE: "Already in this project",
+        FOLDER_CATEGORY_DUPLICATE: "Label already in use",
     }
 
 
@@ -290,23 +298,23 @@ def _folder_import_preview_workspace_fragment(
         selected_content, selected_truncated = _folder_preview_content(selected.content_text)
         ready_rows = []
         for index, entry in enumerate(ready_entries):
-            content, truncated = _folder_preview_content(entry.content_text)
+            kind_label = _folder_file_kind_label(entry.relative_path)
             selected_class = " is-selected" if index == 0 else ""
             current = ' aria-current="true"' if index == 0 else ""
             ready_rows.append(
                 f'<button class="ace-folder-preview-row{selected_class}" type="button" '
                 'data-folder-preview-row '
                 f'data-folder-preview-name="{html.escape(entry.relative_path, quote=True)}" '
-                f'data-folder-preview-meta="{html.escape(entry.relative_path + " · Text file", quote=True)}" '
-                f'data-folder-preview-content="{html.escape(json.dumps(content), quote=True)}" '
-                f'data-folder-preview-truncated="{"true" if truncated else "false"}"{current}>'
+                f'data-folder-preview-meta="{html.escape(entry.relative_path + " · " + kind_label, quote=True)}" '
+                f'data-folder-preview-path="{html.escape(entry.relative_path, quote=True)}"{current}>'
                 f'<b>{html.escape(Path(entry.relative_path).name)}</b>'
                 f'<small>{html.escape(entry.relative_path)} · {html.escape(labels[entry.category])}</small>'
                 "</button>"
             )
         rows_html = "".join(ready_rows)
         source_header = html.escape(selected.relative_path)
-        source_meta = html.escape(f"{selected.relative_path} · Text file")
+        selected_kind_label = _folder_file_kind_label(selected.relative_path)
+        source_meta = html.escape(f"{selected.relative_path} · {selected_kind_label}")
         canvas_text = html.escape(selected_content)
         truncated_html = (
             '<p class="ace-folder-preview-truncated" data-folder-preview-canvas-truncated>'
@@ -319,6 +327,8 @@ def _folder_import_preview_workspace_fragment(
             '<form class="ace-folder-preview-confirm" data-folder-preview-confirm '
             'hx-post="/api/import/folder/confirm" hx-target="#step-done" hx-swap="innerHTML">'
             '<input type="hidden" name="manifest_token" '
+            f'value="{html.escape(manifest_token, quote=True)}">'
+            '<input type="hidden" data-folder-preview-token '
             f'value="{html.escape(manifest_token, quote=True)}">'
             '<button type="submit" class="ace-btn ace-btn--primary">Confirm import</button>'
             "</form>"
@@ -391,10 +401,25 @@ def _folder_repreview_required_fragment(reason: str) -> str:
     )
 
 
+def _folder_duplicate_skipped_html(n: int) -> str:
+    """Render the folder-import 'skipped label already in use' notice.
+
+    Uses 'label already in use' phrasing rather than the generic 'already
+    present in this project' so the wording matches the preview exclusion label.
+    """
+    if not n:
+        return ""
+    plural = "" if n == 1 else "s"
+    return (
+        f'<p class="ace-import-result-skipped">Skipped {n} {"source" if n == 1 else "sources"} '
+        f"with a label already in use in this project.</p>"
+    )
+
+
 def _folder_import_completed_fragment(result, folder_name: str) -> str:
     """Render the successful, completed state for a confirmed folder manifest."""
     source_unit = "source" if result.created == 1 else "sources"
-    skipped = _skipped_html(result.duplicate_skipped, "source")
+    skipped = _folder_duplicate_skipped_html(result.duplicate_skipped)
     empty_skipped = _empty_skipped_html(result.empty_skipped, "source")
     return (
         '<div class="ace-folder-import-complete">'
