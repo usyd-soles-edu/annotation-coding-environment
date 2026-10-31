@@ -380,8 +380,6 @@ def create_app() -> FastAPI:
 
     # Templates
     app.state.templates = Jinja2Blocks(directory=str(_PKG_DIR / "templates"))
-    from markupsafe import Markup
-    app.state.templates.env.filters["tojson"] = lambda v: Markup(json.dumps(v))
 
     # Routes
     from ace.routes.api import router as api_router
