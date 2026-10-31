@@ -1,4 +1,4 @@
-"""Tests for AgreementComputer."""
+""""Tests for AgreementComputer."""
 
 import pytest
 
@@ -17,7 +17,7 @@ def _make_dataset(annotations: list[MatchedAnnotation], n_coders=2) -> Agreement
     coders = [CoderInfo(id=f"c{i}", label=f"Coder {i}", source_file=f"f{i}.ace") for i in range(n_coders)]
     return AgreementDataset(
         sources=[MatchedSource(
-            content_hash="hash1",
+            source_key="hash1",
             display_id="S001",
             content_text="I enjoyed the group work but lectures were too fast",
         )],
@@ -44,7 +44,7 @@ def _make_dataset_from_parts(
 
 
 def test_sparse_compute_preserves_current_coded_position_rule():
-    sources = [MatchedSource(content_hash="h1", display_id="S1", content_text="x" * 12)]
+    sources = [MatchedSource(source_key="h1", display_id="S1", content_text="x" * 12)]
     coders = [
         CoderInfo(id="c1", label="C1", source_file="a.ace"),
         CoderInfo(id="c2", label="C2", source_file="b.ace"),
@@ -54,9 +54,9 @@ def test_sparse_compute_preserves_current_coded_position_rule():
         MatchedCode(name="B", present_in={"c1", "c2"}),
     ]
     annotations = [
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A", start_offset=0, end_offset=5),
-        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="A", start_offset=2, end_offset=7),
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="B", start_offset=8, end_offset=10),
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="A", start_offset=0, end_offset=5),
+        MatchedAnnotation(source_key="h1", coder_id="c2", code_name="A", start_offset=2, end_offset=7),
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="B", start_offset=8, end_offset=10),
     ]
 
     dataset = _make_dataset_from_parts(sources, coders, codes, annotations)
@@ -64,21 +64,21 @@ def test_sparse_compute_preserves_current_coded_position_rule():
 
     assert result.per_code["A"].n_positions == 9
     assert result.per_code["B"].n_positions == 9
-    assert result.per_source["S1"].n_positions == 18
+    assert result.per_source["h1"].n_positions == 18
     assert result.overall.n_positions == 18
 
 
 def test_sparse_compute_treats_overlapping_same_coder_annotations_as_binary():
-    sources = [MatchedSource(content_hash="h1", display_id="S1", content_text="x" * 10)]
+    sources = [MatchedSource(source_key="h1", display_id="S1", content_text="x" * 10)]
     coders = [
         CoderInfo(id="c1", label="C1", source_file="a.ace"),
         CoderInfo(id="c2", label="C2", source_file="b.ace"),
     ]
     codes = [MatchedCode(name="A", present_in={"c1", "c2"})]
     annotations = [
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A", start_offset=0, end_offset=6),
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A", start_offset=3, end_offset=9),
-        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="A", start_offset=0, end_offset=9),
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="A", start_offset=0, end_offset=6),
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="A", start_offset=3, end_offset=9),
+        MatchedAnnotation(source_key="h1", coder_id="c2", code_name="A", start_offset=0, end_offset=9),
     ]
 
     dataset = _make_dataset_from_parts(sources, coders, codes, annotations)
@@ -89,15 +89,15 @@ def test_sparse_compute_treats_overlapping_same_coder_annotations_as_binary():
 
 
 def test_sparse_compute_clips_annotations_at_source_length():
-    sources = [MatchedSource(content_hash="h1", display_id="S1", content_text="x" * 5)]
+    sources = [MatchedSource(source_key="h1", display_id="S1", content_text="x" * 5)]
     coders = [
         CoderInfo(id="c1", label="C1", source_file="a.ace"),
         CoderInfo(id="c2", label="C2", source_file="b.ace"),
     ]
     codes = [MatchedCode(name="A", present_in={"c1", "c2"})]
     annotations = [
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A", start_offset=2, end_offset=99),
-        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="A", start_offset=2, end_offset=5),
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="A", start_offset=2, end_offset=99),
+        MatchedAnnotation(source_key="h1", coder_id="c2", code_name="A", start_offset=2, end_offset=5),
     ]
 
     dataset = _make_dataset_from_parts(sources, coders, codes, annotations)
@@ -110,8 +110,8 @@ def test_sparse_compute_clips_annotations_at_source_length():
 def test_perfect_agreement():
     """Both coders annotate the exact same span."""
     anns = [
-        MatchedAnnotation(source_hash="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=28),
-        MatchedAnnotation(source_hash="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=28),
+        MatchedAnnotation(source_key="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=28),
+        MatchedAnnotation(source_key="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=28),
     ]
     ds = _make_dataset(anns)
     result = compute_agreement(ds)
@@ -127,8 +127,8 @@ def test_perfect_agreement():
 def test_no_agreement():
     """Coders annotate completely different spans with the same code."""
     anns = [
-        MatchedAnnotation(source_hash="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=10),
-        MatchedAnnotation(source_hash="hash1", coder_id="c1", code_name="Positive", start_offset=30, end_offset=40),
+        MatchedAnnotation(source_key="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=10),
+        MatchedAnnotation(source_key="hash1", coder_id="c1", code_name="Positive", start_offset=30, end_offset=40),
     ]
     ds = _make_dataset(anns)
     result = compute_agreement(ds)
@@ -149,8 +149,8 @@ def test_empty_annotations():
 def test_krippendorff_alpha_computed():
     """Verify Krippendorff's alpha is computed."""
     anns = [
-        MatchedAnnotation(source_hash="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=28),
-        MatchedAnnotation(source_hash="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=28),
+        MatchedAnnotation(source_key="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=28),
+        MatchedAnnotation(source_key="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=28),
     ]
     ds = _make_dataset(anns)
     result = compute_agreement(ds)
@@ -160,8 +160,8 @@ def test_krippendorff_alpha_computed():
 def test_irrcac_metrics_computed():
     """Verify irrCAC metrics are computed for 2+ coders."""
     anns = [
-        MatchedAnnotation(source_hash="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=28),
-        MatchedAnnotation(source_hash="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=28),
+        MatchedAnnotation(source_key="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=28),
+        MatchedAnnotation(source_key="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=28),
     ]
     ds = _make_dataset(anns)
     result = compute_agreement(ds)
@@ -173,20 +173,20 @@ def test_irrcac_metrics_computed():
 def test_per_source_metrics():
     """Verify per-source metrics are computed."""
     anns = [
-        MatchedAnnotation(source_hash="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=10),
-        MatchedAnnotation(source_hash="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=10),
+        MatchedAnnotation(source_key="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=10),
+        MatchedAnnotation(source_key="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=10),
     ]
     ds = _make_dataset(anns)
     result = compute_agreement(ds)
-    assert "S001" in result.per_source
-    assert result.per_source["S001"].percent_agreement > 0.9
+    assert "hash1" in result.per_source
+    assert result.per_source["hash1"].percent_agreement > 0.9
 
 
 def test_pairwise_alpha():
     """Verify pairwise returns CodeMetrics with krippendorffs_alpha."""
     anns = [
-        MatchedAnnotation(source_hash="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=28),
-        MatchedAnnotation(source_hash="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=28),
+        MatchedAnnotation(source_key="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=28),
+        MatchedAnnotation(source_key="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=28),
     ]
     ds = _make_dataset(anns)
     result = compute_agreement(ds)
@@ -199,7 +199,7 @@ def test_multi_code_dataset():
     """Two codes, partial agreement."""
     ds = AgreementDataset(
         sources=[MatchedSource(
-            content_hash="hash1",
+            source_key="hash1",
             display_id="S001",
             content_text="I enjoyed the group work but lectures were too fast",
         )],
@@ -213,13 +213,37 @@ def test_multi_code_dataset():
         ],
         annotations=[
             # Both agree on Positive span
-            MatchedAnnotation(source_hash="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=28),
-            MatchedAnnotation(source_hash="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=28),
+            MatchedAnnotation(source_key="hash1", coder_id="c0", code_name="Positive", start_offset=2, end_offset=28),
+            MatchedAnnotation(source_key="hash1", coder_id="c1", code_name="Positive", start_offset=2, end_offset=28),
             # Only Alice applies Negative
-            MatchedAnnotation(source_hash="hash1", coder_id="c0", code_name="Negative", start_offset=33, end_offset=51),
+            MatchedAnnotation(source_key="hash1", coder_id="c0", code_name="Negative", start_offset=33, end_offset=51),
         ],
         warnings=[],
     )
     result = compute_agreement(ds)
     assert result.per_code["Positive"].percent_agreement > result.per_code["Negative"].percent_agreement
     assert result.n_codes == 2
+
+def test_per_source_counts_do_not_merge_duplicate_display_ids():
+    """Distinct matched sources keep separate per-source metrics even with equal labels."""
+    sources = [
+        MatchedSource(source_key="id:a", display_id="R1", content_text="x" * 10),
+        MatchedSource(source_key="id:b", display_id="R1", content_text="x" * 10),
+    ]
+    coders = [
+        CoderInfo(id="c1", label="C1", source_file="a.ace"),
+        CoderInfo(id="c2", label="C2", source_file="b.ace"),
+    ]
+    codes = [MatchedCode(name="A", present_in={"c1", "c2"})]
+    annotations = [
+        MatchedAnnotation(source_key="id:a", coder_id="c1", code_name="A", start_offset=0, end_offset=6),
+        MatchedAnnotation(source_key="id:a", coder_id="c2", code_name="A", start_offset=0, end_offset=6),
+        MatchedAnnotation(source_key="id:b", coder_id="c1", code_name="A", start_offset=0, end_offset=6),
+        MatchedAnnotation(source_key="id:b", coder_id="c2", code_name="A", start_offset=0, end_offset=6),
+    ]
+
+    result = compute_agreement(_make_dataset_from_parts(sources, coders, codes, annotations))
+
+    assert set(result.per_source) == {"id:a", "id:b"}
+    assert all(m.n_positions == 6 for m in result.per_source.values())
+    assert result.overall.n_positions == 12

@@ -23,22 +23,22 @@ def _build_sparse_counts(
     """Build per-code/per-source bitmask counts and per-code source sets."""
     coder_bit = {cid: bit for bit, cid in enumerate(coder_ids)}
     code_index = {name: i for i, name in enumerate(code_names)}
-    source_by_hash = {s.content_hash: s for s in dataset.sources}
+    source_by_key = {s.source_key: s for s in dataset.sources}
 
     code_source_sets: dict[str, set[str]] = {name: set() for name in code_names}
     for ann in dataset.annotations:
         if ann.code_name in code_source_sets:
-            code_source_sets[ann.code_name].add(ann.source_hash)
+            code_source_sets[ann.code_name].add(ann.source_key)
 
     annotations_by_source: dict[str, list] = defaultdict(list)
     for ann in dataset.annotations:
-        if ann.source_hash not in source_by_hash:
+        if ann.source_key not in source_by_key:
             continue
         if ann.coder_id not in coder_bit:
             continue
         if ann.code_name not in code_index:
             continue
-        annotations_by_source[ann.source_hash].append(ann)
+        annotations_by_source[ann.source_key].append(ann)
 
     per_code_counts: dict[str, Counter[int]] = {name: Counter() for name in code_names}
     per_source_counts: dict[str, Counter[int]] = {}
@@ -52,7 +52,7 @@ def _build_sparse_counts(
             continue
 
         events: dict[int, list[tuple[int, int, int]]] = defaultdict(list)
-        for ann in annotations_by_source.get(source.content_hash, []):
+        for ann in annotations_by_source.get(source.source_key, []):
             start = max(0, min(ann.start_offset, text_len))
             end = max(0, min(ann.end_offset, text_len))
             if end <= start:
@@ -66,7 +66,7 @@ def _build_sparse_counts(
         active = [[0] * len(coder_ids) for _ in code_names]
         current_masks = [0] * len(code_names)
         active_total = 0
-        per_source = per_source_counts.setdefault(source.display_id, Counter())
+        per_source = per_source_counts.setdefault(source.source_key, Counter())
 
         prev_pos: int | None = None
         for pos in sorted(events):

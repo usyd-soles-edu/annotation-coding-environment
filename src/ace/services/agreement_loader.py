@@ -1,5 +1,6 @@
 """Loads and matches data from multiple .ace files for agreement computation."""
 
+import hashlib
 import sqlite3
 from pathlib import Path
 
@@ -136,8 +137,15 @@ class AgreementLoader:
             "FROM annotation a WHERE a.deleted_at IS NULL"
         ).fetchall()
 
-        # Build lookup maps
-        source_map = {s["id"]: dict(s) for s in sources}
+        # Build lookup maps. text_fingerprint is derived from the actual text:
+        # stored content_hash values can be stale and must never decide identity.
+        source_map = {
+            s["id"]: {
+                **dict(s),
+                "text_fingerprint": hashlib.sha256(s["content_text"].encode("utf-8")).hexdigest(),
+            }
+            for s in sources
+        }
         code_map = {
             c["id"]: {
                 "name": c["name"],
@@ -168,31 +176,28 @@ class AgreementLoader:
                 "warnings": warnings,
             }
 
-        # Match sources by content_hash, then keep only sources coded in every file.
-        hash_sets = self._source_hash_sets()
-        common_hashes = self._common_source_hashes(hash_sets)
+        # Resolve source identities: shared stored IDs first, then unique content.
+        matches, match_error = self._match_sources()
+        if match_error:
+            return {"valid": False, "error": match_error, "warnings": warnings}
 
-        all_hashes = set()
-        for hs in hash_sets:
-            all_hashes |= hs
-
-        if not common_hashes:
+        if not matches:
             return {
                 "valid": False,
                 "error": "These files share no source texts. Are they from the same project?",
                 "warnings": warnings,
             }
 
-        unmatched_source_texts = len(all_hashes) - len(common_hashes)
-        if unmatched_source_texts > 0:
+        total_source_units = sum(len(fd["sources"]) for fd in self._file_data)
+        matched_units = len(matches) * len(self._file_data)
+        if matched_units < total_source_units:
             warnings.append(
-                f"{len(common_hashes)} of {len(all_hashes)} source texts match across all files. "
+                f"{matched_units} of {total_source_units} sources match across all files. "
                 "Agreement can only use matched source texts."
             )
 
-        eligible_source_hashes = self._source_hashes_coded_by_every_coder(common_hashes)
-        uncoded_matched_sources = len(common_hashes) - len(eligible_source_hashes)
-        if not eligible_source_hashes:
+        eligible_keys = self._eligible_match_keys(matches)
+        if not eligible_keys:
             return {
                 "valid": False,
                 "error": (
@@ -201,9 +206,9 @@ class AgreementLoader:
                 ),
                 "warnings": warnings,
             }
-        if uncoded_matched_sources > 0:
+        if len(eligible_keys) < len(matches):
             warnings.append(
-                f"{len(eligible_source_hashes)} of {len(common_hashes)} matched sources "
+                f"{len(eligible_keys)} of {len(matches)} matched sources "
                 "are coded by every coder. Agreement will be computed on those sources only."
             )
 
@@ -242,44 +247,107 @@ class AgreementLoader:
         return {
             "valid": True,
             "error": None,
-            "matched_sources": len(eligible_source_hashes),
+            "matched_sources": len(eligible_keys),
             "matched_codes": len(common_code_names),
             "coders": [c.label for c in coder_labels],
             "n_coders": len(coder_labels),
             "warnings": warnings,
         }
 
-    def _source_hash_sets(self) -> list[set[str]]:
-        return [
-            {s["content_hash"] for s in fd["sources"].values()}
-            for fd in self._file_data
-        ]
+    def _match_sources(self) -> tuple[list[dict], str | None]:
+        """Resolve cross-file source identities.
+
+        Returns (matches, error). Each match is one source identity present in
+        every file, as a dict with "key", per-file source "ids", "display_id"
+        and "content_text". Source IDs shared by every file match first and must
+        carry identical content; remaining sources match only on content that is
+        unique within every file. Ambiguous duplicates are rejected, never pooled.
+        """
+        files = self._file_data
+        if not files:
+            return [], None
+
+        # A shared stored source ID must never silently match conflicting content.
+        # Verify the actual text (fingerprint), not the stored content_hash.
+        first_seen: dict[str, tuple[str, str, str]] = {}  # id -> (fingerprint, filename, display_id)
+        for fd in files:
+            filename = Path(fd["path"]).name
+            for sid, src in fd["sources"].items():
+                seen = first_seen.get(sid)
+                if seen and seen[0] != src["text_fingerprint"]:
+                    return [], (
+                        f"Source '{seen[2]}' (ID {sid[:8]}) has different text in "
+                        f"'{seen[1]}' and '{filename}'. Compare unmodified copies of "
+                        "the same project, or re-import the sources."
+                    )
+                first_seen[sid] = (src["text_fingerprint"], filename, src["display_id"])
+
+        common_ids = set(files[0]["sources"])
+        for fd in files[1:]:
+            common_ids &= set(fd["sources"])
+
+        matches: list[dict] = []
+        for sid in sorted(common_ids):
+            first = files[0]["sources"][sid]
+            matches.append({
+                "key": f"id:{sid}",
+                "ids": [sid] * len(files),
+                "display_id": first["display_id"],
+                "content_text": first["content_text"],
+            })
+
+        # Content fallback for sources without a shared ID: one per file, or reject.
+        leftover: dict[tuple[int, str], list[str]] = {}
+        for i, fd in enumerate(files):
+            for sid, src in fd["sources"].items():
+                if sid not in common_ids:
+                    leftover.setdefault((i, src["text_fingerprint"]), []).append(sid)
+
+        for fingerprint in sorted({h for _, h in leftover}):
+            per_file = [leftover.get((i, fingerprint), []) for i in range(len(files))]
+            if not all(per_file):
+                continue  # not present in every file
+            for i, ids in enumerate(per_file):
+                if len(ids) > 1:
+                    display_id = files[i]["sources"][ids[0]]["display_id"]
+                    return [], (
+                        f"'{display_id}' shares identical text with another source in "
+                        f"'{Path(files[i]['path']).name}' and the files share no source "
+                        "ID for them, so they cannot be matched reliably. Compare coder "
+                        "copies of the same original project, without altering the "
+                        "original response text."
+                    )
+            first = files[0]["sources"][per_file[0][0]]
+            matches.append({
+                "key": f"content:{fingerprint}",
+                "ids": [ids[0] for ids in per_file],
+                "display_id": first["display_id"],
+                "content_text": first["content_text"],
+            })
+
+        return matches, None
 
     @staticmethod
-    def _common_source_hashes(hash_sets: list[set[str]]) -> set[str]:
-        if not hash_sets:
-            return set()
-        return hash_sets[0].intersection(*hash_sets[1:])
+    def _annotators_by_source(fd: dict) -> dict[str, set[str]]:
+        annotators: dict[str, set[str]] = {}
+        for ann in fd["annotations"]:
+            annotators.setdefault(ann["source_id"], set()).add(ann["coder_id"])
+        return annotators
 
-    def _source_hashes_coded_by_every_coder(self, common_hashes: set[str]) -> set[str]:
-        eligible = set(common_hashes)
-        for fd in self._file_data:
-            file_coder_ids = self._active_coder_ids(fd)
-            source_id_to_hash = {
-                sid: s["content_hash"] for sid, s in fd["sources"].items()
-            }
-            coded_by_hash: dict[str, set[str]] = {h: set() for h in common_hashes}
-            for ann in fd["annotations"]:
-                source_hash = source_id_to_hash.get(ann["source_id"])
-                if source_hash in common_hashes:
-                    coded_by_hash[source_hash].add(ann["coder_id"])
-
-            eligible &= {
-                source_hash
-                for source_hash, coder_ids in coded_by_hash.items()
-                if file_coder_ids <= coder_ids
-            }
-        return eligible
+    def _eligible_match_keys(self, matches: list[dict]) -> set[str]:
+        """Matched identities coded by every active coder in every file."""
+        per_file = [
+            (self._active_coder_ids(fd), self._annotators_by_source(fd))
+            for fd in self._file_data
+        ]
+        return {
+            m["key"]
+            for m in matches
+            if all(
+                active <= annotators.get(m["ids"][i], set())
+                for i, (active, annotators) in enumerate(per_file)
+            )
+        }
 
     @staticmethod
     def _active_coder_ids(fd: dict) -> set[str]:
@@ -326,25 +394,23 @@ class AgreementLoader:
         # Resolve coders
         coders = self._resolve_coder_labels()
 
-        # Build source lookup: content_hash -> MatchedSource
-        # Use sources that are present and coded in every file.
-        common_hashes = self._common_source_hashes(self._source_hash_sets())
-        eligible_source_hashes = self._source_hashes_coded_by_every_coder(common_hashes)
+        # Matched identities that are present and coded in every file.
+        matches, _ = self._match_sources()
+        eligible_keys = self._eligible_match_keys(matches)  # once per pass, not per match
+        eligible_matches = [m for m in matches if m["key"] in eligible_keys]
 
-        # Pick display_id and content_text from the first file that has each hash
-        sources: list[MatchedSource] = []
-        hash_to_source: dict[str, MatchedSource] = {}
-        for fd in self._file_data:
-            for src in fd["sources"].values():
-                h = src["content_hash"]
-                if h in eligible_source_hashes and h not in hash_to_source:
-                    ms = MatchedSource(
-                        content_hash=h,
-                        display_id=src["display_id"],
-                        content_text=src["content_text"],
-                    )
-                    hash_to_source[h] = ms
-                    sources.append(ms)
+        sources = [
+            MatchedSource(
+                source_key=m["key"],
+                display_id=m["display_id"],
+                content_text=m["content_text"],
+            )
+            for m in eligible_matches
+        ]
+        key_by_file_source_id = [
+            {m["ids"][i]: m["key"] for m in eligible_matches}
+            for i in range(len(self._file_data))
+        ]
 
         # Match codes
         codebook_hashes = [fd["codebook_hash"] for fd in self._file_data]
@@ -378,27 +444,22 @@ class AgreementLoader:
         # Build annotations
         annotations: list[MatchedAnnotation] = []
         for i, fd in enumerate(self._file_data):
-            # Build reverse lookups for this file
-            source_id_to_hash = {
-                sid: s["content_hash"] for sid, s in fd["sources"].items()
-            }
+            key_by_source_id = key_by_file_source_id[i]
             code_id_to_info = fd["codes"]
 
             for ann in fd["annotations"]:
-                source_hash = source_id_to_hash.get(ann["source_id"])
+                source_key = key_by_source_id.get(ann["source_id"])
+                if source_key is None:
+                    continue  # source not matched, or not coded in every file
                 code_info = code_id_to_info.get(ann["code_id"])
                 code_name = code_info["name"] if code_info is not None else None
-
-                # Skip if source not in common set or code not matched
-                if source_hash not in eligible_source_hashes:
-                    continue
                 if code_name not in code_name_set:
                     continue
 
                 coder_unique_id = f"{i}_{ann['coder_id']}"
                 annotations.append(
                     MatchedAnnotation(
-                        source_hash=source_hash,
+                        source_key=source_key,
                         coder_id=coder_unique_id,
                         code_name=code_name,
                         start_offset=ann["start_offset"],

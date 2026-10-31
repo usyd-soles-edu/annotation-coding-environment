@@ -232,12 +232,13 @@ async def agreement_export_raw(request: Request):
         "end_offset",
         "coder_id",
         "code_name",
+        "source_key",
     ])
 
-    source_lookup = {s.content_hash: s.display_id for s in dataset.sources}
+    source_lookup = {s.source_key: s.display_id for s in dataset.sources}
 
-    for ann in sorted(dataset.annotations, key=lambda a: (a.source_hash, a.start_offset, a.coder_id)):
-        source_id = source_lookup.get(ann.source_hash, ann.source_hash)
+    for ann in sorted(dataset.annotations, key=lambda a: (a.source_key, a.start_offset, a.coder_id)):
+        source_id = source_lookup[ann.source_key]
         writer.writerow([
             export_date,
             coder_labels,
@@ -248,6 +249,7 @@ async def agreement_export_raw(request: Request):
             ann.end_offset,
             ann.coder_id,
             ann.code_name,
+            ann.source_key,
         ])
 
     return Response(

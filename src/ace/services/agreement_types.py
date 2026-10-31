@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class MatchedSource:
-    content_hash: str
+    source_key: str  # explicit matched identity, unique across compared files
     display_id: str
     content_text: str
 
@@ -27,7 +27,7 @@ class MatchedCode:
 
 @dataclass
 class MatchedAnnotation:
-    source_hash: str  # content_hash of the source
+    source_key: str  # MatchedSource.source_key
     coder_id: str  # CoderInfo.id
     code_name: str  # MatchedCode.name
     start_offset: int
@@ -60,7 +60,7 @@ class CodeMetrics:
 class AgreementResult:
     overall: CodeMetrics
     per_code: dict[str, CodeMetrics]  # code_name -> metrics
-    per_source: dict[str, CodeMetrics]  # display_id -> metrics
+    per_source: dict[str, CodeMetrics]  # source_key -> metrics
     pairwise: dict[tuple[str, str], CodeMetrics]  # (coder_id, coder_id) -> metrics
     n_coders: int
     n_sources: int

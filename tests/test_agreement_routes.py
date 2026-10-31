@@ -311,6 +311,27 @@ def test_agreement_preview_disables_compute_for_unmatched_set(client, tmp_path):
     assert "data-agreement-compute" in resp.text
     assert "disabled" in resp.text
 
+def test_agreement_preview_rejects_ambiguous_duplicate_texts(client, tmp_path):
+    """Independently imported duplicate texts cannot be matched: show the error."""
+    dup = "Identical respondent text repeated by two separate sources."
+    kwargs = dict(
+        sources=[("S1", dup), ("S2", dup)],
+        codes=[("Positive", "#00AA00")],
+        annotations=[(0, 0, 0, 9, "Identical"), (1, 0, 0, 9, "Identical")],
+    )
+    path_a = _make_ace_file(tmp_path / "alice.ace", "Project A", "Alice", **kwargs)
+    path_b = _make_ace_file(tmp_path / "bob.ace", "Project B", "Bob", **kwargs)
+
+    resp = client.post(
+        "/api/agreement/preview",
+        data={"paths": json.dumps([str(path_a), str(path_b)])},
+    )
+
+    assert resp.status_code == 200
+    assert "cannot be matched" in resp.text
+    assert "disabled" in resp.text
+
+
 
 def test_agreement_preview_shows_bad_file_error_and_disables_compute(
     client, ace_file_a, tmp_path
@@ -560,8 +581,10 @@ def test_export_raw_data_csv(client_with_agreement_files):
         "end_offset",
         "coder_id",
         "code_name",
+        "source_key",
     ]
     assert rows
+    assert all(row["source_key"] for row in rows)
 
 
 def test_cold_agreement_exports_show_recovery_page(client):

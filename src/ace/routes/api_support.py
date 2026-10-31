@@ -1603,10 +1603,11 @@ def _render_agreement_results(result, dataset, loader, jinja_env) -> str:
 
     n_coders = result.n_coders
 
-    # Compute totals for context bar
-    all_source_hashes = set()
-    for fd in loader._file_data:
-        all_source_hashes |= {s["content_hash"] for s in fd["sources"].values()}
+    # Compute totals for context bar: matched identities count once, unmatched
+    # source entries count per file, so duplicate texts never shrink the total.
+    matches, _ = loader._match_sources()
+    total_source_units = sum(len(fd["sources"]) for fd in loader._file_data)
+    total_sources = len(matches) + (total_source_units - len(matches) * len(loader._file_data))
     all_code_names = set()
     for fd in loader._file_data:
         all_code_names |= {info["name"] for info in fd["codes"].values()}
@@ -1679,7 +1680,7 @@ def _render_agreement_results(result, dataset, loader, jinja_env) -> str:
         n_coders=n_coders,
         n_sources=result.n_sources,
         n_codes=result.n_codes,
-        total_sources=len(all_source_hashes),
+        total_sources=total_sources,
         total_codes=len(all_code_names),
         warnings=dataset.warnings,
         verdict=verdict,

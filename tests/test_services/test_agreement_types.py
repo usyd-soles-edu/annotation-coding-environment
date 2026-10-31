@@ -13,9 +13,9 @@ from ace.services.agreement_types import (
 
 def test_matched_source_construction():
     src = MatchedSource(
-        content_hash="abc123", display_id="S001", content_text="hello world"
+        source_key="id:abc123", display_id="S001", content_text="hello world"
     )
-    assert src.content_hash == "abc123"
+    assert src.source_key == "id:abc123"
     assert src.display_id == "S001"
     assert src.content_text == "hello world"
 
