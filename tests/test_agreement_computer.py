@@ -35,7 +35,7 @@ def test_pooled_overall_kappa_differs_from_macro_average():
     # Single source with two non-overlapping annotation regions.
     # Code A: positions 0-9 (10 chars), near-perfect: c1=1111111111, c2=1111111110
     # Code B: positions 10-13 (4 chars), zero agreement: c1=1100, c2=0011
-    sources = [MatchedSource(content_hash="h1", display_id="S1", content_text="x" * 14)]
+    sources = [MatchedSource(source_key="h1", display_id="S1", content_text="x" * 14)]
     coders = [CoderInfo(id="c1", label="C1", source_file="a.ace"),
               CoderInfo(id="c2", label="C2", source_file="b.ace")]
     codes = [MatchedCode(name="A", present_in={"c1", "c2"}),
@@ -43,14 +43,14 @@ def test_pooled_overall_kappa_differs_from_macro_average():
 
     annotations = [
         # code A: c1 covers 0-9, c2 covers 0-8 (misses position 9)
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A",
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="A",
                           start_offset=0, end_offset=10),
-        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="A",
+        MatchedAnnotation(source_key="h1", coder_id="c2", code_name="A",
                           start_offset=0, end_offset=9),
         # code B: c1 covers 10-11, c2 covers 12-13 (completely non-overlapping)
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="B",
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="B",
                           start_offset=10, end_offset=12),
-        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="B",
+        MatchedAnnotation(source_key="h1", coder_id="c2", code_name="B",
                           start_offset=12, end_offset=14),
     ]
 
@@ -77,20 +77,20 @@ def test_pooled_overall_kappa_differs_from_macro_average():
 def test_overall_n_sources_equals_dataset_sources():
     """overall.n_sources equals the number of sources in the dataset."""
     sources = [
-        MatchedSource(content_hash="h1", display_id="S1", content_text="hello world"),
-        MatchedSource(content_hash="h2", display_id="S2", content_text="foo bar baz"),
+        MatchedSource(source_key="h1", display_id="S1", content_text="hello world"),
+        MatchedSource(source_key="h2", display_id="S2", content_text="foo bar baz"),
     ]
     coders = [CoderInfo(id="c1", label="C1", source_file="a.ace"),
               CoderInfo(id="c2", label="C2", source_file="b.ace")]
     codes = [MatchedCode(name="X", present_in={"c1", "c2"})]
     annotations = [
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="X",
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="X",
                           start_offset=0, end_offset=5),
-        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="X",
+        MatchedAnnotation(source_key="h1", coder_id="c2", code_name="X",
                           start_offset=0, end_offset=5),
-        MatchedAnnotation(source_hash="h2", coder_id="c1", code_name="X",
+        MatchedAnnotation(source_key="h2", coder_id="c1", code_name="X",
                           start_offset=0, end_offset=3),
-        MatchedAnnotation(source_hash="h2", coder_id="c2", code_name="X",
+        MatchedAnnotation(source_key="h2", coder_id="c2", code_name="X",
                           start_offset=0, end_offset=3),
     ]
     dataset = _make_dataset(sources, coders, codes, annotations)
@@ -101,8 +101,8 @@ def test_overall_n_sources_equals_dataset_sources():
 def test_per_code_n_sources_counts_distinct_sources():
     """per_code n_sources counts the distinct sources a code appears in."""
     sources = [
-        MatchedSource(content_hash="h1", display_id="S1", content_text="hello world"),
-        MatchedSource(content_hash="h2", display_id="S2", content_text="foo bar baz"),
+        MatchedSource(source_key="h1", display_id="S1", content_text="hello world"),
+        MatchedSource(source_key="h2", display_id="S2", content_text="foo bar baz"),
     ]
     coders = [CoderInfo(id="c1", label="C1", source_file="a.ace"),
               CoderInfo(id="c2", label="C2", source_file="b.ace")]
@@ -110,18 +110,18 @@ def test_per_code_n_sources_counts_distinct_sources():
              MatchedCode(name="B", present_in={"c1"})]
     annotations = [
         # code A appears in both sources
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A",
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="A",
                           start_offset=0, end_offset=5),
-        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="A",
+        MatchedAnnotation(source_key="h1", coder_id="c2", code_name="A",
                           start_offset=0, end_offset=5),
-        MatchedAnnotation(source_hash="h2", coder_id="c1", code_name="A",
+        MatchedAnnotation(source_key="h2", coder_id="c1", code_name="A",
                           start_offset=0, end_offset=3),
-        MatchedAnnotation(source_hash="h2", coder_id="c2", code_name="A",
+        MatchedAnnotation(source_key="h2", coder_id="c2", code_name="A",
                           start_offset=0, end_offset=3),
         # code B appears in source 1 only
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="B",
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="B",
                           start_offset=6, end_offset=11),
-        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="B",
+        MatchedAnnotation(source_key="h1", coder_id="c2", code_name="B",
                           start_offset=6, end_offset=11),
     ]
     dataset = _make_dataset(sources, coders, codes, annotations)
@@ -139,14 +139,14 @@ def test_empty_dataset_returns_zero_n_sources():
 
 def test_pooled_overall_single_code_matches_per_code():
     """With a single code, pooled overall should match the per-code metrics."""
-    sources = [MatchedSource(content_hash="h1", display_id="S1", content_text="hello")]
+    sources = [MatchedSource(source_key="h1", display_id="S1", content_text="hello")]
     coders = [CoderInfo(id="c1", label="C1", source_file="a.ace"),
               CoderInfo(id="c2", label="C2", source_file="b.ace")]
     codes = [MatchedCode(name="A", present_in={"c1", "c2"})]
     annotations = [
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A",
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="A",
                           start_offset=0, end_offset=5),
-        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="A",
+        MatchedAnnotation(source_key="h1", coder_id="c2", code_name="A",
                           start_offset=0, end_offset=5),
     ]
     dataset = _make_dataset(sources, coders, codes, annotations)
@@ -161,7 +161,7 @@ def test_pairwise_returns_full_code_metrics_for_3_coders():
     With 3 coders there are 3 pairs. Each pair has 2 coders so Cohen's kappa
     is applicable. Verify all three fields are populated and all 3 pairs exist.
     """
-    sources = [MatchedSource(content_hash="h1", display_id="S1", content_text="x" * 20)]
+    sources = [MatchedSource(source_key="h1", display_id="S1", content_text="x" * 20)]
     coders = [
         CoderInfo(id="c1", label="C1", source_file="a.ace"),
         CoderInfo(id="c2", label="C2", source_file="b.ace"),
@@ -170,11 +170,11 @@ def test_pairwise_returns_full_code_metrics_for_3_coders():
     codes = [MatchedCode(name="A", present_in={"c1", "c2", "c3"})]
     annotations = [
         # c1 and c2 agree on positions 0-9; c3 agrees only on 0-4
-        MatchedAnnotation(source_hash="h1", coder_id="c1", code_name="A",
+        MatchedAnnotation(source_key="h1", coder_id="c1", code_name="A",
                           start_offset=0, end_offset=10),
-        MatchedAnnotation(source_hash="h1", coder_id="c2", code_name="A",
+        MatchedAnnotation(source_key="h1", coder_id="c2", code_name="A",
                           start_offset=0, end_offset=10),
-        MatchedAnnotation(source_hash="h1", coder_id="c3", code_name="A",
+        MatchedAnnotation(source_key="h1", coder_id="c3", code_name="A",
                           start_offset=0, end_offset=5),
     ]
     dataset = _make_dataset(sources, coders, codes, annotations)

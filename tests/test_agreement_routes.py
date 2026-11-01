@@ -2,6 +2,8 @@
 
 import csv
 import json
+import shutil
+import sqlite3
 from io import StringIO
 
 import pytest
@@ -311,6 +313,27 @@ def test_agreement_preview_disables_compute_for_unmatched_set(client, tmp_path):
     assert "data-agreement-compute" in resp.text
     assert "disabled" in resp.text
 
+def test_agreement_preview_rejects_ambiguous_duplicate_texts(client, tmp_path):
+    """Independently imported duplicate texts cannot be matched: show the error."""
+    dup = "Identical respondent text repeated by two separate sources."
+    kwargs = dict(
+        sources=[("S1", dup), ("S2", dup)],
+        codes=[("Positive", "#00AA00")],
+        annotations=[(0, 0, 0, 9, "Identical"), (1, 0, 0, 9, "Identical")],
+    )
+    path_a = _make_ace_file(tmp_path / "alice.ace", "Project A", "Alice", **kwargs)
+    path_b = _make_ace_file(tmp_path / "bob.ace", "Project B", "Bob", **kwargs)
+
+    resp = client.post(
+        "/api/agreement/preview",
+        data={"paths": json.dumps([str(path_a), str(path_b)])},
+    )
+
+    assert resp.status_code == 200
+    assert "cannot be matched" in resp.text
+    assert "disabled" in resp.text
+
+
 
 def test_agreement_preview_shows_bad_file_error_and_disables_compute(
     client, ace_file_a, tmp_path
@@ -362,6 +385,59 @@ def test_compute_returns_new_results_html(client_with_agreement_files):
     assert "ace-status" in html
     assert "Table 1:" in html
     assert "ace-section-heading" in html
+
+
+def test_compute_context_bar_counts_source_identities(client, tmp_path):
+    """Context bar counts identities: matched once + unmatched distinct UUIDs.
+
+    A and B are copies holding R1+R2; C is a third copy holding only R1. The
+    context bar must read "1 of 2 sources" (R1 matched, R2 one unmatched
+    identity), not "1 of 3" (file entries).
+    """
+    base = _make_ace_file(
+        tmp_path / "ctx-base.ace",
+        "Base",
+        "Base",
+        sources=[("R1", "The cat sat on the mat"), ("R2", "Dogs are great pets")],
+        codes=[("Positive", "#00AA00")],
+        annotations=[],
+    )
+    paths = []
+    for name in ("Alice", "Bob", "Carol"):
+        p = tmp_path / f"ctx-{name}.ace"
+        shutil.copyfile(base, p)
+        paths.append(p)
+
+    # Third copy holds only R1.
+    conn = sqlite3.connect(paths[2])
+    sid = conn.execute("SELECT id FROM source WHERE display_id = 'R2'").fetchone()[0]
+    conn.execute("DELETE FROM source_content WHERE source_id = ?", (sid,))
+    conn.execute("DELETE FROM source WHERE id = ?", (sid,))
+    conn.commit()
+    conn.close()
+
+    for p, name in zip(paths, ("Alice", "Bob", "Carol")):
+        conn = sqlite3.connect(p)
+        conn.row_factory = sqlite3.Row
+        conn.execute("UPDATE coder SET name = ?", (name,))  # base renamed its coder already
+        conn.commit()
+        coder_id = conn.execute("SELECT id FROM coder WHERE name = ?", (name,)).fetchone()[0]
+        code_id = conn.execute(
+            "SELECT id FROM codebook_code WHERE name = 'Positive'"
+        ).fetchone()[0]
+        row = conn.execute(
+            "SELECT s.id, sc.content_text FROM source s "
+            "JOIN source_content sc ON sc.source_id = s.id WHERE s.display_id = 'R1'"
+        ).fetchone()
+        add_annotation(conn, row["id"], coder_id, code_id, 0, 7, row["content_text"][0:7])
+        conn.close()
+
+    resp = client.post(
+        "/api/agreement/compute", data={"paths": json.dumps([str(p) for p in paths])}
+    )
+    assert resp.status_code == 200
+    assert "1 of 2 sources" in resp.text
+    assert "1 of 3 sources" not in resp.text
 
 
 def test_compute_insufficient_files(client, ace_file_a):
@@ -560,8 +636,10 @@ def test_export_raw_data_csv(client_with_agreement_files):
         "end_offset",
         "coder_id",
         "code_name",
+        "source_key",
     ]
     assert rows
+    assert all(row["source_key"] for row in rows)
 
 
 def test_cold_agreement_exports_show_recovery_page(client):
