@@ -298,6 +298,12 @@ class AgreementLoader:
                 "content_text": first["content_text"],
             })
 
+        # Unknown provenance cannot establish independent imports; keep UUID matches only.
+        for fd in files:
+            project_id = fd.get("project_id")
+            if not isinstance(project_id, str) or not project_id.strip():
+                return matches, None
+
         # Content fallback for sources without a shared ID: one per file, or reject.
         leftover: dict[tuple[int, str], list[str]] = {}
         for i, fd in enumerate(files):

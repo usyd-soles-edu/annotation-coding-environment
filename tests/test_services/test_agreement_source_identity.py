@@ -604,3 +604,47 @@ def test_total_source_identities_counts_distinct_uuids_not_file_entries(tmp_path
     assert result2["valid"] is True
     matches2, _ = loader2._match_sources()
     assert loader2._total_source_identities(matches2) == 2
+
+
+def _clear_project_identity(path: Path, value: str | None) -> None:
+    with sqlite3.connect(path) as conn:
+        if value == "missing-row":
+            conn.execute("DELETE FROM project")
+        else:
+            conn.execute("UPDATE project SET id = ?", (value,))
+
+
+@pytest.mark.parametrize("project_id", [None, "", " \t", "missing-row"])
+@pytest.mark.parametrize("independent_third", [False, True])
+def test_unknown_provenance_never_allows_text_fallback(tmp_path, project_id, independent_third):
+    a, b = _divergent_copies(tmp_path, anchor="same")
+    _clear_project_identity(b, project_id)
+    paths = [a, b]
+    if independent_third:
+        c = tmp_path / "independent.ace"
+        _create_project(c, [("S1", TEXT)])
+        _annotate(c, "Carol", [("S1", 0, 80)])
+        paths.append(c)
+
+    for ordered_paths in (paths, list(reversed(paths))):
+        loader = _loader(*ordered_paths)
+        assert loader.validate()["valid"] is False
+        with pytest.raises(ValueError):
+            loader.build_dataset()
+
+
+@pytest.mark.parametrize("project_id", [None, "", " \t", "missing-row"])
+def test_unknown_provenance_preserves_verified_shared_source_ids(tmp_path, project_id):
+    a, b = _copied_pair(tmp_path)
+    _annotate(a, "Alice", [("R1", 0, 80), ("R2", 0, 80)])
+    _annotate(b, "Bob", [("R1", 0, 80), ("R2", 0, 80)])
+    _clear_project_identity(b, project_id)
+
+    loader = _loader(a, b)
+    assert loader.validate()["matched_sources"] == 2
+    dataset = loader.build_dataset()
+    assert len({s.source_key for s in dataset.sources}) == 2
+    metrics = compute_agreement(dataset)
+    assert metrics.n_sources == 2
+    assert metrics.overall.n_positions == 160
+    assert metrics.overall.percent_agreement == pytest.approx(1.0)
