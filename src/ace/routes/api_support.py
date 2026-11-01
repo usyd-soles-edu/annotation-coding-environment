@@ -1603,11 +1603,10 @@ def _render_agreement_results(result, dataset, loader, jinja_env) -> str:
 
     n_coders = result.n_coders
 
-    # Compute totals for context bar: matched identities count once, unmatched
-    # source entries count per file, so duplicate texts never shrink the total.
+    # Context-bar totals: matched identities once, unmatched by distinct
+    # source ID (same counting as the loader's validation warnings).
     matches, _ = loader._match_sources()
-    total_source_units = sum(len(fd["sources"]) for fd in loader._file_data)
-    total_sources = len(matches) + (total_source_units - len(matches) * len(loader._file_data))
+    total_sources = loader._total_source_identities(matches)
     all_code_names = set()
     for fd in loader._file_data:
         all_code_names |= {info["name"] for info in fd["codes"].values()}

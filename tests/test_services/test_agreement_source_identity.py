@@ -259,8 +259,8 @@ def test_raw_export_attributes_each_coder_to_their_own_source(tmp_path):
     })
 
 
-def test_unmatched_warning_counts_source_units(tmp_path):
-    """Matched/unmatched counts are source entries, not distinct text hashes."""
+def test_unmatched_warning_counts_source_identities(tmp_path):
+    """Matched/unmatched counts are source identities, not file entries or text hashes."""
     a, b = tmp_path / "A.ace", tmp_path / "B.ace"
     _create_project(a, [("S1", TEXT), ("S2", "A different respondent answer entirely.")])
     _create_project(b, [("S1", TEXT)])
@@ -272,7 +272,7 @@ def test_unmatched_warning_counts_source_units(tmp_path):
 
     assert result["valid"] is True
     assert result["matched_sources"] == 1
-    assert any("2 of 3 sources" in w for w in result["warnings"])
+    assert any("1 of 2 sources" in w for w in result["warnings"])
 
 
 # ── Stale stored metadata: identity must be verified against actual text ──────────
@@ -333,7 +333,7 @@ def test_independent_stale_hash_cannot_fake_content_match(tmp_path):
 
     assert result["valid"] is True
     assert result["matched_sources"] == 1
-    assert any("2 of 4 sources" in w for w in result["warnings"])
+    assert any("1 of 3 sources" in w for w in result["warnings"])
 
 
 def test_independent_identical_text_differing_stale_hashes_still_matches(tmp_path):
@@ -411,3 +411,196 @@ def test_build_dataset_computes_eligibility_once(tmp_path, monkeypatch):
 
     # Once via validate(), once directly — never once per matched source.
     assert calls["n"] == 2
+
+# ── Copied projects: identity must not degrade to text matching ──────────────────
+
+
+def _reimport_source(path: Path, display_id: str, new_display_id: str, *, text: str | None = None) -> None:
+    """Replace a source with a fresh UUID (simulates independent re-import into a copy)."""
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT s.id, sc.content_text FROM source s "
+        "JOIN source_content sc ON sc.source_id = s.id WHERE s.display_id = ?",
+        (display_id,),
+    ).fetchone()
+    conn.execute("DELETE FROM source_content WHERE source_id = ?", (row["id"],))
+    conn.execute("DELETE FROM source WHERE id = ?", (row["id"],))
+    add_source(conn, new_display_id, text or row["content_text"], "row")
+    conn.commit()
+    conn.close()
+
+
+def _delete_source(path: Path, display_id: str) -> None:
+    conn = sqlite3.connect(path)
+    sid = conn.execute(
+        "SELECT id FROM source WHERE display_id = ?", (display_id,)
+    ).fetchone()[0]
+    conn.execute("DELETE FROM source_content WHERE source_id = ?", (sid,))
+    conn.execute("DELETE FROM source WHERE id = ?", (sid,))
+    conn.commit()
+    conn.close()
+
+
+def _divergent_copies(tmp_path: Path, *, anchor: str) -> tuple[Path, Path]:
+    """Copies of one project whose respondent was re-imported with a new UUID.
+
+    A and B are copies of one project (same project id). B re-imports R2 as
+    R3: identical text, different UUID. Only A's R2 and B's R3 are coded, so
+    no respondent is actually coded by both coders.
+
+    anchor:
+      "same"       — both files keep R1 with one UUID and text
+      "reimported" — B also re-imports R1 with a new UUID and different text
+      "none"       — the project has no anchor respondent at all
+    """
+    sources: list[tuple[str, str]] = []
+    if anchor != "none":
+        sources.append(("R1", "An anchor respondent with its own text."))
+    sources.append(("R2", TEXT))
+    base = tmp_path / f"{anchor}-base.ace"
+    _create_project(base, sources)
+    a, b = tmp_path / f"{anchor}-A.ace", tmp_path / f"{anchor}-B.ace"
+    shutil.copyfile(base, a)
+    shutil.copyfile(base, b)
+    if anchor == "reimported":
+        _reimport_source(b, "R1", "R1b", text="A different anchor text entirely.")
+    _reimport_source(b, "R2", "R3")
+    _annotate(a, "Alice", [("R2", 0, 80)])
+    _annotate(b, "Bob", [("R3", 0, 80)])
+    return a, b
+
+
+@pytest.mark.parametrize("anchor", ["same", "reimported", "none"])
+def test_copied_divergent_uuids_never_bridge_as_one_respondent(tmp_path, anchor):
+    """Re-imported sources in copies of one project are not one respondent.
+
+    Before the fix the identical R2/R3 text matched via the content fallback,
+    validated, and produced perfect agreement although no respondent was
+    coded by both coders.
+    """
+    a, b = _divergent_copies(tmp_path, anchor=anchor)
+    loader = _loader(a, b)
+    result = loader.validate()
+
+    assert result["valid"] is False, result
+    with pytest.raises(ValueError):
+        loader.build_dataset()
+
+
+def test_independent_third_file_cannot_bridge_same_project_conflict(tmp_path):
+    """An independent file's identical text must not bridge a same-project conflict.
+
+    A and B are copies of one project disagreeing on the UUID for TEXT; C is an
+    unrelated project holding the same text. Order of the files must not matter.
+    """
+    base = tmp_path / "bridge-base.ace"
+    _create_project(base, [("R1", "An anchor respondent with its own text."), ("R2", TEXT)])
+    a, b = tmp_path / "bridge-A.ace", tmp_path / "bridge-B.ace"
+    shutil.copyfile(base, a)
+    shutil.copyfile(base, b)
+    _reimport_source(b, "R2", "R3")
+    c = tmp_path / "bridge-C.ace"
+    _create_project(c, [("S1", TEXT), ("S2", "An independent extra response.")])
+    _annotate(a, "Alice", [("R2", 0, 80)])
+    _annotate(b, "Bob", [("R3", 0, 80)])
+    _annotate(c, "Carol", [("S1", 0, 80)])
+
+    for paths in ([a, b, c], [c, a, b], [b, c, a]):
+        loader = _loader(*paths)
+        result = loader.validate()
+        assert result["valid"] is False, (paths, result)
+
+
+def test_multiple_copy_groups_match_only_within_agreeing_groups(tmp_path):
+    """Each project-id group must agree internally; conflicting groups refuse.
+
+    Group 1 (A, B) agrees on both UUIDs. Group 2 (C, D) agrees on T2 but
+    disagrees on T1 (D re-imported it). T1 must be refused even though every
+    file holds its text; T2 stays matched.
+    """
+    t1 = "First group-shared response text."
+    t2 = "Second group-shared response text."
+    base1 = tmp_path / "g1-base.ace"
+    _create_project(base1, [("T1", t1), ("T2", t2)])
+    a, b = tmp_path / "g1-A.ace", tmp_path / "g1-B.ace"
+    shutil.copyfile(base1, a)
+    shutil.copyfile(base1, b)
+    base2 = tmp_path / "g2-base.ace"
+    _create_project(base2, [("T1", t1), ("T2", t2)])
+    c, d = tmp_path / "g2-C.ace", tmp_path / "g2-D.ace"
+    shutil.copyfile(base2, c)
+    shutil.copyfile(base2, d)
+    _reimport_source(d, "T1", "T1x")
+    spans = [("T1", 0, 6), ("T2", 0, 10)]
+    for p, name, s in ((a, "Alice", spans), (b, "Bob", spans),
+                       (c, "Carol", spans), (d, "Dave", [("T1x", 0, 6), ("T2", 0, 10)])):
+        _annotate(p, name, s)  # both coded everywhere (D codes the re-imported T1x)
+
+    loader = _loader(a, b, c, d)
+    result = loader.validate()
+
+    assert result["valid"] is True
+    assert result["matched_sources"] == 1
+    ds = loader.build_dataset()
+    assert [s.content_text for s in ds.sources] == [t2]
+
+
+def test_shared_uuid_copies_plus_independent_file_still_match(tmp_path):
+    """Valid mixed provenance keeps matching: copies agreeing on the UUID plus C."""
+    base = tmp_path / "mix-base.ace"
+    _create_project(base, [("R1", TEXT)])
+    a, b = tmp_path / "mix-A.ace", tmp_path / "mix-B.ace"
+    shutil.copyfile(base, a)
+    shutil.copyfile(base, b)
+    c = tmp_path / "mix-C.ace"
+    _create_project(c, [("S1", TEXT)])
+    _annotate(a, "Alice", [("R1", 0, 80)])
+    _annotate(b, "Bob", [("R1", 0, 80)])
+    _annotate(c, "Carol", [("S1", 0, 80)])
+
+    loader = _loader(a, b, c)
+    result = loader.validate()
+
+    assert result["valid"] is True
+    assert result["matched_sources"] == 1
+    assert compute_agreement(loader.build_dataset()).overall.percent_agreement == pytest.approx(1.0)
+
+
+def test_total_source_identities_counts_distinct_uuids_not_file_entries(tmp_path):
+    """Totals count identities: matched once, unmatched by distinct source UUID."""
+    base = tmp_path / "count-base.ace"
+    _create_project(base, [("R1", "First response text."), ("R2", "Second response text.")])
+    a, b, c = (tmp_path / f"count-{n}.ace" for n in "ABC")
+    shutil.copyfile(base, a)
+    shutil.copyfile(base, b)
+    shutil.copyfile(base, c)
+    _delete_source(c, "R2")  # third copy holds only R1
+    _annotate(a, "Alice", [("R1", 0, 5), ("R2", 0, 6)])
+    _annotate(b, "Bob", [("R1", 0, 5), ("R2", 0, 6)])
+    _annotate(c, "Carol", [("R1", 0, 5)])
+
+    loader = _loader(a, b, c)
+    result = loader.validate()
+    assert result["valid"] is True
+    assert result["matched_sources"] == 1
+    matches, _ = loader._match_sources()
+    # R1 matched + one unmatched identity (R2's UUID shared by A and B).
+    assert loader._total_source_identities(matches) == 2
+    assert any("1 of 2 sources" in w for w in result["warnings"])
+
+    # Duplicate text between a matched and an unmatched source counts both.
+    dup_base = tmp_path / "dup-base.ace"
+    _create_project(dup_base, [("R1", TEXT), ("R2", TEXT)])
+    d, e = tmp_path / "dup-D.ace", tmp_path / "dup-E.ace"
+    shutil.copyfile(dup_base, d)
+    shutil.copyfile(dup_base, e)
+    _delete_source(e, "R2")
+    _annotate(d, "Dana", [("R1", 0, 80)])
+    _annotate(e, "Evan", [("R1", 0, 80)])
+
+    loader2 = _loader(d, e)
+    result2 = loader2.validate()
+    assert result2["valid"] is True
+    matches2, _ = loader2._match_sources()
+    assert loader2._total_source_identities(matches2) == 2

@@ -94,9 +94,11 @@ class AgreementLoader:
 
     def _extract_file_data(self, conn: sqlite3.Connection, path: Path) -> dict:
         """Extract sources, codes, coders, annotations from a single file."""
-        # Project metadata
-        project = conn.execute("SELECT codebook_hash FROM project").fetchone()
+        # Project metadata — the project id identifies copies of one project,
+        # which must agree on source UUIDs when matching by content.
+        project = conn.execute("SELECT id, codebook_hash FROM project").fetchone()
         codebook_hash = project["codebook_hash"] if project else None
+        project_id = project["id"] if project else None
 
         # Sources with content
         sources = conn.execute(
@@ -158,6 +160,7 @@ class AgreementLoader:
 
         return {
             "path": str(path),
+            "project_id": project_id,
             "codebook_hash": codebook_hash,
             "sources": source_map,
             "codes": code_map,
@@ -188,11 +191,10 @@ class AgreementLoader:
                 "warnings": warnings,
             }
 
-        total_source_units = sum(len(fd["sources"]) for fd in self._file_data)
-        matched_units = len(matches) * len(self._file_data)
-        if matched_units < total_source_units:
+        total_sources = self._total_source_identities(matches)
+        if len(matches) < total_sources:
             warnings.append(
-                f"{matched_units} of {total_source_units} sources match across all files. "
+                f"{len(matches)} of {total_sources} sources match across all files. "
                 "Agreement can only use matched source texts."
             )
 
@@ -317,6 +319,18 @@ class AgreementLoader:
                         "copies of the same original project, without altering the "
                         "original response text."
                     )
+            # Files copied from one project (same project id) must agree on the
+            # source UUID for this text: independently re-imported sources in a
+            # copy are different respondents, not one identity bridged by
+            # content — even when an independent file holds the same text.
+            ids_by_project: dict[str, set[str]] = {}
+            for i, fd in enumerate(files):
+                pid = fd.get("project_id")
+                if pid is not None:
+                    ids_by_project.setdefault(pid, set()).update(per_file[i])
+            if any(len(uuids) > 1 for uuids in ids_by_project.values()):
+                continue
+
             first = files[0]["sources"][per_file[0][0]]
             matches.append({
                 "key": f"content:{fingerprint}",
@@ -326,6 +340,21 @@ class AgreementLoader:
             })
 
         return matches, None
+
+    def _total_source_identities(self, matches: list[dict]) -> int:
+        """Total source identities: matches count once, unmatched by distinct ID.
+
+        Shared by validate() warnings and the results context bar so both
+        report identities, never file entries or text hashes.
+        """
+        matched_ids = {sid for m in matches for sid in m["ids"]}
+        unmatched_ids = {
+            sid
+            for fd in self._file_data
+            for sid in fd["sources"]
+            if sid not in matched_ids
+        }
+        return len(matches) + len(unmatched_ids)
 
     @staticmethod
     def _annotators_by_source(fd: dict) -> dict[str, set[str]]:
