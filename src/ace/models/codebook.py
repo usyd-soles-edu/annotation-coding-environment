@@ -5,6 +5,7 @@ import hashlib
 import json
 import sqlite3
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -37,6 +38,12 @@ CODEBOOK_COLUMN_ALIASES = {
 
 _CODEBOOK_CSV_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
 _DEFINITION_UNSET = object()
+
+
+@dataclass
+class CodebookImportResult:
+    code_ids: list[str]
+    created_folder_ids: list[str]
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +407,19 @@ def delete_code(
     Returns (affected_annotation_ids, affected_child_ids). Either can be empty.
     Caller passes both to restore_code() to undo.
     """
+    try:
+        result = _delete_code_no_commit(conn, code_id)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    return result
+
+
+def _delete_code_no_commit(
+    conn: sqlite3.Connection, code_id: str,
+) -> tuple[list[str], list[str]]:
+    """Soft-delete one row within the caller's transaction."""
     now = datetime.now(timezone.utc).isoformat()
     row = conn.execute(
         "SELECT kind FROM codebook_code WHERE id = ?", (code_id,)
@@ -410,41 +430,36 @@ def delete_code(
     affected_annotations: list[str] = []
     affected_children: list[str] = []
 
-    try:
-        if row["kind"] == "folder":
-            children = conn.execute(
-                "SELECT id FROM codebook_code "
+    if row["kind"] == "folder":
+        children = conn.execute(
+            "SELECT id FROM codebook_code "
+            "WHERE parent_id = ? AND deleted_at IS NULL",
+            (code_id,),
+        ).fetchall()
+        affected_children = [r["id"] for r in children]
+        if affected_children:
+            conn.execute(
+                "UPDATE codebook_code SET parent_id = NULL "
                 "WHERE parent_id = ? AND deleted_at IS NULL",
                 (code_id,),
-            ).fetchall()
-            affected_children = [r["id"] for r in children]
-            if affected_children:
-                conn.execute(
-                    "UPDATE codebook_code SET parent_id = NULL "
-                    "WHERE parent_id = ? AND deleted_at IS NULL",
-                    (code_id,),
-                )
-        else:
-            ann_rows = conn.execute(
-                "SELECT id FROM annotation WHERE code_id = ? AND deleted_at IS NULL",
-                (code_id,),
-            ).fetchall()
-            affected_annotations = [r["id"] for r in ann_rows]
-            if affected_annotations:
-                conn.execute(
-                    "UPDATE annotation SET deleted_at = ? "
-                    "WHERE code_id = ? AND deleted_at IS NULL",
-                    (now, code_id),
-                )
+            )
+    else:
+        ann_rows = conn.execute(
+            "SELECT id FROM annotation WHERE code_id = ? AND deleted_at IS NULL",
+            (code_id,),
+        ).fetchall()
+        affected_annotations = [r["id"] for r in ann_rows]
+        if affected_annotations:
+            conn.execute(
+                "UPDATE annotation SET deleted_at = ? "
+                "WHERE code_id = ? AND deleted_at IS NULL",
+                (now, code_id),
+            )
 
-        conn.execute(
-            "UPDATE codebook_code SET deleted_at = ? WHERE id = ?",
-            (now, code_id),
-        )
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+    conn.execute(
+        "UPDATE codebook_code SET deleted_at = ? WHERE id = ?",
+        (now, code_id),
+    )
 
     return affected_annotations, affected_children
 
@@ -461,24 +476,34 @@ def restore_code(
     root by the folder cascade, and un-deletes the listed annotations. Atomic.
     """
     try:
-        conn.execute(
-            "UPDATE codebook_code SET deleted_at = NULL WHERE id = ?",
-            (code_id,),
-        )
-        for cid in children_lifted_ids or []:
-            conn.execute(
-                "UPDATE codebook_code SET parent_id = ? WHERE id = ?",
-                (code_id, cid),
-            )
-        for ann_id in annotation_ids:
-            conn.execute(
-                "UPDATE annotation SET deleted_at = NULL WHERE id = ?",
-                (ann_id,),
-            )
+        _restore_code_no_commit(conn, code_id, annotation_ids, children_lifted_ids)
         conn.commit()
     except Exception:
         conn.rollback()
         raise
+
+
+def _restore_code_no_commit(
+    conn: sqlite3.Connection,
+    code_id: str,
+    annotation_ids: list[str],
+    children_lifted_ids: list[str] | None = None,
+) -> None:
+    """Restore one row within the caller's transaction."""
+    conn.execute(
+        "UPDATE codebook_code SET deleted_at = NULL WHERE id = ?",
+        (code_id,),
+    )
+    for cid in children_lifted_ids or []:
+        conn.execute(
+            "UPDATE codebook_code SET parent_id = ? WHERE id = ?",
+            (code_id, cid),
+        )
+    for ann_id in annotation_ids:
+        conn.execute(
+            "UPDATE annotation SET deleted_at = NULL WHERE id = ?",
+            (ann_id,),
+        )
 
 
 def compute_codebook_hash(conn: sqlite3.Connection) -> str:
@@ -852,17 +877,20 @@ def _ensure_folder_at(
     return folder_id, True
 
 
-def import_selected_codes(conn: sqlite3.Connection, codes: list[dict]) -> list[str]:
+def import_selected_codes(
+    conn: sqlite3.Connection, codes: list[dict]
+) -> CodebookImportResult:
     """Import a pre-filtered list of codes into the codebook.
 
     Each dict must have 'name' and 'colour' keys; optional 'group_name'
     becomes the parent folder (created if absent).
     Skips codes whose name already exists (safety net).
     All inserts in a single transaction with rollback on failure.
-    Returns the list of inserted code IDs (in the order they were inserted).
+    Returns the created code and folder IDs in insertion order. Reused folders
+    are excluded from the undo delta.
     """
     if not codes:
-        return []
+        return CodebookImportResult([], [])
 
     existing = {
         r["name"].lower()
@@ -873,7 +901,7 @@ def import_selected_codes(conn: sqlite3.Connection, codes: list[dict]) -> list[s
     }
     to_insert = [c for c in codes if c["name"].lower() not in existing]
     if not to_insert:
-        return []
+        return CodebookImportResult([], [])
 
     max_order = conn.execute(
         "SELECT COALESCE(MAX(sort_order), 0) FROM codebook_code WHERE deleted_at IS NULL"
@@ -881,6 +909,7 @@ def import_selected_codes(conn: sqlite3.Connection, codes: list[dict]) -> list[s
     now = datetime.now(timezone.utc).isoformat()
 
     inserted_ids: list[str] = []
+    created_folder_ids: list[str] = []
     try:
         # Single monotonically-increasing cursor — every inserted row
         # (folder OR code) takes one slot. Advancing only on code inserts
@@ -893,6 +922,7 @@ def import_selected_codes(conn: sqlite3.Connection, codes: list[dict]) -> list[s
             if gn:
                 parent_id, created = _ensure_folder_at(conn, gn, next_sort)
                 if created:
+                    created_folder_ids.append(parent_id)
                     next_sort += 1
             code_id = uuid.uuid4().hex
             conn.execute(
@@ -908,7 +938,7 @@ def import_selected_codes(conn: sqlite3.Connection, codes: list[dict]) -> list[s
     except Exception:
         conn.rollback()
         raise
-    return inserted_ids
+    return CodebookImportResult(inserted_ids, created_folder_ids)
 
 
 def import_codebook_from_csv(conn: sqlite3.Connection, path: str | Path) -> int:

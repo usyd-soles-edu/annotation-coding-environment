@@ -599,32 +599,11 @@ async def import_codebook(
         return _oob_status("Invalid codes_json format.")
 
     with _project_db(request) as conn:
-        existing_code_names = {
-            r["name"].lower()
-            for r in conn.execute(
-                "SELECT name FROM codebook_code "
-                "WHERE deleted_at IS NULL AND kind = 'code'"
-            ).fetchall()
-        }
-        existing_folder_names = {
-            r["name"].lower()
-            for r in conn.execute(
-                "SELECT name FROM codebook_code "
-                "WHERE deleted_at IS NULL AND kind = 'folder'"
-            ).fetchall()
-        }
-        incoming_groups = {
-            str(code.get("group_name")).strip()
-            for code in codes_list
-            if code.get("group_name")
-            and str(code.get("name", "")).lower() not in existing_code_names
-        }
-        folder_list_changed = any(
-            group.lower() not in existing_folder_names for group in incoming_groups
-        )
-        imported_ids = import_selected_codes(conn, codes_list)
-        if imported_ids:
-            _get_undo_manager(request).record_codebook_import(imported_ids)
+        imported = import_selected_codes(conn, codes_list)
+        if imported.code_ids:
+            _get_undo_manager(request).record_codebook_import(
+                imported.code_ids, imported.created_folder_ids
+            )
         content = _render_code_sidebar(request, conn, coder_id, current_index)
         response = _render_codebook_mutation_response(
             request,
@@ -633,9 +612,9 @@ async def import_codebook(
             coding_content=content,
             mode=codebook_mode,
             current_code_id=current_code_id,
-            affected_code_ids=imported_ids,
-            audit_reload=bool(imported_ids and current_code_id),
-            folder_list_changed=folder_list_changed,
+            affected_code_ids=imported.code_ids,
+            audit_reload=bool(imported.code_ids and current_code_id),
+            folder_list_changed=bool(imported.created_folder_ids),
         )
 
     # Clean up temp file

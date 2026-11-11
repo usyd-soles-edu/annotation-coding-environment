@@ -560,6 +560,31 @@ def test_codebook_import_route_stores_definition(client_with_sources_no_codes):
     assert row["definition"] == "Barriers to using a service"
 
 
+def test_codebook_import_route_undo_removes_new_folder(client_with_sources_no_codes):
+    from ace.db.connection import open_project
+
+    client = client_with_sources_no_codes
+    codes_json = json.dumps([
+        {"name": "Access", "colour": "#123456", "group_name": "Equity"}
+    ])
+    assert client.post(
+        "/api/codes/import", data={"codes_json": codes_json}
+    ).status_code == 200
+
+    assert client.post("/api/undo").status_code == 200
+    with open_project(client.app.state.project_path) as conn:
+        assert conn.execute(
+            "SELECT COUNT(*) FROM codebook_code WHERE deleted_at IS NULL"
+        ).fetchone()[0] == 0
+
+    assert client.post("/api/redo").status_code == 200
+    with open_project(client.app.state.project_path) as conn:
+        assert [tuple(row) for row in conn.execute(
+            "SELECT name, kind FROM codebook_code "
+            "WHERE deleted_at IS NULL ORDER BY sort_order"
+        )] == [("Equity", "folder"), ("Access", "code")]
+
+
 def test_audit_mode_codebook_import_returns_audit_safe_response(client_with_codes):
     client, _coder_id, code_id, _other_code_id, _db_path = client_with_codes
     codes_json = json.dumps([
@@ -588,6 +613,94 @@ def test_audit_mode_codebook_import_returns_audit_safe_response(client_with_code
     assert detail["auditReload"] is True
     assert len(detail["affectedCodeIds"]) == 1
     assert detail["folderListChanged"] is True
+
+
+def test_audit_import_undo_redo_invalidates_folder_cache(client_with_codes):
+    client, _coder_id, current_code_id, _other_code_id, db_path = client_with_codes
+    codes_json = json.dumps([
+        {"name": "Imported", "colour": "#123456", "group_name": "New folder"}
+    ])
+    assert client.post(
+        "/api/codes/import",
+        data={
+            "codes_json": codes_json,
+            "codebook_mode": "audit",
+            "current_code_id": current_code_id,
+        },
+    ).status_code == 200
+    imported_id = _latest_id_by_name(db_path, "Imported", "code")
+    folder_id = _latest_id_by_name(db_path, "New folder", "folder")
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={"codebook_mode": "audit", "current_code_id": current_code_id},
+    )
+    assert_audit_codebook_response(undo_resp)
+    undo_detail = _audit_mutation_detail(undo_resp)
+    assert set(undo_detail["affectedCodeIds"]) == {imported_id, folder_id}
+    assert undo_detail["folderListChanged"] is True
+    assert undo_detail["auditReload"] is True
+
+    redo_resp = client.post(
+        "/api/redo",
+        data={"codebook_mode": "audit", "current_code_id": current_code_id},
+    )
+    assert_audit_codebook_response(redo_resp)
+    redo_detail = _audit_mutation_detail(redo_resp)
+    assert set(redo_detail["affectedCodeIds"]) == {imported_id, folder_id}
+    assert redo_detail["folderListChanged"] is True
+    assert redo_detail["auditReload"] is True
+
+
+def test_audit_import_undo_falls_back_when_viewing_imported_code(client_with_codes):
+    client, _coder_id, existing_code_id, _other_code_id, db_path = client_with_codes
+    codes_json = json.dumps([
+        {"name": "Imported", "colour": "#123456", "group_name": "New folder"}
+    ])
+    assert client.post(
+        "/api/codes/import",
+        data={
+            "codes_json": codes_json,
+            "codebook_mode": "audit",
+            "current_code_id": existing_code_id,
+        },
+    ).status_code == 200
+    imported_id = _latest_id_by_name(db_path, "Imported", "code")
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={"codebook_mode": "audit", "current_code_id": imported_id},
+    )
+    assert_audit_codebook_response(undo_resp)
+    detail = _audit_mutation_detail(undo_resp)
+    assert detail["folderListChanged"] is True
+    assert detail["fallbackCodeId"] == existing_code_id
+    assert detail["auditReload"] is False
+
+
+def test_audit_import_undo_redirects_if_no_code_survives(
+    client_with_sources_no_codes,
+):
+    client = client_with_sources_no_codes
+    assert client.post(
+        "/api/codes/import",
+        data={
+            "codes_json": json.dumps([
+                {"name": "Only code", "colour": "#123456"}
+            ]),
+            "codebook_mode": "audit",
+        },
+    ).status_code == 200
+    imported_id = _latest_id_by_name(
+        client.app.state.project_path, "Only code", "code"
+    )
+
+    undo_resp = client.post(
+        "/api/undo",
+        data={"codebook_mode": "audit", "current_code_id": imported_id},
+    )
+    assert undo_resp.status_code == 200
+    assert undo_resp.headers["HX-Redirect"] == "/code"
 
 
 def test_audit_import_marks_folder_list_changed_when_new_folder_created(
