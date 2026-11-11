@@ -1783,6 +1783,7 @@
     let searchRaw = "";
     let searchText = "";
     let chordFilterActive = false;
+    let chordHintShown = false;
     let cutItemId = null;
     const RESERVED_SINGLE_KEYS = /* @__PURE__ */ new Set(["q", "x", "z", "n", "v"]);
     const MODE_POLICIES = Object.freeze({
@@ -2030,6 +2031,18 @@
     function setStatus(text) {
       const el = document.querySelector("[data-headless-tree-status]");
       if (el) el.textContent = text;
+    }
+    function maybeShowChordHint() {
+      if (chordHintShown || !isCodingMode() || !document.getElementById("text-panel")) return;
+      if (!Object.values(items).some((item) => item.kind === "code" && item.chord)) return;
+      if (typeof window._setStatus !== "function") return;
+      chordHintShown = true;
+      try {
+        if (localStorage.getItem("ace-chord-hint-seen") === "1") return;
+        localStorage.setItem("ace-chord-hint-seen", "1");
+      } catch (_) {
+      }
+      window._setStatus("Codes after 31 use ; then the two letters shown on the code chip.", "ok-sticky");
     }
     function currentIndex() {
       return window.__aceCurrentIndex || 0;
@@ -2491,6 +2504,9 @@
         row.setAttribute("aria-haspopup", "menu");
         row.setAttribute("aria-keyshortcuts", "Shift+F10 ContextMenu");
       }
+      if (data.chord && !codeApplicationDisabled()) {
+        row.setAttribute("aria-description", `Shortcut: press semicolon, then ${data.chord.split("").join(" then ")}.`);
+      }
       if (item.getId() === cutItemId) row.classList.add("ace-code-row--ghost");
       if (focusedAncestors.has(item.getId())) row.classList.add("ace-ht-row--path-parent");
       if (dropReceiverId === item.getId()) row.classList.add("ace-ht-row--drop-receiver");
@@ -2950,6 +2966,7 @@
         controller.refresh();
         window.__aceHeadlessTreeController = controller;
         setStatus("");
+        maybeShowChordHint();
         window.__aceHeadlessTreePreview = {
           get tree() {
             return tree;
