@@ -989,7 +989,8 @@ def export_codebook_to_csv(conn: sqlite3.Connection, path: str | Path) -> int:
         WHERE c.deleted_at IS NULL AND c.kind = 'code'
         ORDER BY c.sort_order
         """
-    ).fetchall()
+    )
+    count = 0
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["name", "group", "definition"])
         writer.writeheader()
@@ -999,4 +1000,5 @@ def export_codebook_to_csv(conn: sqlite3.Connection, path: str | Path) -> int:
                 "group": r["group_name"] or "",
                 "definition": r["definition"] or "",
             })
-    return len(rows)
+            count += 1
+    return count

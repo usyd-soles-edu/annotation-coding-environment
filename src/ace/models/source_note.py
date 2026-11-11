@@ -85,6 +85,14 @@ def list_notes_for_export(
     coder_id: str,
 ) -> list[sqlite3.Row]:
     """Return notes joined with source + coder, ordered by source sort_order."""
+    return list(iter_notes_for_export(conn, coder_id))
+
+
+def iter_notes_for_export(
+    conn: sqlite3.Connection,
+    coder_id: str,
+) -> sqlite3.Cursor:
+    """Iterate export rows without materialising the complete note set."""
     return conn.execute(
         """
         SELECT
@@ -101,4 +109,4 @@ def list_notes_for_export(
         ORDER BY s.sort_order
         """,
         (coder_id,),
-    ).fetchall()
+    )

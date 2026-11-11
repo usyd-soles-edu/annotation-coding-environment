@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-import tempfile
 from pathlib import Path
 
 from fastapi import (
@@ -16,16 +15,15 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import (
-    FileResponse,
     JSONResponse,
 )
-from starlette.background import BackgroundTask
 
 
 router = APIRouter(prefix="/api")
 
 from ace.routes.api_support import (
     _codebook_tree_payload,
+    _csv_download,
     _fallback_code_after_delete,
     _get_undo_manager,
     _oob_announce,
@@ -567,16 +565,8 @@ async def export_codebook(request: Request):
     """Export the codebook as a CSV file download."""
     from ace.models.codebook import export_codebook_to_csv
 
-    with _project_db(request) as conn:
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
-        tmp.close()
-        export_codebook_to_csv(conn, tmp.name)
-
-    return FileResponse(
-        tmp.name,
-        media_type="text/csv",
-        filename="codebook.csv",
-        background=BackgroundTask(Path(tmp.name).unlink, missing_ok=True),
+    return await _csv_download(
+        request, "codebook", export_codebook_to_csv, download_name="codebook.csv",
     )
 
 

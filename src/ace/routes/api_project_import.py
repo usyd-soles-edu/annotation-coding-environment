@@ -682,7 +682,7 @@ async def export_annotations(request: Request, merge_adjacent: bool = Query(Fals
     from ace.services.exporter import export_annotations_csv
 
     suffix = "annotations_merged" if merge_adjacent else "annotations"
-    return _csv_download(
+    return await _csv_download(
         request, suffix,
         lambda conn, path: export_annotations_csv(conn, path, merge_adjacent=merge_adjacent),
     )

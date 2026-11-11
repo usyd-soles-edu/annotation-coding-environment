@@ -4,7 +4,7 @@ import csv
 import sqlite3
 from pathlib import Path
 
-from ace.models.source_note import list_notes_for_export
+from ace.models.source_note import iter_notes_for_export
 
 _FIELDNAMES = [
     "source_display_id",
@@ -25,11 +25,11 @@ def export_notes_csv(
 
     Returns the number of rows written (excluding the header).
     """
-    rows = list_notes_for_export(conn, coder_id)
+    count = 0
     with open(output_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=_FIELDNAMES)
         writer.writeheader()
-        for row in rows:
+        for row in iter_notes_for_export(conn, coder_id):
             writer.writerow({
                 "source_display_id": row["display_id"],
                 "source_filename": row["filename"] or "",
@@ -38,4 +38,5 @@ def export_notes_csv(
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             })
-    return len(rows)
+            count += 1
+    return count

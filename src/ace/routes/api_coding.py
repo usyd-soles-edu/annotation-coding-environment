@@ -365,7 +365,7 @@ async def export_notes_route(request: Request):
     from ace.services.notes_exporter import export_notes_csv
 
     coder_id = _require_coder(request)
-    return _csv_download(
+    return await _csv_download(
         request,
         "notes",
         lambda conn, path: export_notes_csv(conn, coder_id, path),
