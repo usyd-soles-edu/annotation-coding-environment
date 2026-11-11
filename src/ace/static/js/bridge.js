@@ -353,10 +353,11 @@
     const tree = _keymapRoot();
     if (!tree) return;
     const rows = tree.querySelectorAll(".ace-ht-row--code[data-code-id]");
+    const menuKeys = "Shift+F10 ContextMenu";
     _currentKeyMap = [];
     if (_codeApplicationDisabled()) {
       rows.forEach(function (row) {
-        row.removeAttribute("aria-keyshortcuts");
+        row.setAttribute("aria-keyshortcuts", menuKeys);
         const keycap = row.querySelector(".ace-ht-chip");
         if (keycap) {
           keycap.textContent = "";
@@ -374,9 +375,9 @@
         // Chord row — has a chord cap rendered server-side. Don't include in
         // the single-key map (else hotkey index would target the wrong row if
         // a chord code is reordered into the first 31 positions).
-        // aria-keyshortcuts is intentionally omitted — its spec uses spaces for ALTERNATIVES,
-        // not key sequences, so "; xy" would announce as "either ; or xy". The chord cap's
-        // title attribute ("Press ; then xy to apply") carries the accessible hint instead.
+        // The chord sequence is omitted because aria-keyshortcuts uses spaces for
+        // alternatives, not sequences. The chord cap's title describes the chord.
+        row.setAttribute("aria-keyshortcuts", menuKeys);
         return;
       }
 
@@ -385,7 +386,7 @@
       const label = _keylabel(labelIdx);
       const keycap = row.querySelector(".ace-ht-chip:not(.ace-ht-chip--chord)");
       if (keycap) keycap.textContent = label;
-      row.setAttribute("aria-keyshortcuts", label);
+      row.setAttribute("aria-keyshortcuts", label ? label + " " + menuKeys : menuKeys);
       labelIdx++;
     });
   }
@@ -914,6 +915,7 @@
       _shortcutRow("⌥ + ←", "Move item out one folder level") +
       _shortcutRow("⌘/Ctrl + X", "Cut focused item") +
       _shortcutRow("⌘/Ctrl + V", "Paste cut item into focused folder/row") +
+      _shortcutRow("Shift + F10 / Menu", "Open codebook item actions") +
       _shortcutRow("Shift + Enter (in filter)", "Create new folder at root") +
       _shortcutRow("F2", "Rename code or folder (in sidebar)") +
       _shortcutRow("Codebook Delete / ⌫", "Delete code or folder (Z to undo)") +
@@ -2188,17 +2190,23 @@
   }
 
   let _activeColourPopover = null;
+  let _colourPopoverInvoker = null;
 
-  function _closeColourPopover() {
+  function _closeColourPopover(restoreFocus) {
     if (_activeColourPopover) {
+      const focusWasInPopover = _activeColourPopover.contains(document.activeElement);
       _activeColourPopover.remove();
       _activeColourPopover = null;
+      if (restoreFocus && focusWasInPopover && _colourPopoverInvoker?.isConnected) {
+        _colourPopoverInvoker.focus();
+      }
     }
+    _colourPopoverInvoker = null;
     document.removeEventListener("click", _onColourOutsideClick);
-    document.removeEventListener("keydown", _onColourEscape);
+    document.removeEventListener("keydown", _onColourEscape, true);
   }
 
-  function _openColourPopover(codeId) {
+  function _openColourPopover(codeId, invoker) {
     if (_denyCodebookEditing()) return;
     _closeAllPopovers();
     let row = _findCodebookItemRow(codeId);
@@ -2207,21 +2215,27 @@
 
     const popover = document.createElement("div");
     popover.className = "ace-colour-popover";
+    popover.setAttribute("role", "group");
+    popover.setAttribute("aria-label", "Change code colour");
 
     const palette = Array.isArray(window.__aceColourPalette) ? window.__aceColourPalette : [];
     palette.forEach(function (hex) {
       if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
       const swatch = document.createElement("button");
+      swatch.type = "button";
       swatch.className = "ace-colour-swatch";
       swatch.style.background = hex;
+      swatch.setAttribute("aria-label", "Set code colour to " + hex);
       swatch.addEventListener("click", function () {
         _closeAllPopovers();
         htmx.ajax("PUT", `/api/codes/${codeId}`, {
           ..._codebookMutationSwapOptions(),
-          values: {
+          values: _codebookMutationValues({
             colour: hex,
             current_index: window.__aceCurrentIndex || 0,
-          },
+          }),
+        }).then(function () {
+          _findCodebookItemRow(codeId)?.focus();
         });
       });
       popover.appendChild(swatch);
@@ -2229,13 +2243,16 @@
 
     document.body.appendChild(popover);
     _activeColourPopover = popover;
+    _colourPopoverInvoker = invoker || row;
+    document.addEventListener("keydown", _onColourEscape, true);
 
     popover.style.top = `${rect.bottom + 4}px`;
     popover.style.left = rect.left + "px";
+    popover.querySelector("button")?.focus();
 
     setTimeout(function () {
+      if (_activeColourPopover !== popover) return;
       document.addEventListener("click", _onColourOutsideClick);
-      document.addEventListener("keydown", _onColourEscape);
     }, 0);
   }
 
@@ -2244,7 +2261,11 @@
   }
 
   function _onColourEscape(e) {
-    if (e.key === "Escape") _closeColourPopover();
+    if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      _closeColourPopover(true);
+    }
   }
 
   // Right-click contextmenu wiring lives in section 14 below
@@ -2497,30 +2518,68 @@
    * ================================================================ */
 
   let _activeCodeMenu = null;
+  let _menuInvoker = null;
 
-  function _closeCodeMenu() {
+  function _closeCodeMenu(restoreFocus) {
     if (_activeCodeMenu) {
+      const focusWasInMenu = _activeCodeMenu.contains(document.activeElement);
       _activeCodeMenu.remove();
       _activeCodeMenu = null;
       _menuOpen = false;
+      if (restoreFocus && focusWasInMenu && _menuInvoker?.isConnected) {
+        _menuInvoker.focus();
+      }
     }
+    _menuInvoker = null;
     document.removeEventListener("click", _onMenuOutsideClick);
-    // Capture flag MUST match the addEventListener call below (line ~2230)
-    // — without it, removeEventListener silently does nothing and we leak one
-    // listener per menu open.
-    document.removeEventListener("keydown", _onMenuEscape, true);
+    document.removeEventListener("keydown", _onMenuKeydown, true);
   }
 
   function _onMenuOutsideClick(e) {
     if (_activeCodeMenu && !_activeCodeMenu.contains(e.target)) _closeCodeMenu();
   }
 
-  function _onMenuEscape(e) {
+  function _focusMenuItem(menu, index) {
+    const enabled = Array.from(menu.querySelectorAll('[role="menuitem"]:not([disabled])'));
+    if (!enabled.length) return;
+    const target = enabled[(index + enabled.length) % enabled.length];
+    enabled.forEach(function (item) { item.tabIndex = item === target ? 0 : -1; });
+    target.focus();
+  }
+
+  function _onMenuKeydown(e) {
+    if (!_activeCodeMenu) return;
     if (e.key === "Escape") {
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       e.preventDefault();
-      _closeCodeMenu();
+      _closeCodeMenu(true);
+      return;
     }
+    if (!_activeCodeMenu.contains(e.target)) return;
+    if (e.key === "Tab") {
+      const menu = _activeCodeMenu;
+      setTimeout(function () {
+        if (_activeCodeMenu === menu) _closeCodeMenu();
+      }, 0);
+      return;
+    }
+    const enabled = Array.from(_activeCodeMenu.querySelectorAll('[role="menuitem"]:not([disabled])'));
+    const current = enabled.indexOf(document.activeElement);
+    let next;
+    if (e.key === "ArrowDown") next = current + 1;
+    else if (e.key === "ArrowUp") next = current - 1;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = enabled.length - 1;
+    else if (e.key === "Enter" || e.key === " ") {
+      if (current < 0) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      document.activeElement.click();
+      return;
+    } else return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    _focusMenuItem(_activeCodeMenu, next);
   }
 
   // --- Helpers for menu actions (Task 12) ---
@@ -2700,7 +2759,7 @@
     });
     items.push({
       label: "Change colour\u2026",
-      handler: function () { _openColourPopover(codeId); },
+      handler: function () { _openColourPopover(codeId, row); },
     });
     items.push({
       label: "View coded text",
@@ -2778,12 +2837,15 @@
       if (it.sep) {
         const sep = document.createElement("div");
         sep.className = "ace-context-menu-sep";
+        sep.setAttribute("role", "separator");
         menu.appendChild(sep);
         return;
       }
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "ace-context-menu-item";
+      btn.setAttribute("role", "menuitem");
+      btn.tabIndex = -1;
       if (it.submenu) btn.classList.add("ace-context-menu-submenu");
       btn.textContent = it.label;
       if (it.shortcut) {
@@ -2795,6 +2857,7 @@
       if (it.disabled) btn.disabled = true;
       btn.addEventListener("click", function (ev) {
         if (it.disabled) return;
+        if (it.keepOpen) ev.stopPropagation();
         if (it.submenu) {
           ev.preventDefault();
           ev.stopPropagation();
@@ -2811,20 +2874,24 @@
         }
         if (it.handler) it.handler();
         if (it.keepOpen) return;
-        _closeCodeMenu();
+        _closeCodeMenu(true);
       });
       menu.appendChild(btn);
     });
+    _focusMenuItem(menu, 0);
   }
 
-  function _renderContextMenu(items, x, y) {
+  function _renderContextMenu(items, x, y, invoker) {
     _closeAllPopovers();
     _menuOpen = true;
+    _menuInvoker = invoker || null;
     const menu = document.createElement("div");
     menu.className = "ace-context-menu";
     menu.setAttribute("role", "menu");
+    menu.setAttribute("aria-label", "Codebook actions");
     document.body.appendChild(menu);
     _activeCodeMenu = menu;
+    document.addEventListener("keydown", _onMenuKeydown, true);
 
     _populateContextMenu(menu, items);
 
@@ -2838,8 +2905,8 @@
     menu.style.top = top + "px";
 
     setTimeout(function () {
+      if (_activeCodeMenu !== menu) return;
       document.addEventListener("click", _onMenuOutsideClick);
-      document.addEventListener("keydown", _onMenuEscape, true);
     }, 0);
   }
 
@@ -2862,8 +2929,22 @@
     if (!items.length) return;
     e.preventDefault();
     e.stopPropagation();
-    _renderContextMenu(items, e.clientX, e.clientY);
+    _renderContextMenu(items, e.clientX, e.clientY, codeRow || folderRow);
   });
+
+  // The keyboard menu keys expose the same actions as a pointer right-click.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "ContextMenu" && !(e.key === "F10" && e.shiftKey)) return;
+    const row = e.target.closest?.("#ace-headless-tree-mount .ace-ht-row[data-kind]");
+    if (!row || e.target.closest("input, textarea, [contenteditable]")) return;
+    const items = row.dataset.kind === "code"
+      ? _buildCodeRowMenu(row) : _buildFolderRowMenu(row);
+    if (!items.length) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    const box = row.getBoundingClientRect();
+    _renderContextMenu(items, box.left + 24, box.bottom, row);
+  }, true);
 
   /** Unified apply helper used by keycap click, search Enter, and tree Enter. */
   function _applyCode(codeId) {

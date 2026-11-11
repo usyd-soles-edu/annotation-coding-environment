@@ -45,6 +45,7 @@ Shortcuts depend on where focus is: source text, codebook, or search.
 | `Option+Shift+Up` / `Option+Shift+Down` | Reorder folder rows |
 | `Command+X` | Cut code |
 | `Command+V` | Paste code |
+| `Shift+F10` / `Menu` | Open actions for the focused code or folder |
 | `F2` | Rename |
 | `Delete` / `Backspace` | Soft-delete |
 | `Esc` | Clear cut, clear search, or return focus to source |

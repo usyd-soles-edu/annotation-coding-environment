@@ -1898,6 +1898,12 @@ html[data-ace-note-open="1"] .ace-applied-codes-panel {
 }
 
 .ace-context-menu-item:hover:not([disabled]) { background: var(--ace-bg-muted); }
+.ace-context-menu-item:focus,
+.ace-context-menu-item:focus-visible {
+  outline: 2px solid var(--ace-text);
+  outline-offset: -2px;
+  background: var(--ace-bg-muted);
+}
 .ace-context-menu-item[disabled] {
   opacity: var(--ace-opacity-disabled);
   cursor: default;
@@ -1949,7 +1955,8 @@ html[data-ace-note-open="1"] .ace-applied-codes-panel {
   padding: 0;
 }
 
-.ace-colour-swatch:hover {
+.ace-colour-swatch:hover,
+.ace-colour-swatch:focus {
   outline: 2px solid var(--ace-text);
   outline-offset: -1px;
 }

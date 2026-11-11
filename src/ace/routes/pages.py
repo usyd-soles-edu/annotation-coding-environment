@@ -372,5 +372,6 @@ async def code_view_page(request: Request, code_id: str):
             "project_file_stem": project_file_stem,
             "version": __version__,
             "codebook_mode": "audit",
+            "colour_palette": [hex_val for hex_val, _label in COLOUR_PALETTE],
         },
     )
