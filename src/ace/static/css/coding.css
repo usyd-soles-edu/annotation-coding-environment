@@ -315,7 +315,12 @@
 }
 
 .ace-text-header {
-  margin: 0 var(--ace-space-8) var(--ace-space-4);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: 0 0 var(--ace-space-4);
+  padding: 0 var(--ace-space-8);
+  background: var(--ace-bg);
   border-bottom: 1px solid var(--ace-border-light);
 }
 
@@ -1172,6 +1177,7 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
 .ace-text-panel {
   position: relative;
   flex: 1;
+  align-self: flex-start;
   min-width: 0;
   min-height: 100%;
   max-width: var(--ace-coding-text-width);
@@ -1186,10 +1192,11 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
 }
 
 .ace-notification-receipt {
-  position: absolute;
-  left: 50%;
+  position: sticky;
   bottom: 104px;
   z-index: 35;
+  align-self: center;
+  margin-top: auto;
   min-width: 260px;
   min-height: 42px;
   max-width: min(420px, calc(100% - 48px));
@@ -1206,7 +1213,7 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
   font-size: var(--ace-font-size-2xs);
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, 4px);
+  transform: translateY(4px);
   transition:
     opacity var(--ace-transition),
     transform var(--ace-transition),
@@ -1217,7 +1224,7 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
 .ace-notification-receipt:not(:empty) {
   opacity: 1;
   pointer-events: auto;
-  transform: translate(-50%, 0);
+  transform: translateY(0);
   transition:
     opacity var(--ace-transition),
     transform var(--ace-transition),
@@ -1261,7 +1268,7 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
 
 @media (prefers-reduced-motion: reduce) {
   .ace-notification-receipt {
-    transform: translate(-50%, 0);
+    transform: translateY(0);
     transition: none;
   }
 
@@ -1299,6 +1306,8 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
   display: flex;
   overflow-y: auto;
   scrollbar-gutter: stable;
+  /* Keep sentence focus and flash targets below the sticky source controls. */
+  scroll-padding-top: 168px;
   /* Provide standard breathing room below content; legend is now a separate footer */
   scroll-padding-bottom: var(--ace-space-8);
 }
