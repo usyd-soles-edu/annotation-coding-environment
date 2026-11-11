@@ -54,18 +54,6 @@ If you are comfortable with the command line, see [Install from source](INSTALL.
 
 The user guide is published with GitHub Pages at <https://usyd-soles-edu.github.io/annotation-coding-environment/>.
 
-### Reimporting CSV files into older projects
-
-CSV source labels and coding text now retain their original strings. Earlier
-versions could change numeric-looking values, for example `1.00` to `1.0`.
-Reimporting the original CSV into such a project can therefore create additional
-sources because duplicate detection uses the stored source label. Before
-reimporting, back up the project and compare its labels and text with the original
-CSV. Import only genuinely new rows until any differences have been reconciled.
-Existing sources and annotations are not rewritten automatically: values such as
-`1.0` and `1.00` may identify distinct sources, and changing text can invalidate
-annotation offsets. There is currently no automatic legacy-label migration.
-
 ## Notes on development
 
 ACE was initially developed without AI assistance. Later development used Claude and GPT-5 to support code auditing, debugging, release preparation, and some user interface design decisions. All code changes were reviewed and tested before release.
