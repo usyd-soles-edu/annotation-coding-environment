@@ -24,6 +24,7 @@ import {
   let searchRaw = "";
   let searchText = "";
   let chordFilterActive = false;
+  let cutItemId = null;
   const RESERVED_SINGLE_KEYS = new Set(["q", "x", "z", "n", "v"]);
   const MODE_POLICIES = Object.freeze({
     coding: Object.freeze({
@@ -824,6 +825,7 @@ import {
     });
     row.classList.add("ace-ht-row");
     row.classList.add(data.kind === "folder" ? "ace-ht-row--folder" : "ace-ht-row--code");
+    if (item.getId() === cutItemId) row.classList.add("ace-code-row--ghost");
     if (focusedAncestors.has(item.getId())) row.classList.add("ace-ht-row--path-parent");
     if (dropReceiverId === item.getId()) row.classList.add("ace-ht-row--drop-receiver");
     row.dataset.itemId = item.getId();
@@ -1236,6 +1238,13 @@ import {
       scheduleRender();
     }
 
+    function setCutItemId(id) {
+      cutItemId = id || null;
+      rootElement()?.querySelectorAll(".ace-ht-row[data-item-id]").forEach(function (row) {
+        row.classList.toggle("ace-code-row--ghost", row.dataset.itemId === cutItemId);
+      });
+    }
+
     const api = {
       kind: "headless",
       refresh,
@@ -1269,6 +1278,7 @@ import {
       firstCodeItem,
       activeCodeItem,
       setChordFilter,
+      setCutItemId,
     };
 
     return api;

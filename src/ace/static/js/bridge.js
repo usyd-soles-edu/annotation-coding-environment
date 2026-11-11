@@ -2188,6 +2188,7 @@
       if (old) old.classList.remove("ace-code-row--ghost");
     }
     _cutCode = codeId;
+    _getSidebarTreeController()?.setCutItemId?.(codeId);
     if (codeId) {
       const row = _findCodebookItemRow(codeId);
       if (row) row.classList.add("ace-code-row--ghost");
