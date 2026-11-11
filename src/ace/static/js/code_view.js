@@ -1051,6 +1051,7 @@
     // (Esc closes it natively; our Esc handler must not also navigate away).
     const _dlg = document.getElementById("cv-cheatsheet-dialog");
     if (_dlg && _dlg.open) return;
+    if (evt.target.closest?.(".ace-context-menu, .ace-colour-popover")) return;
 
     // Don't hijack keys while the user is typing in any form control (filter,
     // sidebar search, etc). Special case: Esc in #cv-search clears the field
@@ -1541,6 +1542,7 @@
   // Document-level `/` → focus codebook search.
   // Registered at capture phase, matching the existing code_view.js convention.
   document.addEventListener("keydown", (evt) => {
+    if (evt.target.closest?.(".ace-context-menu, .ace-colour-popover")) return;
     if (evt.key === "/") {
       if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
       if (isEditableElement(document.activeElement)) return;

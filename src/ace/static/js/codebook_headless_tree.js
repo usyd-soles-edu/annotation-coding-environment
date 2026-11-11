@@ -2487,6 +2487,10 @@
       });
       row.classList.add("ace-ht-row");
       row.classList.add(data.kind === "folder" ? "ace-ht-row--folder" : "ace-ht-row--code");
+      if (data.kind === "code" || !modePolicy().editingDisabled) {
+        row.setAttribute("aria-haspopup", "menu");
+        row.setAttribute("aria-keyshortcuts", "Shift+F10 ContextMenu");
+      }
       if (item.getId() === cutItemId) row.classList.add("ace-code-row--ghost");
       if (focusedAncestors.has(item.getId())) row.classList.add("ace-ht-row--path-parent");
       if (dropReceiverId === item.getId()) row.classList.add("ace-ht-row--drop-receiver");
