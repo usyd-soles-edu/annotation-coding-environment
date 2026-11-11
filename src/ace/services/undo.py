@@ -223,10 +223,15 @@ class UndoManager:
             payload={"from_source_id": from_source_id, "to_source_id": to_source_id},
         ))
 
-    def record_codebook_import(self, imported_code_ids: list[str]) -> None:
+    def record_codebook_import(
+        self, imported_code_ids: list[str], created_folder_ids: list[str]
+    ) -> None:
         self._push(UndoEntry(
             op="codebook_import",
-            payload={"imported_code_ids": list(imported_code_ids)},
+            payload={
+                "imported_code_ids": list(imported_code_ids),
+                "created_folder_ids": list(created_folder_ids),
+            },
         ))
 
     def record_create_folder(self, folder_id: str) -> None:
@@ -657,22 +662,37 @@ def _redo_source_navigation(conn, entry):
 
 
 def _undo_codebook_import(conn, entry):
-    from ace.models.codebook import delete_code
+    from ace.models.codebook import _delete_code_no_commit
     ids = entry.payload["imported_code_ids"]
-    for cid in ids:
-        # delete_code returns (annotation_ids, children_lifted_ids); we
-        # discard both since linear-undo guarantees there are no annotations
-        # on a freshly-imported (and not-yet-used) code.
-        delete_code(conn, cid)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for cid in ids:
+            # Linear undo guarantees there are no annotations on freshly
+            # imported codes. Delete codes before their new parent folders.
+            _delete_code_no_commit(conn, cid)
+        for fid in entry.payload["created_folder_ids"]:
+            _delete_code_no_commit(conn, fid)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     n = len(ids)
     return f"imported {n} code{'s' if n != 1 else ''}", None
 
 
 def _redo_codebook_import(conn, entry):
-    from ace.models.codebook import restore_code
+    from ace.models.codebook import _restore_code_no_commit
     ids = entry.payload["imported_code_ids"]
-    for cid in ids:
-        restore_code(conn, cid, [])
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        for fid in entry.payload["created_folder_ids"]:
+            _restore_code_no_commit(conn, fid, [])
+        for cid in ids:
+            _restore_code_no_commit(conn, cid, [])
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
     n = len(ids)
     return f"imported {n} code{'s' if n != 1 else ''}", None
 

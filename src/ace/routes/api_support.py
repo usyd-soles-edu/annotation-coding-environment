@@ -1146,8 +1146,19 @@ def _audit_undo_codebook_mutation_kwargs(
     fallback_code_id: str | None = None
     audit_reload: bool | None = None
     folder_list_changed = False
+    current_code_deleted = False
 
-    if op == "code_convert_to_folder":
+    if op == "codebook_import":
+        imported_code_ids = list(payload.get("imported_code_ids") or [])
+        created_folder_ids = list(payload.get("created_folder_ids") or [])
+        affected_code_ids = [*imported_code_ids, *created_folder_ids]
+        folder_list_changed = bool(created_folder_ids)
+        audit_reload = bool(current_code_id)
+        if direction == 0 and current_code_id in imported_code_ids:
+            current_code_deleted = True
+            fallback_code_id = _fallback_code_after_delete(conn, current_code_id)
+            audit_reload = False
+    elif op == "code_convert_to_folder":
         code_id = payload.get("code_id")
         child_code_id = payload.get("child_code_id")
         affected_code_ids = [cid for cid in [code_id, child_code_id] if cid]
@@ -1194,6 +1205,7 @@ def _audit_undo_codebook_mutation_kwargs(
         "fallback_code_id": fallback_code_id,
         "audit_reload": audit_reload,
         "folder_list_changed": folder_list_changed,
+        "current_code_deleted": current_code_deleted,
     }
 
 
@@ -1256,6 +1268,8 @@ def _build_undo_response(
             result,
             current_code_id,
         )
+        if mutation_kwargs["current_code_deleted"] and not mutation_kwargs["fallback_code_id"]:
+            return HTMLResponse("", headers={"HX-Redirect": "/code"})
         return _render_codebook_mutation_response(
             request,
             conn,
