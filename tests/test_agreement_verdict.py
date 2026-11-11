@@ -1,9 +1,11 @@
 """Tests for agreement_verdict module."""
 
 import pytest
+from types import SimpleNamespace
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from ace.services.agreement_types import AgreementResult, CodeMetrics
+from ace.routes.api_support import _render_agreement_results
+from ace.services.agreement_types import AgreementDataset, AgreementResult, CodeMetrics, CoderInfo, MatchedCode
 from ace.services.agreement_verdict import (
     CodeVerdict,
     OverallVerdict,
@@ -254,3 +256,64 @@ def test_overall_grey():
     result, verdicts = _make_result(None, {"Code A": 0.85})
     ov = classify_overall(result, verdicts)
     assert ov.colour == "grey"
+
+
+def test_overall_card_uses_same_minimum_data_rule_as_overall_row():
+    result, verdicts = _make_result(0.90, {"Code A": 0.90})
+    result.overall.n_positions = 30
+
+    assert classify_overall(result, verdicts).colour == "grey"
+    assert classify_code(result.overall).colour == "grey"
+
+
+def test_results_explain_ac1_and_flag_pair_below_pooled_status():
+    result = AgreementResult(
+        overall=_make_metrics(ac1=0.86),
+        per_code={"Code A": _make_metrics(ac1=0.86)},
+        per_source={},
+        pairwise={
+            ("a", "b"): _make_metrics(ac1=0.90),
+            ("a", "c"): _make_metrics(ac1=0.42),
+            ("b", "c"): _make_metrics(ac1=0.87),
+        },
+        n_coders=3,
+        n_sources=1,
+        n_codes=1,
+    )
+    dataset = AgreementDataset(
+        sources=[],
+        coders=[
+            CoderInfo("a", "Alice", "a.ace"),
+            CoderInfo("b", "Bob", "b.ace"),
+            CoderInfo("c", '<script>alert("x")</script>', "c.ace"),
+        ],
+        codes=[MatchedCode("Code A")],
+        annotations=[],
+        warnings=[],
+    )
+    loader = SimpleNamespace(
+        _match_sources=lambda: ([], []),
+        _total_source_identities=lambda matches: 1,
+        _file_data=[{"codes": {1: {"name": "Code A"}}}],
+    )
+    env = Environment(
+        loader=FileSystemLoader("src/ace/templates"),
+        autoescape=select_autoescape(["html"]),
+    )
+
+    html = _render_agreement_results(result, dataset, loader, env)
+
+    assert "1 of 3 coder pairs has" in html
+    assert "Alice ↔" in html
+    assert "(unreliable)" in html
+    assert '<a href="#ace-pairwise-comparison">' in html
+    assert "How status is set:" in html
+    assert "reliable at 0.80 or above" in html
+    assert "Status uses AC1" in html
+    assert "Each row pools all codes for one coder pair" in html
+    assert '<script>alert("x")</script>' not in html
+    assert "&lt;script&gt;" in html
+
+    result.pairwise[("a", "c")] = _make_metrics(ac1=0.86)
+    html_with_reliable_pairs = _render_agreement_results(result, dataset, loader, env)
+    assert "Pairwise check:" not in html_with_reliable_pairs

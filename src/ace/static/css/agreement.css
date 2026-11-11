@@ -164,6 +164,24 @@
   color: #333;
 }
 
+.ace-verdict .ace-verdict-pairwise-alert {
+  padding: 10px 12px;
+  border-left: 3px solid var(--ace-text);
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.ace-verdict-pairwise-alert a { color: inherit; }
+
+.ace-verdict-basis,
+.ace-pairwise-explanation {
+  font-size: var(--ace-font-size-sm);
+  line-height: 1.6;
+  color: var(--ace-text);
+}
+
+.ace-verdict-basis { margin: -12px 0 20px; }
+.ace-pairwise-explanation { margin: -4px 0 12px; }
+
 /* ── Index column ── */
 .col-idx {
   width: 32px;

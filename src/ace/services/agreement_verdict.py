@@ -246,8 +246,8 @@ def classify_overall(
 
     overall_ac1 = result.overall.gwets_ac1
 
-    # Grey: no overall AC1 available
-    if overall_ac1 is None:
+    # Apply the same minimum-data rule as the overall table row and each code.
+    if overall_ac1 is None or result.overall.n_positions < _MIN_POSITIONS:
         return _verdict(
             "grey",
             "Not enough data",
