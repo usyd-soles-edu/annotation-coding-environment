@@ -1728,6 +1728,13 @@ def _render_agreement_results(result, dataset, loader, jinja_env) -> str:
             )
             pairwise_sorted.append((label, pm, classify_code(pm, pairwise=True)))
 
+    status_rank = {"grey": 0, "red": 1, "amber": 2, "green": 3}
+    pairwise_below_overall = [
+        (label, pair_verdict.status)
+        for label, _metrics, pair_verdict in pairwise_sorted
+        if status_rank[pair_verdict.colour] < status_rank[verdict.colour]
+    ]
+
     # Table numbering
     table_per_code = 1
     table_pairwise = 2 if pairwise_sorted else None
@@ -1751,6 +1758,7 @@ def _render_agreement_results(result, dataset, loader, jinja_env) -> str:
         overall=result.overall,
         overall_verdict=overall_verdict,
         pairwise_sorted=pairwise_sorted,
+        pairwise_below_overall=pairwise_below_overall,
         kappa_header="Cohen \u03ba" if n_coders == 2 else "Fleiss \u03ba",
         fmt=_agreement_fmt,
         table_per_code=table_per_code,
