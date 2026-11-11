@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from types import MappingProxyType
 
+from ace.models.assignment import _ensure_assignments_no_commit
 from ace.models.source import _add_source_no_commit
 
 _CSV_ENCODINGS = ("utf-8", "cp1252", "latin-1")
@@ -758,6 +759,7 @@ def _insert_candidates(
                 )
             )
             existing.add(candidate.display_id)
+        _ensure_assignments_no_commit(conn)
         conn.commit()
     except Exception:
         if transaction_started:

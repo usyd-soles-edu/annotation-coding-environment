@@ -5,6 +5,33 @@ import uuid
 from datetime import datetime, timezone
 
 
+def _ensure_assignments_no_commit(
+    conn: sqlite3.Connection, coder_id: str | None = None
+) -> None:
+    """Fill missing source/coder pairs within the caller's transaction.
+
+    With no coder_id, reconcile every coder. Existing flags and timestamps
+    remain untouched, including when this is called repeatedly.
+    """
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "INSERT INTO assignment (id, source_id, coder_id, flagged, assigned_at, updated_at) "
+        "SELECT lower(hex(randomblob(16))), s.id, c.id, 0, ?, ? "
+        "FROM source s CROSS JOIN coder c "
+        "WHERE (? IS NULL OR c.id = ?) AND NOT EXISTS ("
+        "SELECT 1 FROM assignment a WHERE a.source_id = s.id AND a.coder_id = c.id) "
+        "ORDER BY s.sort_order, s.rowid, c.rowid "
+        "ON CONFLICT(source_id, coder_id) DO NOTHING",
+        (now, now, coder_id, coder_id),
+    )
+
+
+def ensure_assignments(conn: sqlite3.Connection, coder_id: str) -> None:
+    """Reconcile a coder's assignments, including projects imported previously."""
+    _ensure_assignments_no_commit(conn, coder_id)
+    conn.commit()
+
+
 def add_assignment(conn: sqlite3.Connection, source_id: str, coder_id: str) -> str:
     now = datetime.now(timezone.utc).isoformat()
     assignment_id = uuid.uuid4().hex

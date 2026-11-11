@@ -18,7 +18,7 @@ from ace.models.annotation import (
     get_annotations_for_source,
     get_code_view_data,
 )
-from ace.models.assignment import add_assignment, get_assignments_for_coder
+from ace.models.assignment import ensure_assignments, get_assignments_for_coder
 from ace.models.codebook import COLOUR_PALETTE, list_codes, list_codes_with_tree
 from ace.models.project import get_project
 from ace.models.source import (
@@ -91,11 +91,10 @@ def _coding_context(
     total_sources = len(sources)
     project_file_stem = Path(project_path).stem if project_path else ""
 
-    # Auto-create assignments if none exist for this coder
+    # Repair missing assignments in projects imported before reconciliation.
     assignments = get_assignments_for_coder(conn, coder_id)
-    if not assignments:
-        for source in sources:
-            add_assignment(conn, source["id"], coder_id)
+    if len(assignments) != total_sources:
+        ensure_assignments(conn, coder_id)
         assignments = get_assignments_for_coder(conn, coder_id)
 
     # Clamp index
