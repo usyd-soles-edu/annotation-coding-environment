@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import html
 import json
 import logging
@@ -10,6 +11,7 @@ import re
 import sqlite3
 import subprocess
 import tempfile
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -23,6 +25,7 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import (
+    FileResponse,
     HTMLResponse,
     Response,
 )
@@ -34,6 +37,16 @@ logger = logging.getLogger(__name__)
 
 
 _AGREEMENT_STALE = object()
+
+
+class _TemporaryCsvResponse(FileResponse):
+    """Remove an export file after sending, including send failures."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            Path(self.path).unlink(missing_ok=True)
 
 
 def _require_coder(request: Request) -> str:
@@ -743,42 +756,73 @@ def _build_import_mapping_fragment(
     """
 
 
-def _csv_download(
+async def _csv_download(
     request: Request,
     suffix: str,
     write_csv,
+    download_name: str | None = None,
 ) -> Response:
-    """Run `write_csv(conn, tmp_path)` against the project db, read the
-    resulting CSV back and return it as an attachment download named
-    `<project>_<suffix>_<timestamp>.csv`.
-
-    Shared by the annotations and notes export routes — both follow the
-    same open-db / write-to-tempfile / read-back / delete flow.
-    """
+    """Prepare a CSV in a worker, then stream and clean up the temp file."""
     from datetime import datetime
 
     from ace.models.project import get_project
 
-    with _project_db(request) as conn:
-        project = get_project(conn)
-        tmp = tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False, encoding="utf-8"
-        )
-        tmp.close()
-        tmp_path = Path(tmp.name)
-        try:
-            write_csv(conn, tmp.name)
-            content = tmp_path.read_text(encoding="utf-8")
-        finally:
-            tmp_path.unlink(missing_ok=True)
+    # Capture the project before yielding to the event loop. The connection is
+    # opened, used and closed entirely in the worker thread.
+    project_path = request.app.state.project_path
+    ownership_lock = threading.Lock()
+    abandoned = False
+    prepared_path: Path | None = None
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    filename = _safe_filename(f"{project['name']}_{suffix}_{timestamp}.csv")
-    return Response(
-        content=content,
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
+    def prepare() -> tuple[Path, str]:
+        nonlocal prepared_path
+        tmp_path: Path | None = None
+        try:
+            with _project_db(request, project_path=project_path) as conn:
+                project_name = get_project(conn)["name"]
+                tmp = tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".csv", delete=False, encoding="utf-8"
+                )
+                tmp_path = Path(tmp.name)
+                tmp.close()
+                write_csv(conn, tmp_path)
+        except BaseException:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
+            raise
+        assert tmp_path is not None
+        with ownership_lock:
+            if abandoned:
+                tmp_path.unlink(missing_ok=True)
+            else:
+                prepared_path = tmp_path
+        return tmp_path, project_name
+
+    prepare_task = asyncio.create_task(asyncio.to_thread(prepare))
+    try:
+        tmp_path, project_name = await asyncio.shield(prepare_task)
+    except asyncio.CancelledError:
+        # Hand ownership back to the worker. Its cleanup survives repeated
+        # cancellation and even shutdown of the request's event loop.
+        with ownership_lock:
+            abandoned = True
+            orphan = prepared_path
+        if orphan is not None:
+            orphan.unlink(missing_ok=True)
+        raise
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+        filename = _safe_filename(
+            download_name or f"{project_name}_{suffix}_{timestamp}.csv"
+        )
+        return _TemporaryCsvResponse(
+            tmp_path,
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
 
 
 def _get_undo_manager(request: Request):
@@ -793,14 +837,18 @@ def _get_undo_manager(request: Request):
 
 
 @contextmanager
-def _project_db(request: Request) -> Iterator[sqlite3.Connection]:
+def _project_db(
+    request: Request, project_path: str | Path | None = None,
+) -> Iterator[sqlite3.Connection]:
     """Context-manager form: yields a direct SQLite connection to the
     current project and closes it on exit.
 
     Replaces the old `_open_project_db` + `try/finally: conn.close()`
     scaffold that appeared at ~20 call sites.
     """
-    conn = sqlite3.connect(request.app.state.project_path)
+    conn = sqlite3.connect(
+        project_path if project_path is not None else request.app.state.project_path
+    )
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")

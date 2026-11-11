@@ -381,7 +381,7 @@ def test_codebook_export_removes_temp_file(client_with_sources, tmp_path, monkey
     """The codebook export route removes its temporary CSV after serving it."""
     import tempfile
 
-    import ace.routes.api_codebook as api_codebook
+    import ace.routes.api_support as api_support
 
     client, _coder_id = client_with_sources
     temp_paths = []
@@ -394,7 +394,7 @@ def test_codebook_export_removes_temp_file(client_with_sources, tmp_path, monkey
         return tmp
 
     monkeypatch.setattr(
-        api_codebook.tempfile,
+        api_support.tempfile,
         "NamedTemporaryFile",
         _named_temp_in_tmp_path,
     )
