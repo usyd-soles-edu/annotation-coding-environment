@@ -1567,14 +1567,8 @@
         && !evt.ctrlKey && !evt.metaKey && !evt.altKey) {
       // evt.shiftKey is TRUE for "?" on US layouts — don't reject it
       if (isEditableElement(document.activeElement)) return;
-      const dlg = document.getElementById("cv-cheatsheet-dialog");
-      if (!dlg || typeof dlg.showModal !== "function") return;
       claim(evt);
-      // Guard against re-open: showModal() throws InvalidStateError if the
-      // dialog is already open, which would break subsequent keyboard handling.
-      if (dlg.open) return;
-      dlg.__opener = document.activeElement;
-      dlg.showModal();
+      openCheatSheet(document.activeElement);
       return;
     }
 
@@ -1839,6 +1833,15 @@
 
   const cheatDlg = document.getElementById("cv-cheatsheet-dialog");
   const cheatCloseBtn = document.getElementById("cv-cheatsheet-close-btn");
+  const cheatOpenBtn = document.getElementById("cv-shortcuts-button");
+  function openCheatSheet(opener) {
+    if (!cheatDlg || typeof cheatDlg.showModal !== "function" || cheatDlg.open) return;
+    cheatDlg.__opener = opener;
+    cheatDlg.showModal();
+  }
+  if (cheatOpenBtn) {
+    cheatOpenBtn.addEventListener("click", () => openCheatSheet(cheatOpenBtn));
+  }
   if (cheatCloseBtn && cheatDlg) {
     cheatCloseBtn.addEventListener("click", () => cheatDlg.close());
   }
