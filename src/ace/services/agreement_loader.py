@@ -14,6 +14,15 @@ from ace.services.agreement_types import (
 )
 
 
+def _read_only_uri(path: Path) -> str:
+    uri = path.resolve().as_uri()
+    # SQLite's default builds reject non-local URI authorities. Keep a Windows
+    # UNC server in the path instead, retaining as_uri's percent-encoding.
+    if uri.startswith("file://") and not uri.startswith("file:///"):
+        uri = "file:////" + uri[len("file://"):]
+    return uri + "?mode=ro"
+
+
 class AgreementLoader:
     """Loads multiple .ace files, validates them, extracts and matches data."""
 
@@ -43,7 +52,7 @@ class AgreementLoader:
 
         # Open read-only
         try:
-            conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
+            conn = sqlite3.connect(_read_only_uri(path), uri=True)
             conn.row_factory = sqlite3.Row
         except sqlite3.OperationalError as e:
             return {"error": f"Cannot open '{path.name}': {e}"}
