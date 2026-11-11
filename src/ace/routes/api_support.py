@@ -1748,6 +1748,7 @@ def _render_agreement_results(result, dataset, loader, jinja_env) -> str:
         n_coders=n_coders,
         n_sources=result.n_sources,
         n_codes=result.n_codes,
+        provenance=[(coder.label, Path(coder.source_file).name) for coder in dataset.coders],
         total_sources=total_sources,
         total_codes=len(all_code_names),
         warnings=dataset.warnings,
