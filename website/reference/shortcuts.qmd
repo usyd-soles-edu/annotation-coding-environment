@@ -56,6 +56,7 @@ Shortcuts depend on where focus is: source text, codebook, or search.
 | `/` | Open search |
 | `Enter` | Apply the selected code or create a code when shown |
 | `Shift+Enter` | Create a folder when shown |
+| `Command+Enter` / `Control+Enter` | Create a code from the search text even when another code matches |
 | `Esc` | Clear search or return to source |
 
 ## Tip
