@@ -778,6 +778,17 @@ def read_tabular(path: Path) -> tuple[list[dict], list[str]]:
     return _read_csv(path)
 
 
+def _validate_column_headings(columns: list[str]) -> None:
+    seen: set[str] = set()
+    for column in columns:
+        if column in seen:
+            raise ValueError(
+                f"Duplicate column heading {column!r}. "
+                "Give each column a unique heading and try again."
+            )
+        seen.add(column)
+
+
 def _read_csv(path: Path) -> tuple[list[dict], list[str]]:
     """Read raw CSV strings with encoding fallback (utf-8, cp1252, latin-1)."""
     for encoding in _CSV_ENCODINGS:
@@ -785,7 +796,16 @@ def _read_csv(path: Path) -> tuple[list[dict], list[str]]:
             with open(path, newline="", encoding=encoding) as f:
                 reader = csv.DictReader(f)
                 columns = reader.fieldnames or []
-                return list(reader), list(columns)
+                _validate_column_headings(columns)
+                rows = []
+                for row in reader:
+                    if None in row:
+                        raise ValueError(
+                            f"CSV row ending at line {reader.line_num} has more fields than column headings. "
+                            "Check the headings and quote any commas inside values."
+                        )
+                    rows.append(row)
+                return rows, list(columns)
         except UnicodeDecodeError:
             continue
 
@@ -807,6 +827,7 @@ def _read_xlsx(path: Path) -> tuple[list[dict], list[str]]:
         row_iter = ws.iter_rows()
         header_cells = next(row_iter)
         columns = [str(c.value) if c.value is not None else f"col_{i}" for i, c in enumerate(header_cells)]
+        _validate_column_headings(columns)
 
         rows = []
         for row_cells in row_iter:
