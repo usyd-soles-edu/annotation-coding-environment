@@ -58,7 +58,9 @@ def import_csv(
 
     Each row becomes one source. When multiple text columns are selected,
     their values are combined as labelled sections in source order.
-    Non-ID/non-text columns are stored as metadata_json.
+    Non-ID/non-text columns are stored as metadata_json. CSV labels and coding
+    text retain their original strings; only CSV metadata is coerced to numbers
+    (or None for empty cells). Excel retains its native cell value types.
 
     Rows whose ``display_id`` already exists in the ``source`` table are
     skipped (the existing text is preserved). Returns
@@ -80,7 +82,12 @@ def import_csv(
             continue
         display_id = _validated_display_id(raw_display_id)
         metadata = (
-            {c: row[c] for c in meta_columns}
+            {
+                c: _coerce_value(row[c])
+                if path.suffix.lower() != ".xlsx" and isinstance(row[c], str)
+                else row[c]
+                for c in meta_columns
+            }
             if meta_columns and has_selected_text
             else None
         )
@@ -770,17 +777,13 @@ def read_tabular(path: Path) -> tuple[list[dict], list[str]]:
 
 
 def _read_csv(path: Path) -> tuple[list[dict], list[str]]:
-    """Read CSV with multi-encoding fallback (utf-8, cp1252, latin-1)."""
+    """Read raw CSV strings with encoding fallback (utf-8, cp1252, latin-1)."""
     for encoding in _CSV_ENCODINGS:
         try:
             with open(path, newline="", encoding=encoding) as f:
                 reader = csv.DictReader(f)
                 columns = reader.fieldnames or []
-                rows = []
-                for row in reader:
-                    coerced = {k: _coerce_value(v) for k, v in row.items()}
-                    rows.append(coerced)
-                return rows, list(columns)
+                return list(reader), list(columns)
         except UnicodeDecodeError:
             continue
 

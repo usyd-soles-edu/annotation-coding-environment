@@ -111,6 +111,31 @@ def test_import_commit(client_with_project):
     assert "Start coding" in resp.text
 
 
+def test_csv_mapping_preview_and_commit_preserve_numeric_text(client_with_project):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "verbatim.csv"
+    csv_path.write_text("id,text\n1.00,1e3\n007, 2.00 \n", encoding="utf-8")
+
+    preview = client.post("/api/import/file", data={"path": str(csv_path)})
+    assert preview.status_code == 200
+    payload = re.search(r'data-preview-rows="([^"]*)"', preview.text)
+    rows = json.loads(html.unescape(payload.group(1)))
+    assert [row["label"] for row in rows] == ["1.00", "007"]
+    assert [row["values"]["text"] for row in rows] == ["1e3", " 2.00 "]
+    assert 'ace-import-column-type">number<' in preview.text
+
+    result = client.post("/api/import/commit", data={"id_column": "id", "text_columns": '["text"]'})
+    assert result.status_code == 200
+    assert "2 sources" in result.text
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        sources = list_sources(conn)
+        assert [source["display_id"] for source in sources] == ["1.00", "007"]
+        assert [get_source_content(conn, source["id"])["content_text"] for source in sources] == ["1e3", " 2.00 "]
+    finally:
+        conn.close()
+
+
 def test_import_commit_reports_blank_source_labels(client_with_project):
     """Blank source labels are reported and the full batch is rejected."""
     client, tmp_path = client_with_project

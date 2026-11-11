@@ -1,3 +1,4 @@
+import csv
 import hashlib
 import json
 import os
@@ -51,6 +52,29 @@ def test_import_csv_stores_metadata(tmp_db, sample_csv):
     meta = json.loads(sources[0]["metadata_json"])
     assert meta["age"] == 22
     conn.close()
+
+
+@pytest.mark.parametrize("value", ["1.00", "1e3", "007", " 1.00 ", "  words  "])
+def test_csv_preserves_selected_labels_and_text(tmp_path, tmp_db, value):
+    path = tmp_path / "verbatim.csv"
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["id", "text", "score", "empty", "group"])
+        writer.writerow([value, value, "1.00", "", "007"])
+    rows, columns = read_tabular(path)
+    assert rows[0]["id"] == value
+    assert rows[0]["text"] == value
+    conn = create_project(tmp_db, "test")
+    try:
+        import_csv(conn, path, "id", ["text"], tabular_data=(rows, columns))
+        source = list_sources(conn)[0]
+        content = get_source_content(conn, source["id"])
+        assert source["display_id"] == value
+        assert content["content_text"] == value
+        assert content["content_hash"] == hashlib.sha256(value.encode("utf-8")).hexdigest()
+        assert json.loads(source["metadata_json"]) == {"score": 1.0, "empty": None, "group": "007"}
+    finally:
+        conn.close()
 
 
 def test_import_csv_content_hash(tmp_db, sample_csv):
