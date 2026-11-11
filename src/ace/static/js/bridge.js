@@ -4912,10 +4912,17 @@
       return;
     }
 
-    // Export all annotations button
+    // Export annotations, preserving each selected span by default.
     if (e.target.closest("#export-annotations-btn")) {
       _setCodebookMenuOpen(false);
       window.location.href = "/api/export/annotations";
+      window._setStatus("Exported", "ok");
+      return;
+    }
+
+    if (e.target.closest("#export-annotations-merged-btn")) {
+      _setCodebookMenuOpen(false);
+      window.location.href = "/api/export/annotations?merge_adjacent=true";
       window._setStatus("Exported", "ok");
       return;
     }
