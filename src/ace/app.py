@@ -372,7 +372,14 @@ def create_app() -> FastAPI:
     app.add_exception_handler(HtmxRedirect, _htmx_redirect_handler)
 
     # Middleware (applied bottom-up: CSRF runs first, then session)
-    app.add_middleware(SessionMiddleware, secret_key=secrets.token_hex(32))
+    # Cookies are shared across localhost ports. Each process needs a distinct
+    # name as well as a distinct signing key. Use a browser-session cookie.
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=secrets.token_hex(32),
+        session_cookie=f"ace_session_{secrets.token_hex(16)}",
+        max_age=None,
+    )
     app.add_middleware(_CSRFMiddleware)
 
     # Static files

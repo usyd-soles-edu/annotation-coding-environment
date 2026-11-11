@@ -161,3 +161,35 @@ def test_lifespan_removes_runtime_file_for_current_process(tmp_path):
 
     assert resp.status_code == 200
     assert not runtime_file.exists()
+
+
+def test_two_runtimes_keep_independent_browser_sessions():
+    """Cookies share a host across ports, but launcher authorisation must not."""
+    from http.cookiejar import CookieJar
+
+    jar = CookieJar()
+    shutdowns = []
+    env = {**_RUNTIME_ENV, "ACE_RUNTIME_FILE": ""}
+    with patch.dict(os.environ, env, clear=False):
+        app_a = create_app()
+        app_b = create_app()
+        with TestClient(app_a, base_url="http://localhost:18101") as a, TestClient(
+            app_b, base_url="http://localhost:18102"
+        ) as b:
+            app_a.state.browser_runtime_shutdown = lambda: shutdowns.append("a")
+            app_b.state.browser_runtime_shutdown = lambda: shutdowns.append("b")
+            a.cookies = jar
+            b.cookies = jar
+            assert a.get("/launch?token=test-token", follow_redirects=False).status_code == 302
+            assert a.post("/api/runtime/heartbeat", data={"tab_id": "a"}).status_code == 200
+            # The A cookie must never authorise B.
+            assert b.post("/api/runtime/heartbeat", data={"tab_id": "b"}).status_code == 403
+            assert b.get("/launch?token=test-token", follow_redirects=False).status_code == 302
+            assert len(list(jar)) == 2
+            assert b.post("/api/runtime/heartbeat", data={"tab_id": "b"}).status_code == 200
+            assert a.post("/api/runtime/heartbeat", data={"tab_id": "a"}).status_code == 200
+            for client, tab in [(a, "a"), (b, "b")]:
+                assert client.get("/api/runtime/status").json()["authenticated"] is True
+                assert client.post("/api/runtime/disconnect", data={"tab_id": tab}).status_code == 200
+                assert client.post("/api/runtime/quit").status_code == 200
+    assert shutdowns == ["a", "b"]
