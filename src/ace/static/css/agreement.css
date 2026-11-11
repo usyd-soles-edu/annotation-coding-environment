@@ -252,7 +252,26 @@
 .col-num { text-align: right; }
 th.col-num { text-align: right; }
 
-.col-sortable { cursor: pointer; user-select: none; }
+.col-sortable { user-select: none; }
+.ace-sort-button {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+th.col-num .ace-sort-button { justify-content: flex-end; }
+.ace-sort-button:focus-visible,
+.ace-code-row:focus-visible {
+  outline: 2px solid var(--ace-focus);
+  outline-offset: 2px;
+}
 .sort-icon { color: #999; font-size: 12px; margin-left: 2px; }
 
 .val-red { color: #c62828; }
