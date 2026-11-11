@@ -86,6 +86,8 @@ Steps:
 
 If the CSV has no folder column, leave the folder mapping blank.
 
+If the import needs to be reversed, use **Undo**. ACE removes the imported codes and any folders created by that import, while keeping folders that were already in the project.
+
 ## Sharing a codebook
 
 For team projects, agree on the codebook before independent coding begins.

@@ -76,4 +76,4 @@ The coding screen keeps a short strip of the most-used shortcuts along the botto
 | `Enter` in code name | Save the code name in edit mode |
 | `Command+Enter` / `Control+Enter` in definition | Save the code definition in edit mode |
 | `Escape` in edit mode | Return to review mode |
-| `?` | Open the in-app shortcut sheet |
+| `?` | Open the in-app shortcut sheet (also available from **? Shortcuts** in the header) |

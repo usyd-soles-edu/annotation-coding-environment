@@ -57,9 +57,10 @@ Steps:
 
 1. **Open your project.**
 2. **Choose Import sources.**
-3. **Select the folder.**
-4. **Check the sample preview.**
-5. **Start coding** when the import looks right.
+3. **Choose Import a folder** and select the folder.
+4. **Review the files that will be added.** Select a file to preview its text, and open **Files not included** to check any exclusions and their reasons.
+5. **Choose Confirm import** when the list is right. ACE adds the ready files only after this confirmation.
+6. **Check the completed import**, then choose **Start coding**.
 
 ![Folder import preview listing the text files ready to import](../assets/guide/folder-import-review.png)
 
