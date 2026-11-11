@@ -123,14 +123,16 @@
            aria-controls="ace-headless-tree-mount"
            aria-label="Find code"
            aria-describedby="code-search-help"
-           aria-keyshortcuts="/ Enter Shift+Enter Escape">
+           aria-keyshortcuts="{{ '/ Enter Escape' if read_only else '/ Enter Shift+Enter Meta+Enter Control+Enter Escape' }}">
     <p id="code-search-help" class="ace-sr-only">
       {% if coding_mode %}
       Type to find codes. Press Enter to apply the selected code. When no code matches,
-      press Enter to create a code or Shift Enter to create a folder. Press Escape to clear the filter.
+      press Enter to create a code or Shift Enter to create a folder. Press Command or Control Enter
+      to create a code even when another code matches. Press Escape to clear the filter.
       {% elif audit_mode %}
       Type to find codes. Arrows view codes. Enter renames the focused code. Space views the focused code.
       When no code matches, press Enter to create a code or Shift Enter to create a folder.
+      Press Command or Control Enter to create a code even when another code matches.
       {% else %}
       Type to find codes. Arrows browse codes. Press Enter to view the focused code. Press Escape to clear the filter.
       {% endif %}
@@ -188,6 +190,7 @@
 {% if not read_only %}
 <div class="ace-sidebar-legend" aria-label="Codebook shortcuts">
   <span class="ace-legend-item"><span class="ace-legend-key">Shift+Enter</span> folder</span>
+  <span class="ace-legend-item"><span class="ace-legend-key">Cmd/Ctrl+Enter</span> new code</span>
   <span class="ace-legend-item"><span class="ace-legend-key">Opt+Left/Right</span> move</span>
   <span class="ace-legend-item"><span class="ace-legend-key">Cmd+X/V</span> cut/paste</span>
   <span class="ace-legend-item"><span class="ace-legend-key">;</span> chord</span>

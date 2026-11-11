@@ -489,6 +489,10 @@ def test_coding_sidebar_renders_visible_codebook_legend(client_with_codes):
     assert 'class="ace-sidebar-legend"' in body
     assert "Shift+Enter" in body
     assert "folder" in body
+    assert "Cmd/Ctrl+Enter" in body
+    assert "new code" in body
+    assert 'aria-keyshortcuts="/ Enter Shift+Enter Meta+Enter Control+Enter Escape"' in body
+    assert "to create a code even when another code matches" in body
     assert "Opt" in body
     assert "move" in body
     assert "Cmd+X/V" in body
