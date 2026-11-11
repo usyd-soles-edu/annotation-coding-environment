@@ -32,6 +32,7 @@ uv run ace
 ```
 
 ACE will start a local server on port 8080.
+If another app is using that port, ACE will report the conflict and leave that app running. Start ACE on a free port instead, for example with `uv run ace --port 8081`.
 
 ### Development server
 

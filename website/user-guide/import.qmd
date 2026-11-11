@@ -8,7 +8,7 @@ After import, the text is stored inside the `.ace` project file. Your original f
 
 ## Spreadsheet import
 
-Use spreadsheet import when your sources are already in a table. ACE reads `.csv` files and `.xlsx` workbooks (first sheet). The first row must hold the column names.
+Use spreadsheet import when your sources are already in a table. ACE reads `.csv` files and `.xlsx` workbooks (first sheet). The first row must hold unique column names. ACE rejects repeated headings, including names that collide with a generated heading for an empty Excel header cell. A CSV row with more values than headings is also rejected so no values are silently dropped.
 
 Your spreadsheet needs:
 
@@ -17,6 +17,8 @@ Your spreadsheet needs:
 - **one or more columns holding the text to code**
 
 Extra columns are optional. ACE keeps them with each source and includes them again when you [export annotations](export.qmd).
+
+For CSV files, ACE preserves source labels and coding text as written, including leading zeros, decimal notation, and spaces. Other columns are stored as metadata; numeric-looking CSV metadata may be stored as numbers. Excel imports use the workbook's cell values.
 
 Example:
 
@@ -41,7 +43,9 @@ When a source has several text columns, the column name becomes a heading above 
 
 ### Skipped rows and mistakes
 
-Rows whose label already exists in the project are skipped, so importing the same file twice does not duplicate sources. Fully blank rows are skipped too. If an import goes wrong, use **Remove last import** on the import screen to remove that batch.
+Rows whose label already exists in the project are skipped. Fully blank rows are skipped too. If an import goes wrong, use **Remove last import** on the import screen to remove that batch.
+
+Earlier ACE versions could change numeric-looking CSV labels, such as `1.00` to `1.0`. Reimporting the original CSV into a project created with one of those versions may add a second source because its original label differs from the stored one. Before reimporting, back up the project, compare its existing labels and text with the CSV, and import only genuinely new rows until any differences have been reconciled. ACE does not automatically change existing sources or annotations.
 
 ## Folder import
 
