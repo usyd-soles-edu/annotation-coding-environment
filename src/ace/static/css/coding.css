@@ -2619,13 +2619,16 @@ body:has(#note-textarea:focus) .ace-note-drawer .ace-note-textarea {
 
 .ace-sidebar-grid {
   flex: 0 0 var(--ace-grid-height);
-  min-height: 160px;
+  min-height: max(108px, 10vh);
   max-height: 70vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   /* Soft wash demarcates the sources zone in place of a horizontal border. */
   background: #fafafa;
+}
+html:not([data-ace-grid-collapsed="1"]) .ace-sidebar-grid {
+  container: ace-source-map / size;
 }
 
 .ace-grid-header {
@@ -2650,6 +2653,12 @@ body:has(#note-textarea:focus) .ace-note-drawer .ace-note-textarea {
   outline: 2px solid var(--ace-focus);
   outline-offset: -2px;
 }
+.ace-grid-header::after {
+  content: "Hide";
+  margin-left: var(--ace-space-2);
+  font-weight: var(--ace-weight-semibold);
+}
+.ace-grid-header[aria-expanded="false"]::after { content: "Show"; }
 .ace-grid-chevron {
   transition: transform var(--ace-transition);
   flex-shrink: 0;
@@ -2688,6 +2697,11 @@ html[data-ace-grid-collapsed="1"] .ace-sidebar-grid {
   position: relative;
   height: 44px;
   padding: 4px var(--ace-space-3) 2px;
+}
+/* Keep the source tiles usable when the map is short. A taller resized map
+   regains its density overview, even on a short viewport. */
+@container ace-source-map (max-height: 148px) {
+  .ace-grid-spark { display: none; }
 }
 .ace-grid-spark svg {
   display: block;
