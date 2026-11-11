@@ -1205,7 +1205,6 @@
         return;
       }
       selectCodebookRowById(id);
-      if (id === data.code.id) return;   // already here, no-op
       loadCode(id, { pushHistory: true });
     });
 
@@ -1217,12 +1216,10 @@
         return;
       }
       selectCodebookRowById(codeId);
-      if (codeId !== data.code.id) {
-        loadCode(codeId, {
-          pushHistory: evt.detail?.pushHistory !== false,
-          viewTransition: evt.detail?.viewTransition !== false,
-        });
-      }
+      loadCode(codeId, {
+        pushHistory: evt.detail?.pushHistory !== false,
+        viewTransition: evt.detail?.viewTransition !== false,
+      });
     });
   })();
 
@@ -1340,21 +1337,38 @@
     rememberedCursor.codebook = codeId;
   }
 
-  const navAbort = { ctl: null };
+  const navAbort = { ctl: null, generation: 0 };
 
   async function loadCode(codeId, opts) {
     opts = opts || {};
     const pushHistory = opts.pushHistory !== false;
     const forceReload = opts.forceReload === true;
-    if (!codeId || (!forceReload && codeId === data.code.id)) return { cancelled: false };
+    if (!codeId) return { cancelled: false };
+    if (!forceReload && codeId === data.code.id) {
+      if (navAbort.ctl) navAbort.ctl.abort();
+      navAbort.generation++;
+      const currentUrl = `/code/${codeId}/view`;
+      if (location.pathname !== currentUrl) {
+        if (pushHistory) {
+          history.pushState({ codeId }, "", currentUrl);
+        } else {
+          history.replaceState({ codeId }, "", currentUrl);
+        }
+      }
+      return { cancelled: false };
+    }
     if (!forceReload && !confirmAndDiscardMetadataEdits()) return { cancelled: true };
     if (navAbort.ctl) navAbort.ctl.abort();
-    navAbort.ctl = new AbortController();
+    const controller = new AbortController();
+    const generation = ++navAbort.generation;
+    navAbort.ctl = controller;
+    const isCurrent = () => generation === navAbort.generation && !controller.signal.aborted;
     let json;
     try {
       const cached = dataCache.get(codeId);
       if (cached) {
         json = await cached;
+        if (!isCurrent()) return { cancelled: false };
         if (json === null) {
           dataCache.delete(codeId);
         } else {
@@ -1363,28 +1377,35 @@
       }
       if (!json) {
         const res = await fetch(`/api/code/${codeId}/view-data`,
-                                { signal: navAbort.ctl.signal });
+                                { signal: controller.signal });
+        if (!isCurrent()) return { cancelled: false };
         if (!res.ok) throw new Error(`status ${res.status}`);
         json = await res.json();
+        if (!isCurrent()) return { cancelled: false };
         dataCache.set(codeId, Promise.resolve(json));
         _cacheEvictIfFull();
       }
     } catch (e) {
-      if (e && e.name === "AbortError") return { cancelled: false };
+      if (!isCurrent() || (e && e.name === "AbortError")) return { cancelled: false };
       // Fallback: full navigate so something still works on fetch failure.
       window.location.href = `/code/${codeId}/view`;
       return { cancelled: false };
     }
+    if (!isCurrent()) return { cancelled: false };
+    const commitNavigation = () => {
+      if (!isCurrent()) return;
+      renderForData(json);
+      if (pushHistory) {
+        history.pushState({ codeId }, "", `/code/${codeId}/view`);
+      } else {
+        history.replaceState({ codeId }, "", `/code/${codeId}/view`);
+      }
+    };
     const useViewTransition = opts.viewTransition !== false;
     if (useViewTransition && typeof document.startViewTransition === "function") {
-      document.startViewTransition(() => renderForData(json));
+      document.startViewTransition(commitNavigation);
     } else {
-      renderForData(json);
-    }
-    if (pushHistory) {
-      history.pushState({ codeId }, "", `/code/${codeId}/view`);
-    } else {
-      history.replaceState({ codeId }, "", `/code/${codeId}/view`);
+      commitNavigation();
     }
     return { cancelled: false };
   }
@@ -1546,14 +1567,8 @@
         && !evt.ctrlKey && !evt.metaKey && !evt.altKey) {
       // evt.shiftKey is TRUE for "?" on US layouts — don't reject it
       if (isEditableElement(document.activeElement)) return;
-      const dlg = document.getElementById("cv-cheatsheet-dialog");
-      if (!dlg || typeof dlg.showModal !== "function") return;
       claim(evt);
-      // Guard against re-open: showModal() throws InvalidStateError if the
-      // dialog is already open, which would break subsequent keyboard handling.
-      if (dlg.open) return;
-      dlg.__opener = document.activeElement;
-      dlg.showModal();
+      openCheatSheet(document.activeElement);
       return;
     }
 
@@ -1805,7 +1820,7 @@
   // --- Back/forward navigation ---
   window.addEventListener("popstate", () => {
     const m = location.pathname.match(/^\/code\/([^/]+)\/view\/?$/);
-    if (m && m[1] !== data.code.id) {
+    if (m) {
       loadCode(m[1], { pushHistory: false }).then((result) => {
         if (result?.cancelled) {
           history.replaceState({ codeId: data.code.id }, "", `/code/${data.code.id}/view`);
@@ -1818,6 +1833,15 @@
 
   const cheatDlg = document.getElementById("cv-cheatsheet-dialog");
   const cheatCloseBtn = document.getElementById("cv-cheatsheet-close-btn");
+  const cheatOpenBtn = document.getElementById("cv-shortcuts-button");
+  function openCheatSheet(opener) {
+    if (!cheatDlg || typeof cheatDlg.showModal !== "function" || cheatDlg.open) return;
+    cheatDlg.__opener = opener;
+    cheatDlg.showModal();
+  }
+  if (cheatOpenBtn) {
+    cheatOpenBtn.addEventListener("click", () => openCheatSheet(cheatOpenBtn));
+  }
   if (cheatCloseBtn && cheatDlg) {
     cheatCloseBtn.addEventListener("click", () => cheatDlg.close());
   }

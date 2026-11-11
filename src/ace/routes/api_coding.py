@@ -67,6 +67,19 @@ async def annotate(
         source_id = _resolve_source_id(conn, coder_id, current_index)
         if source_id is None:
             return HTMLResponse("", status_code=400)
+        source_row = conn.execute(
+            "SELECT content_text FROM source_content WHERE source_id = ?",
+            (source_id,),
+        ).fetchone()
+        if (
+            source_row is None
+            or end_offset <= start_offset
+            or end_offset > len(source_row["content_text"])
+        ):
+            return HTMLResponse("", status_code=400)
+        # The DOM inserts layout whitespace between sentence spans. Use the
+        # validated source slice as the annotation's canonical selected text.
+        selected_text = source_row["content_text"][start_offset:end_offset]
 
         try:
             ann_id, replaced_ids = add_annotation_merging(

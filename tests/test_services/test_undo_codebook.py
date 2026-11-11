@@ -4,6 +4,7 @@ import pytest
 from ace.db.connection import open_project, create_project
 from ace.models.codebook import (
     add_code, add_folder, move_code_to_parent, delete_code, list_codes,
+    import_selected_codes,
 )
 from ace.services.undo import UndoManager
 
@@ -25,6 +26,101 @@ def test_undo_create_folder_soft_deletes_it(conn):
         "SELECT deleted_at FROM codebook_code WHERE id = ?", (fid,)
     ).fetchone()[0]
     assert deleted_at is not None
+
+
+def test_undo_grouped_import_removes_its_new_folder(conn):
+    mgr = UndoManager()
+    imported = import_selected_codes(
+        conn, [{"name": "Happy", "colour": "#FF0000", "group_name": "Emotions"}]
+    )
+    mgr.record_codebook_import(imported.code_ids, imported.created_folder_ids)
+
+    mgr.undo(conn)
+
+    assert list_codes(conn) == []
+
+
+def _active_codebook(conn):
+    return [
+        tuple(row)
+        for row in conn.execute(
+            "SELECT id, name, kind, parent_id, sort_order FROM codebook_code "
+            "WHERE deleted_at IS NULL ORDER BY sort_order, id"
+        )
+    ]
+
+
+def test_grouped_import_undo_keeps_reused_folders_and_redo_restores_order(conn):
+    mgr = UndoManager()
+    existing_folder = add_folder(conn, "Existing")
+    before = _active_codebook(conn)
+    imported = import_selected_codes(conn, [
+        {"name": "First", "colour": "#FF0000", "group_name": "Existing"},
+        {"name": "Second", "colour": "#00FF00", "group_name": "New"},
+        {"name": "Third", "colour": "#0000FF", "group_name": "New"},
+    ])
+    assert len(imported.created_folder_ids) == 1
+    assert imported.created_folder_ids != [existing_folder]
+    after = _active_codebook(conn)
+    mgr.record_codebook_import(imported.code_ids, imported.created_folder_ids)
+
+    mgr.undo(conn)
+    assert _active_codebook(conn) == before
+    mgr.redo(conn)
+    assert _active_codebook(conn) == after
+
+
+def test_grouped_import_undo_and_redo_roll_back_on_mid_operation_error(
+    conn, monkeypatch
+):
+    from ace.models import codebook
+
+    mgr = UndoManager()
+    imported = import_selected_codes(conn, [
+        {"name": "First", "colour": "#FF0000", "group_name": "New"},
+        {"name": "Second", "colour": "#00FF00", "group_name": "New"},
+    ])
+    mgr.record_codebook_import(imported.code_ids, imported.created_folder_ids)
+    active_after_import = _active_codebook(conn)
+
+    original_delete = codebook._delete_code_no_commit
+    delete_calls = 0
+
+    def fail_second_delete(db, code_id):
+        nonlocal delete_calls
+        delete_calls += 1
+        if delete_calls == 2:
+            raise RuntimeError("simulated undo failure")
+        return original_delete(db, code_id)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(codebook, "_delete_code_no_commit", fail_second_delete)
+        with pytest.raises(RuntimeError, match="simulated undo failure"):
+            mgr.undo(conn)
+    assert _active_codebook(conn) == active_after_import
+    assert mgr.can_undo()
+
+    mgr.undo(conn)
+    active_after_undo = _active_codebook(conn)
+    original_restore = codebook._restore_code_no_commit
+    restore_calls = 0
+
+    def fail_second_restore(db, code_id, annotation_ids):
+        nonlocal restore_calls
+        restore_calls += 1
+        if restore_calls == 2:
+            raise RuntimeError("simulated redo failure")
+        return original_restore(db, code_id, annotation_ids)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(codebook, "_restore_code_no_commit", fail_second_restore)
+        with pytest.raises(RuntimeError, match="simulated redo failure"):
+            mgr.redo(conn)
+    assert _active_codebook(conn) == active_after_undo
+    assert mgr.can_redo()
+
+    mgr.redo(conn)
+    assert _active_codebook(conn) == active_after_import
 
 
 def _snapshot_scope(conn, parent_id):

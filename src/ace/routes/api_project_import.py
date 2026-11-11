@@ -677,11 +677,15 @@ async def import_preview(request: Request, folder: str = Query(...)):
 
 
 @router.get("/export/annotations")
-async def export_annotations(request: Request):
+async def export_annotations(request: Request, merge_adjacent: bool = Query(False)):
     """Export all annotations as CSV download."""
     from ace.services.exporter import export_annotations_csv
 
-    return _csv_download(request, "annotations", export_annotations_csv)
+    suffix = "annotations_merged" if merge_adjacent else "annotations"
+    return _csv_download(
+        request, suffix,
+        lambda conn, path: export_annotations_csv(conn, path, merge_adjacent=merge_adjacent),
+    )
 
 
 @router.post("/codes/import/preview-path")

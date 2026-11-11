@@ -6,10 +6,12 @@ Export data when coding is ready to analyse, share, or archive outside ACE.
 
 ## What to export
 
-- **Annotations**: coded spans, source IDs, coder IDs, and code names.
+- **Annotations**: exact coded spans, source IDs, coder names, code names, offsets, memos, and source metadata. The standard CSV has one row per annotation.
 - **Codebook**: the active list of codes.
 - **Notes**: source-level notes.
 - **Agreement data**: long-form spans for coder comparison.
+
+In the coding page's codebook menu, **Export merged annotations (CSV)** combines nearby spans of the same code and coder. The merged row's selected text comes from the original source, including whitespace between spans. Its `memo` column contains the first annotation's memo; `merged_memos_json` retains every annotation ID and memo in order. Use **Export annotations (exact CSV)** when each original selection and memo must remain a separate row.
 
 ## Before export
 

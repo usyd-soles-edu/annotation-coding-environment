@@ -1783,6 +1783,7 @@
     let searchRaw = "";
     let searchText = "";
     let chordFilterActive = false;
+    let cutItemId = null;
     const RESERVED_SINGLE_KEYS = /* @__PURE__ */ new Set(["q", "x", "z", "n", "v"]);
     const MODE_POLICIES = Object.freeze({
       coding: Object.freeze({
@@ -2010,7 +2011,7 @@
             current_index: currentIndex()
           });
         }
-        flashStatus("Saved");
+        setStatus("");
       } catch (error) {
         setStatus("Move failed");
         restoreChildrenByParent(restoreSnapshot);
@@ -2029,15 +2030,6 @@
     function setStatus(text) {
       const el = document.querySelector("[data-headless-tree-status]");
       if (el) el.textContent = text;
-    }
-    function flashStatus(text, ms) {
-      setStatus(text);
-      setTimeout(function () {
-        // Only clear if this message is still showing — don't clobber a newer
-        // status (e.g. a later "Move failed" / "Creating") set in the window.
-        const el = document.querySelector("[data-headless-tree-status]");
-        if (el && el.textContent === text) el.textContent = "";
-      }, ms || 1500);
     }
     function currentIndex() {
       return window.__aceCurrentIndex || 0;
@@ -2495,6 +2487,7 @@
       });
       row.classList.add("ace-ht-row");
       row.classList.add(data.kind === "folder" ? "ace-ht-row--folder" : "ace-ht-row--code");
+      if (item.getId() === cutItemId) row.classList.add("ace-code-row--ghost");
       if (focusedAncestors.has(item.getId())) row.classList.add("ace-ht-row--path-parent");
       if (dropReceiverId === item.getId()) row.classList.add("ace-ht-row--drop-receiver");
       row.dataset.itemId = item.getId();
@@ -2840,7 +2833,7 @@
           parent_id: formParentId(parentId),
           current_index: currentIndex()
         }).then(function() {
-          flashStatus("Saved");
+          setStatus("");
         }).catch(function(error) {
           setStatus("Move failed");
           window.__aceHeadlessTreePreviewError = String(error && error.message || error);
@@ -2867,6 +2860,24 @@
         if (chordFilterActive === next) return;
         chordFilterActive = next;
         scheduleRender();
+      }
+      function setCutItemId(id) {
+        cutItemId = id || null;
+        rootElement()?.querySelectorAll(".ace-ht-row[data-item-id]").forEach(function(row) {
+          row.classList.toggle("ace-code-row--ghost", row.dataset.itemId === cutItemId);
+        });
+      }
+      function setCodeCounts(counts) {
+        Object.entries(items).forEach(function([id, data]) {
+          if (data.kind !== "code") return;
+          const count = Number(counts.get(id)) || 0;
+          data.count = count > 0 ? count : 0;
+        });
+        rootElement()?.querySelectorAll(".ace-ht-row--code[data-item-id]").forEach(function(row) {
+          const count = items[row.dataset.itemId]?.count || 0;
+          const chip = row.querySelector(".ace-ht-count");
+          if (chip) chip.textContent = count ? String(count) : "";
+        });
       }
       const api = {
         kind: "headless",
@@ -2907,7 +2918,9 @@
         startRenaming,
         firstCodeItem,
         activeCodeItem,
-        setChordFilter
+        setChordFilter,
+        setCutItemId,
+        setCodeCounts
       };
       return api;
     }

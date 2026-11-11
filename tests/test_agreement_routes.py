@@ -387,6 +387,53 @@ def test_compute_returns_new_results_html(client_with_agreement_files):
     assert "ace-section-heading" in html
 
 
+@pytest.mark.slow
+def test_agreement_results_support_keyboard_sort_and_row_expansion(
+    client_with_agreement_files,
+):
+    """The rendered results remain operable without a pointing device."""
+    sync_api = pytest.importorskip("playwright.sync_api")
+    client, paths = client_with_agreement_files
+    response = client.post("/api/agreement/compute", data={"paths": json.dumps(paths)})
+    assert response.status_code == 200
+
+    with sync_api.sync_playwright() as playwright:
+        try:
+            browser = playwright.chromium.launch()
+        except sync_api.Error as exc:
+            if "Executable doesn't exist" in str(exc):
+                pytest.skip("Playwright Chromium is not installed")
+            raise
+        try:
+            page = browser.new_page()
+            page.set_content(f'<div id="agreement-results">{response.text}</div>')
+            header = page.locator('#per-code-table th[data-sort="code"]')
+            button = header.locator("button")
+            rows = page.locator("#per-code-table .ace-code-row")
+            original = rows.evaluate_all("rows => rows.map(row => row.dataset.codeName)")
+
+            button.focus()
+            page.keyboard.press("Enter")
+            assert header.get_attribute("aria-sort") == "ascending"
+            assert rows.evaluate_all("rows => rows.map(row => row.dataset.codeName)") == sorted(original)
+            page.keyboard.press("Space")
+            assert header.get_attribute("aria-sort") == "descending"
+            page.keyboard.press("Enter")
+            assert header.get_attribute("aria-sort") == "none"
+            assert rows.evaluate_all("rows => rows.map(row => row.dataset.codeName)") == original
+
+            row = rows.first
+            row.focus()
+            page.keyboard.press("Enter")
+            assert row.get_attribute("aria-expanded") == "true"
+            assert row.evaluate("row => row.nextElementSibling.hidden") is False
+            page.keyboard.press("Space")
+            assert row.get_attribute("aria-expanded") == "false"
+            assert row.evaluate("row => row.nextElementSibling.hidden") is True
+        finally:
+            browser.close()
+
+
 def test_compute_context_bar_counts_source_identities(client, tmp_path):
     """Context bar counts identities: matched once + unmatched distinct UUIDs.
 

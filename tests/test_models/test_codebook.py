@@ -558,14 +558,15 @@ def test_import_selected_codes(tmp_db):
         {"name": "Beta", "colour": "#00FF00"},
     ]
     inserted = import_selected_codes(conn, codes_to_import)
-    assert len(inserted) == 2
-    assert all(isinstance(cid, str) for cid in inserted)
+    assert len(inserted.code_ids) == 2
+    assert inserted.created_folder_ids == []
+    assert all(isinstance(cid, str) for cid in inserted.code_ids)
     codes = _filter_codes(list_codes(conn))
     assert len(codes) == 2
     assert codes[0]["name"] == "Alpha"
     assert codes[1]["name"] == "Beta"
     # Inserted IDs match what's now in the DB
-    assert {c["id"] for c in codes} == set(inserted)
+    assert {c["id"] for c in codes} == set(inserted.code_ids)
 
 
 def test_import_selected_codes_stores_definition(tmp_db):
@@ -582,7 +583,7 @@ def test_import_selected_codes_stores_definition(tmp_db):
     )
 
     row = conn.execute(
-        "SELECT definition FROM codebook_code WHERE id = ?", (inserted[0],)
+        "SELECT definition FROM codebook_code WHERE id = ?", (inserted.code_ids[0],)
     ).fetchone()
     assert row["definition"] == "Barriers to using a service"
 
@@ -613,7 +614,7 @@ def test_import_selected_skips_existing(tmp_db):
         {"name": "Beta", "colour": "#0000FF"},    # new — insert
     ]
     inserted = import_selected_codes(conn, codes_to_import)
-    assert len(inserted) == 1
+    assert len(inserted.code_ids) == 1
     codes = _filter_codes(list_codes(conn))
     assert len(codes) == 2
     assert codes[0]["colour"] == "#FF0000"  # original colour kept
@@ -623,7 +624,8 @@ def test_import_selected_empty_list(tmp_db):
     """Empty list returns [], no DB changes."""
     conn = create_project(tmp_db, "Test")
     inserted = import_selected_codes(conn, [])
-    assert inserted == []
+    assert inserted.code_ids == []
+    assert inserted.created_folder_ids == []
     assert list_codes(conn) == []
 
 
@@ -784,8 +786,9 @@ def test_import_selected_with_group(tmp_db):
         {"name": "Identity", "colour": "#00FF00", "group_name": "Themes"},
     ]
     inserted = import_selected_codes(conn, codes)
-    assert _resolve_group_name(conn, inserted[0]) == "Emotions"
-    assert _resolve_group_name(conn, inserted[1]) == "Themes"
+    assert _resolve_group_name(conn, inserted.code_ids[0]) == "Emotions"
+    assert _resolve_group_name(conn, inserted.code_ids[1]) == "Themes"
+    assert len(inserted.created_folder_ids) == 2
 
 
 def test_export_csv_includes_group(tmp_db, tmp_path):

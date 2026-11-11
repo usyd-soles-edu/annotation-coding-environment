@@ -148,6 +148,44 @@ def test_coding_page_shows_codes(client_with_sources):
     assert "Theme B" in resp.text
 
 
+def test_custom_selection_uses_source_codepoint_slice_and_rejects_bad_ranges(tmp_path):
+    path = tmp_path / "unicode.ace"
+    conn = create_project(str(path), "Unicode")
+    coder_id = list_coders(conn)[0]["id"]
+    add_source(conn, "S1", "😀 ABC.  😀 DEF.", "row")
+    code_id = add_code(conn, "Theme", "#BF6030")
+    conn.close()
+
+    app = create_app()
+    with TestClient(app) as client:
+        app.state.project_path = str(path)
+        app.state.coder_id = coder_id
+        assert client.get("/code").status_code == 200
+        for start, end in ((2, 99), (5, 5), (5, 2)):
+            response = client.post("/api/code/apply", data={
+                "code_id": code_id, "start_offset": start,
+                "end_offset": end, "selected_text": "ABC",
+            })
+            assert response.status_code == 400
+
+        # The rendered DOM may normalise whitespace between sentence spans.
+        # Store the exact source slice for the validated codepoint range.
+        response = client.post("/api/code/apply", data={
+            "code_id": code_id, "start_offset": 2, "end_offset": 13,
+            "selected_text": "ABC. 😀 DEF",
+        })
+        assert response.status_code == 200
+
+    conn = sqlite3.connect(path)
+    try:
+        rows = conn.execute(
+            "SELECT start_offset, end_offset, selected_text FROM annotation"
+        ).fetchall()
+        assert rows == [(2, 13, "ABC.  😀 DEF")]
+    finally:
+        conn.close()
+
+
 
 
 

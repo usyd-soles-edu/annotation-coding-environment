@@ -49,9 +49,13 @@
           <span class="cv-code-name">{{ code_view_data.code.name }}</span>
         </h1>
       </div>
-      <div class="cv-summary">
-        <b>{{ code_view_data.stats.excerpts }}</b> excerpts across
-        <b>{{ code_view_data.stats.sources_with_hits }} of {{ code_view_data.stats.total_sources }}</b> sources
+      <div class="cv-header-actions">
+        <div class="cv-summary">
+          <b>{{ code_view_data.stats.excerpts }}</b> excerpts across
+          <b>{{ code_view_data.stats.sources_with_hits }} of {{ code_view_data.stats.total_sources }}</b> sources
+        </div>
+        <button type="button" class="cv-shortcuts-button" id="cv-shortcuts-button"
+                aria-haspopup="dialog" aria-controls="cv-cheatsheet-dialog">? Shortcuts</button>
       </div>
       <div id="ace-notification-receipt" class="ace-notification-receipt cv-notification-receipt" role="status" aria-live="polite"></div>
       <div class="ace-sr-only" aria-live="polite" aria-atomic="true" id="cv-live"></div>

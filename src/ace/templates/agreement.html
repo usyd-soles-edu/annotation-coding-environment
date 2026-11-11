@@ -200,6 +200,9 @@
     _setAgreementReviewBusy(false);
     _agreementSelectedPaths = Array.isArray(state.paths) ? state.paths.slice() : [];
     results.innerHTML = state.html;
+    if (results.querySelector("#per-code-table") && window.aceInitAgreementResults) {
+      window.aceInitAgreementResults();
+    }
     if (state.kind === "review" || results.querySelector(".ace-agreement-review")) {
       _agreementReviewState = _agreementState("review", state.html, _agreementSelectedPaths);
       _agreementReviewRestoredFromHistory = true;

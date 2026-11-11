@@ -1641,16 +1641,12 @@
     const sentStart = parseInt(sentence.dataset.start, 10);
     if (isNaN(sentStart)) return -1;
 
-    // Compute character offset within this sentence's text content
-    const walker = document.createTreeWalker(sentence, NodeFilter.SHOW_TEXT, null);
-    let charPos = 0;
-    let current;
-    while ((current = walker.nextNode())) {
-      if (current === node) return sentStart + charPos + domOffset;
-      charPos += current.textContent.length;
-    }
-    // Fallback: if node is the sentence element itself, use domOffset as child index
-    return sentStart + domOffset;
+    // Range offsets are UTF-16 code units; source offsets are Unicode codepoints.
+    // A Range also handles element endpoints (where domOffset is a child index).
+    const prefix = document.createRange();
+    prefix.setStart(sentence, 0);
+    prefix.setEnd(node, domOffset);
+    return sentStart + Array.from(prefix.toString()).length;
   }
 
   // Click on sentence to focus it
@@ -1916,14 +1912,10 @@
         counts.set(a.code_id, (counts.get(a.code_id) || 0) + 1);
       }
     }
-    document
-      .querySelectorAll("#ace-headless-tree-mount .ace-ht-row--code[data-code-id]")
-      .forEach(function (row) {
-        const cnt = row.querySelector(".ace-ht-count");
-        if (!cnt) return;
-        const n = counts.get(row.dataset.codeId) || 0;
-        cnt.textContent = n > 0 ? String(n) : "";
-      });
+    const controller = _getSidebarTreeController();
+    if (controller && typeof controller.setCodeCounts === "function") {
+      controller.setCodeCounts(counts);
+    }
   }
 
   // Re-bind sidebar event wiring after an HTMX swap replaces sidebar DOM.
@@ -2188,6 +2180,7 @@
       if (old) old.classList.remove("ace-code-row--ghost");
     }
     _cutCode = codeId;
+    _getSidebarTreeController()?.setCutItemId?.(codeId);
     if (codeId) {
       const row = _findCodebookItemRow(codeId);
       if (row) row.classList.add("ace-code-row--ghost");
@@ -3113,33 +3106,41 @@
    * ================================================================ */
 
   /**
-   * Build a flat list of {node, sourceStart, sourceEnd} entries
-   * for all text nodes inside sentence spans in the text panel.
+   * Build a flat list of source-codepoint spans for text nodes in sentences.
+   * astralAt records where one codepoint consumes two UTF-16 code units.
    */
   function _buildTextIndex(container) {
-    let index = [];
+    const index = [];
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT, null);
     let node;
+    let sentence = null;
+    let sentStart = 0;
+    let charsBefore = 0;
     while ((node = walker.nextNode())) {
-      let sentence = node.parentElement.closest(".ace-sentence");
-      if (!sentence) continue;
-      const sentStart = parseInt(sentence.dataset.start, 10);
+      const owner = node.parentElement && node.parentElement.closest(".ace-sentence");
+      if (!owner) continue;
+      if (owner !== sentence) {
+        sentence = owner;
+        sentStart = parseInt(sentence.dataset.start, 10);
+        charsBefore = 0;
+      }
       if (isNaN(sentStart)) continue;
 
-      let charsBefore = 0;
-      const tw = document.createTreeWalker(sentence, NodeFilter.SHOW_TEXT, null);
-      let t;
-      while ((t = tw.nextNode())) {
-        if (t === node) break;
-        charsBefore += t.textContent.length;
+      const astralAt = [];
+      let codepoints = 0;
+      for (const char of node.textContent) {
+        if (char.length === 2) astralAt.push(codepoints);
+        codepoints++;
       }
 
       const nodeSourceStart = sentStart + charsBefore;
       index.push({
         node: node,
         sourceStart: nodeSourceStart,
-        sourceEnd: nodeSourceStart + node.textContent.length,
+        sourceEnd: nodeSourceStart + codepoints,
+        astralAt: astralAt,
       });
+      charsBefore += codepoints;
     }
     return index;
   }
@@ -3151,7 +3152,15 @@
     for (let i = 0; i < textIndex.length; i++) {
       const entry = textIndex[i];
       if (sourceOffset >= entry.sourceStart && sourceOffset <= entry.sourceEnd) {
-        return { node: entry.node, offset: sourceOffset - entry.sourceStart };
+        const codepoints = sourceOffset - entry.sourceStart;
+        let low = 0;
+        let high = entry.astralAt.length;
+        while (low < high) {
+          const mid = (low + high) >> 1;
+          if (entry.astralAt[mid] < codepoints) low = mid + 1;
+          else high = mid;
+        }
+        return { node: entry.node, offset: codepoints + low };
       }
     }
     return null;
@@ -4912,10 +4921,17 @@
       return;
     }
 
-    // Export all annotations button
+    // Export annotations, preserving each selected span by default.
     if (e.target.closest("#export-annotations-btn")) {
       _setCodebookMenuOpen(false);
       window.location.href = "/api/export/annotations";
+      window._setStatus("Exported", "ok");
+      return;
+    }
+
+    if (e.target.closest("#export-annotations-merged-btn")) {
+      _setCodebookMenuOpen(false);
+      window.location.href = "/api/export/annotations?merge_adjacent=true";
       window._setStatus("Exported", "ok");
       return;
     }

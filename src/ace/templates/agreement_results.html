@@ -60,16 +60,16 @@
       <strong>Gwet's AC1</strong> measures reliability adjusted for chance agreement.
       <strong>Krippendorff's &alpha;</strong> is a conservative estimate commonly reported in publications.
       <strong>% Agreement</strong> is the raw proportion of matching character positions.
-      Status reflects the overall pattern across metrics. Click a row for guidance.
+      Status reflects the overall pattern across metrics. Click a row or press Enter or Space on it for guidance.
     </caption>
     <thead>
       <tr>
         <th class="col-idx">#</th>
-        <th class="col-sortable" data-sort="code">Code <span class="sort-icon">&updownarrow;</span></th>
-        <th class="col-sortable" data-sort="status">Status <span class="sort-icon">&updownarrow;</span></th>
-        <th class="col-sortable col-num" data-sort="ac1">AC1 <span class="sort-icon">&updownarrow;</span></th>
-        <th class="col-sortable col-num" data-sort="alpha">&alpha; <span class="sort-icon">&updownarrow;</span></th>
-        <th class="col-sortable col-num" data-sort="agree">% Agree <span class="sort-icon">&updownarrow;</span></th>
+        <th class="col-sortable" data-sort="code" aria-sort="none"><button type="button" class="ace-sort-button">Code <span class="sort-icon" aria-hidden="true">&updownarrow;</span></button></th>
+        <th class="col-sortable" data-sort="status" aria-sort="none"><button type="button" class="ace-sort-button">Status <span class="sort-icon" aria-hidden="true">&updownarrow;</span></button></th>
+        <th class="col-sortable col-num" data-sort="ac1" aria-sort="none"><button type="button" class="ace-sort-button">AC1 <span class="sort-icon" aria-hidden="true">&updownarrow;</span></button></th>
+        <th class="col-sortable col-num" data-sort="alpha" aria-sort="none"><button type="button" class="ace-sort-button">&alpha; <span class="sort-icon" aria-hidden="true">&updownarrow;</span></button></th>
+        <th class="col-sortable col-num" data-sort="agree" aria-sort="none"><button type="button" class="ace-sort-button">% Agree <span class="sort-icon" aria-hidden="true">&updownarrow;</span></button></th>
       </tr>
     </thead>
     <tbody>
@@ -88,7 +88,7 @@
               data-sort-ac1="{{ m.gwets_ac1 if m.gwets_ac1 is not none else -1 }}"
               data-sort-alpha="{{ m.krippendorffs_alpha if m.krippendorffs_alpha is not none else -1 }}"
               data-sort-agree="{{ m.percent_agreement }}"
-              aria-expanded="false">
+              tabindex="0" aria-expanded="false">
             <td class="col-idx">{{ item.index }}</td>
             <td class="col-code">{{ item.name }}</td>
             <td class="col-status">
@@ -149,7 +149,7 @@
     </thead>
     <tbody>
       {% for label, pm, pv in pairwise_sorted %}
-      <tr class="ace-code-row ace-row-{{ pv.colour }}" aria-expanded="false">
+      <tr class="ace-code-row ace-row-{{ pv.colour }}" tabindex="0" aria-expanded="false">
         <td>{{ label }}</td>
         <td class="col-status">
           <span class="ace-status ace-status-{{ pv.colour }}">
@@ -162,7 +162,7 @@
         <td class="col-num">{{ fmt(pm.percent_agreement, is_pct=True) }}%</td>
       </tr>
       <tr class="ace-expanded-row ace-expanded-{{ 'paradox' if pv.paradox else pv.colour }}" hidden>
-        <td colspan="6">
+        <td colspan="5">
           {% if pv.paradox %}<span class="ace-paradox-badge">Prevalence paradox</span>{% endif %}
           <p class="ace-guidance">{{ pv.guidance }}</p>
           <div class="ace-expanded-meta">{{ pv.metadata_line }}</div>
@@ -247,16 +247,26 @@
 
 <!-- Inline JS for expand/collapse and column sorting -->
 <script>
-(function() {
-  // Expand/collapse rows
-  document.addEventListener("click", function(e) {
-    var row = e.target.closest(".ace-code-row");
-    if (!row) return;
+window.aceInitAgreementResults = function() {
+  function toggleRow(row) {
     var next = row.nextElementSibling;
     if (!next || !next.classList.contains("ace-expanded-row")) return;
     var expanded = !next.hidden;
     next.hidden = expanded;
     row.setAttribute("aria-expanded", expanded ? "false" : "true");
+  }
+
+  document.querySelectorAll("#agreement-results .ace-agreement-table").forEach(function(agreementTable) {
+    agreementTable.addEventListener("click", function(e) {
+      var row = e.target.closest(".ace-code-row");
+      if (row && agreementTable.contains(row)) toggleRow(row);
+    });
+    agreementTable.addEventListener("keydown", function(e) {
+      var row = e.target.closest(".ace-code-row");
+      if (!row || e.target !== row || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault();
+      toggleRow(row);
+    });
   });
 
   // Column sorting
@@ -276,8 +286,7 @@
   })();
 
   headers.forEach(function(th) {
-    th.style.cursor = "pointer";
-    th.addEventListener("click", function() {
+    th.querySelector("button").addEventListener("click", function() {
       var col = th.getAttribute("data-sort");
       var dir;
       if (sortState.col === col) {
@@ -292,6 +301,7 @@
 
       // Update sort icons
       headers.forEach(function(h) {
+        h.setAttribute("aria-sort", h === th && dir ? (dir === "asc" ? "ascending" : "descending") : "none");
         var icon = h.querySelector(".sort-icon");
         if (icon) icon.textContent = "\u21D5";
       });
@@ -357,5 +367,6 @@
       r.hidden = false;
     });
   }
-})();
+};
+window.aceInitAgreementResults();
 </script>
