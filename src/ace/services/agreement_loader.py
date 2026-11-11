@@ -43,7 +43,7 @@ class AgreementLoader:
 
         # Open read-only
         try:
-            conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            conn = sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)
             conn.row_factory = sqlite3.Row
         except sqlite3.OperationalError as e:
             return {"error": f"Cannot open '{path.name}': {e}"}
