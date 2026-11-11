@@ -387,6 +387,41 @@ def test_compute_returns_new_results_html(client_with_agreement_files):
     assert "ace-section-heading" in html
 
 
+def test_results_show_coders_and_filenames_without_full_paths(client_with_agreement_files):
+    client, paths = client_with_agreement_files
+    resp = client.post("/api/agreement/compute", data={"paths": json.dumps(paths)})
+    assert resp.status_code == 200
+    assert '<div class="ace-agreement-provenance"' in resp.text
+    assert "<strong>Coders:</strong> Alice, Bob" in resp.text
+    assert "<strong>Files:</strong> alice.ace, bob.ace" in resp.text
+    assert all(path not in resp.text for path in paths)
+
+
+def test_result_provenance_escapes_coder_and_filename(client, tmp_path):
+    paths = []
+    for filename, coder in (
+        ('alice<script>.ace', '<img src=x onerror=alert(1)>'),
+        ('bob.ace', 'Bob'),
+    ):
+        path = _make_ace_file(
+            tmp_path / filename,
+            "Project",
+            coder,
+            sources=[("S1", "Shared text")],
+            codes=[("Theme", "#00AA00")],
+            annotations=[(0, 0, 0, 6, "Shared")],
+        )
+        paths.append(str(path))
+
+    resp = client.post("/api/agreement/compute", data={"paths": json.dumps(paths)})
+    assert resp.status_code == 200
+    provenance = resp.text.split('<div class="ace-agreement-provenance">', 1)[1].split("<!-- Warnings -->", 1)[0]
+    assert "&lt;img src=x onerror=alert(1)&gt;" in provenance
+    assert "alice&lt;script&gt;.ace" in provenance
+    assert "<script>" not in provenance
+    assert "<img" not in provenance
+
+
 @pytest.mark.slow
 def test_agreement_results_support_keyboard_sort_and_row_expansion(
     client_with_agreement_files,

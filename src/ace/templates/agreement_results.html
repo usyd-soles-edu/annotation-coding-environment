@@ -20,6 +20,10 @@
   <span>{{ n_codes }} of {{ total_codes }} codes</span>
   <a href="#" class="action" onclick="acePickAndCompute();return false">Choose different files</a>
 </div>
+<div class="ace-agreement-provenance">
+  <div><strong>Coders:</strong> {% for label, filename in provenance %}{{ label }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+  <div><strong>Files:</strong> {% for label, filename in provenance %}{{ filename }}{% if not loop.last %}, {% endif %}{% endfor %}</div>
+</div>
 
 <!-- Warnings -->
 {% if warnings %}

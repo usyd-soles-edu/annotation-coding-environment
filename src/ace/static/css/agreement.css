@@ -90,6 +90,15 @@
 }
 .ace-agreement-context .action:hover { color: var(--ace-text); }
 
+.ace-agreement-provenance {
+  margin: 0 0 16px;
+  font-size: var(--ace-font-size-2xs);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.ace-agreement-provenance strong { font-weight: 600; }
+
 /* Warnings */
 .ace-agreement-warnings {
   margin-bottom: 16px;
