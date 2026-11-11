@@ -1916,14 +1916,10 @@
         counts.set(a.code_id, (counts.get(a.code_id) || 0) + 1);
       }
     }
-    document
-      .querySelectorAll("#ace-headless-tree-mount .ace-ht-row--code[data-code-id]")
-      .forEach(function (row) {
-        const cnt = row.querySelector(".ace-ht-count");
-        if (!cnt) return;
-        const n = counts.get(row.dataset.codeId) || 0;
-        cnt.textContent = n > 0 ? String(n) : "";
-      });
+    const controller = _getSidebarTreeController();
+    if (controller && typeof controller.setCodeCounts === "function") {
+      controller.setCodeCounts(counts);
+    }
   }
 
   // Re-bind sidebar event wiring after an HTMX swap replaces sidebar DOM.

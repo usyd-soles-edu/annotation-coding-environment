@@ -2867,6 +2867,18 @@
           row.classList.toggle("ace-code-row--ghost", row.dataset.itemId === cutItemId);
         });
       }
+      function setCodeCounts(counts) {
+        Object.entries(items).forEach(function([id, data]) {
+          if (data.kind !== "code") return;
+          const count = Number(counts.get(id)) || 0;
+          data.count = count > 0 ? count : 0;
+        });
+        rootElement()?.querySelectorAll(".ace-ht-row--code[data-item-id]").forEach(function(row) {
+          const count = items[row.dataset.itemId]?.count || 0;
+          const chip = row.querySelector(".ace-ht-count");
+          if (chip) chip.textContent = count ? String(count) : "";
+        });
+      }
       const api = {
         kind: "headless",
         refresh,
@@ -2907,7 +2919,8 @@
         firstCodeItem,
         activeCodeItem,
         setChordFilter,
-        setCutItemId
+        setCutItemId,
+        setCodeCounts
       };
       return api;
     }
