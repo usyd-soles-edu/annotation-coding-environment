@@ -1,7 +1,10 @@
 """Tests for AgreementLoader."""
 
+import os
 import sqlite3
 from pathlib import Path
+
+import pytest
 
 from ace.db.connection import create_project
 from ace.db.schema import ACE_APPLICATION_ID
@@ -84,6 +87,37 @@ def test_reject_invalid_file(tmp_path):
     info = loader.add_file(bad_file)
     assert info["error"] is not None
     assert "not a valid ace project" in info["error"].lower()
+
+
+@pytest.mark.parametrize("name", ["hash#project", "percent%23project", "with spaces", "café", "query?mode=rw"])
+@pytest.mark.parametrize("in_directory", [False, True])
+def test_load_uri_characters_in_path(tmp_path, monkeypatch, name, in_directory):
+    if os.name == "nt" and "?" in name:
+        pytest.skip("Windows filenames cannot contain question marks")
+    directory = tmp_path / name if in_directory else tmp_path
+    directory.mkdir(exist_ok=True)
+    path = directory / ("project.ace" if in_directory else f"{name}.ace")
+    _make_coder_file(path, "Selected coder", "Test text.", "Code", [(0, 4)])
+    before = set(tmp_path.rglob("*"))
+    contents = path.read_bytes()
+    monkeypatch.chdir(tmp_path)
+
+    info = AgreementLoader().add_file(path.relative_to(tmp_path))
+
+    assert info["error"] is None
+    assert info["coder_names"] == ["Selected coder"]
+    assert info["annotation_count"] == 1
+    assert set(tmp_path.rglob("*")) == before
+    assert path.read_bytes() == contents
+
+
+def test_missing_uri_path_does_not_create_file(tmp_path):
+    path = tmp_path / "missing#project.ace"
+
+    info = AgreementLoader().add_file(path)
+
+    assert "Cannot open" in info["error"]
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_warn_wal_file(tmp_path):
