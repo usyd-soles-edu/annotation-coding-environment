@@ -371,9 +371,7 @@ from unittest.mock import patch
 
 def test_run_accepts_port_parameter():
     """run(port=9999) should pass port=9999 to uvicorn."""
-    with patch("ace.app.uvicorn.Server") as mock_server, \
-         patch("ace.app._kill_stale_server"), \
-         patch("ace.app._kill_stale_ace_instances"):
+    with patch("ace.app.uvicorn.Server") as mock_server:
         from ace.app import run
         run(port=9999)
         config = mock_server.call_args.args[0]
@@ -383,9 +381,7 @@ def test_run_accepts_port_parameter():
 
 def test_run_suppresses_keyboard_interrupt_after_graceful_shutdown():
     """Uvicorn may re-raise Ctrl-C after completing its shutdown sequence."""
-    with patch("ace.app.uvicorn.Server") as mock_server, \
-         patch("ace.app._kill_stale_server"), \
-         patch("ace.app._kill_stale_ace_instances"):
+    with patch("ace.app.uvicorn.Server") as mock_server:
         from ace.app import run
 
         mock_server.return_value.run.side_effect = KeyboardInterrupt
@@ -399,9 +395,7 @@ def test_run_defaults_to_8080():
     """run() without port should default to 8080."""
     import os
     os.environ.pop("ACE_PORT", None)
-    with patch("ace.app.uvicorn.Server") as mock_server, \
-         patch("ace.app._kill_stale_server"), \
-         patch("ace.app._kill_stale_ace_instances"):
+    with patch("ace.app.uvicorn.Server") as mock_server:
         from ace.app import run
         run()
         config = mock_server.call_args.args[0]
@@ -411,8 +405,6 @@ def test_run_defaults_to_8080():
 def test_run_respects_ace_port_env():
     """run() without --port should use ACE_PORT env var."""
     with patch("ace.app.uvicorn.Server") as mock_server, \
-         patch("ace.app._kill_stale_server"), \
-         patch("ace.app._kill_stale_ace_instances"), \
          patch.dict("os.environ", {"ACE_PORT": "9000"}):
         from ace.app import run
         run()
@@ -423,8 +415,6 @@ def test_run_respects_ace_port_env():
 def test_run_cli_port_overrides_env():
     """run(port=7777) should take priority over ACE_PORT."""
     with patch("ace.app.uvicorn.Server") as mock_server, \
-         patch("ace.app._kill_stale_server"), \
-         patch("ace.app._kill_stale_ace_instances"), \
          patch.dict("os.environ", {"ACE_PORT": "9000"}):
         from ace.app import run
         run(port=7777)
@@ -433,9 +423,7 @@ def test_run_cli_port_overrides_env():
 
 
 def test_run_uses_factory_wired_to_graceful_shutdown():
-    with patch("ace.app.uvicorn.Server") as mock_server, \
-         patch("ace.app._kill_stale_server"), \
-         patch("ace.app._kill_stale_ace_instances"):
+    with patch("ace.app.uvicorn.Server") as mock_server:
         from ace.app import run
         run()
         config = mock_server.call_args.args[0]
@@ -450,8 +438,6 @@ def test_run_uses_factory_wired_to_graceful_shutdown():
 def test_run_starts_parent_watchdog_when_parent_pid_given():
     """Packaged sidecar should exit if the launcher parent process disappears."""
     with patch("ace.app.uvicorn.Server") as mock_server, \
-         patch("ace.app._kill_stale_server"), \
-         patch("ace.app._kill_stale_ace_instances"), \
          patch("ace.app._start_parent_watchdog") as mock_watchdog:
         from ace.app import run
         run(port=9999, parent_pid=12345)
@@ -461,22 +447,8 @@ def test_run_starts_parent_watchdog_when_parent_pid_given():
         shutdown()
         assert mock_server.return_value.should_exit is True
 
-def test_run_skips_stale_process_cleanup_when_disabled():
-    with patch("ace.app.uvicorn.Server"), \
-         patch("ace.app._kill_stale_server") as mock_kill_server, \
-         patch("ace.app._kill_stale_ace_instances") as mock_kill_instances:
-        from ace.app import run
-
-        run(port=9999, kill_stale=False)
-
-    mock_kill_server.assert_not_called()
-    mock_kill_instances.assert_not_called()
-
-
 def test_run_sets_launcher_runtime_environment():
     with patch("ace.app.uvicorn.Server"), \
-         patch("ace.app._kill_stale_server"), \
-         patch("ace.app._kill_stale_ace_instances"), \
          patch.dict("os.environ", {}, clear=False):
         from ace.app import run
 
@@ -510,38 +482,42 @@ def test_parent_pid_exists_returns_false_for_missing_process():
         assert _parent_pid_exists(12345) is False
 
 
-def test_kill_stale_ace_instances_signals_other_pids_not_self():
-    """_kill_stale_ace_instances should SIGTERM every pgrep hit except the current PID."""
-    import os as _os
-    from unittest.mock import MagicMock
-    from ace.app import _kill_stale_ace_instances
+@pytest.mark.parametrize("legacy_option", [None, True, False])
+def test_startup_never_signals_processes_found_on_a_port(legacy_option):
+    """Port ownership or a command-line match does not authorise termination."""
+    from unittest.mock import Mock
+    from ace.app import run
 
-    me = _os.getpid()
-    fake_result = MagicMock()
-    fake_result.stdout = f"{me}\n12345\n67890\n"
-
-    with patch("ace.app.subprocess.run", return_value=fake_result) as mock_run, \
-         patch("ace.app.os.kill") as mock_kill, \
-         patch("ace.app.time.sleep"):
-        _kill_stale_ace_instances()
-
-    mock_run.assert_called_once()
-    args = mock_run.call_args[0][0]
-    assert args[0] == "pgrep"
-    assert "ace.app:create_app" in args
-
-    killed_pids = [call.args[0] for call in mock_kill.call_args_list]
-    assert me not in killed_pids, "must not kill self"
-    assert 12345 in killed_pids
-    assert 67890 in killed_pids
+    with patch("subprocess.run", return_value=Mock(stdout="12345\n")), \
+         patch("ace.app.os.kill") as kill, \
+         patch("ace.app.time.sleep"), \
+         patch("ace.app.uvicorn.Server") as server:
+        kwargs = {} if legacy_option is None else {"kill_stale": legacy_option}
+        run(port=9999, **kwargs)
+    kill.assert_not_called()
+    server.return_value.run.assert_called_once()
 
 
-def test_kill_stale_ace_instances_swallows_missing_pgrep():
-    """Windows has no pgrep — helper must no-op gracefully."""
-    from ace.app import _kill_stale_ace_instances
+def test_occupied_port_fails_without_disturbing_listener(tmp_path):
+    import socket
+    import subprocess
+    import sys
+    from pathlib import Path
 
-    with patch("ace.app.subprocess.run", side_effect=FileNotFoundError()), \
-         patch("ace.app.os.kill") as mock_kill:
-        _kill_stale_ace_instances()  # must not raise
-
-    mock_kill.assert_not_called()
+    env = {**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")}
+    for key in ("ACE_LAUNCHER_TOKEN", "ACE_RUNTIME_FILE", "ACE_IDLE_TIMEOUT_SECONDS"):
+        env.pop(key, None)
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        listener.settimeout(2)
+        port = listener.getsockname()[1]
+        result = subprocess.run(
+            [sys.executable, "-c", "from ace.app import run; import sys; run(port=int(sys.argv[1]))", str(port)],
+            cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10,
+        )
+        assert result.returncode != 0
+        assert "error while attempting to bind" in result.stderr.lower()
+        with socket.create_connection(("127.0.0.1", port), timeout=2):
+            accepted, _ = listener.accept()
+            accepted.close()

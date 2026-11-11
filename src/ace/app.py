@@ -6,7 +6,6 @@ import os
 import secrets
 import signal
 import sqlite3
-import subprocess
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable, Generator
@@ -398,61 +397,6 @@ def create_app() -> FastAPI:
 # ---------------------------------------------------------------------------
 
 
-def _kill_stale_server(port: int) -> None:
-    """Kill any existing process on the given port so we can bind cleanly."""
-    try:
-        result = subprocess.run(
-            ["lsof", "-ti", f":{port}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        pids = result.stdout.strip().splitlines()
-        if not pids:
-            return
-        for pid in pids:
-            try:
-                os.kill(int(pid), signal.SIGTERM)
-            except (ProcessLookupError, ValueError):
-                pass
-        time.sleep(0.5)
-    except (subprocess.SubprocessError, FileNotFoundError):
-        pass
-
-
-def _kill_stale_ace_instances() -> None:
-    """Kill any other ACE server processes regardless of port.
-
-    Single-user local app — one ACE at a time. Prevents confusion from
-    browser tabs pointing at leftover dev servers on other ports.
-    """
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", "ace.app:create_app"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        me = os.getpid()
-        killed = False
-        for raw in result.stdout.split():
-            try:
-                pid = int(raw)
-            except ValueError:
-                continue
-            if pid == me:
-                continue
-            try:
-                os.kill(pid, signal.SIGTERM)
-                killed = True
-            except ProcessLookupError:
-                pass
-        if killed:
-            time.sleep(0.5)
-    except (subprocess.SubprocessError, FileNotFoundError):
-        pass
-
-
 def _start_parent_watchdog(
     parent_pid: int,
     shutdown: Callable[[], None] = _request_process_shutdown,
@@ -500,9 +444,8 @@ def run(
         os.environ["ACE_IDLE_TIMEOUT_SECONDS"] = str(idle_timeout_seconds)
     global _ALLOWED_ORIGINS
     _ALLOWED_ORIGINS = _build_allowed_origins(port)
-    if kill_stale:
-        _kill_stale_ace_instances()
-        _kill_stale_server(port)
+    # Retain the legacy keyword for launcher compatibility. Startup never
+    # terminates other processes; uvicorn reports an occupied port normally.
     # Nuitka's onefile bootloader may not forward SIGTERM to the Python
     # process cleanly. Explicitly convert SIGTERM to KeyboardInterrupt so
     # uvicorn runs its graceful shutdown path (close connections, run
