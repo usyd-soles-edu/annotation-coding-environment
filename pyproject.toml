@@ -31,7 +31,7 @@ packages = ["src/ace"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
-    "slow: deliberate process/wait lifecycle tests that are slow without a browser (launcher lifecycle family). Excluded from the fast tier; the fast loop is `uv run pytest -m 'not slow'`.",
+    "slow: launcher lifecycle and browser integration tests excluded from the fast tier; run the full suite before release.",
 ]
 
 [dependency-groups]

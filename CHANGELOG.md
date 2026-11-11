@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 1.8.0
+
+### Changes
+
+- **Folder imports** — review the files and import outcomes before confirming a folder import.
+
+### Fixes
+
+- **Source imports** — keep CSV labels and coding text exactly as supplied, reject duplicate column headings and extra values, and make sources from later imports immediately codable.
+- **Agreement files** — preserve source identity across project copies and open read-only project paths containing URI characters or Windows network shares correctly.
+- **Multiple projects** — keep separate browser sessions for project runtimes opened on different local ports.
+- **Local startup** — report an occupied port without stopping another process or ACE runtime.
+- **Template safety** — restore safe JSON escaping when inserting project data into HTML.
+- **Codebook imports** — undo imported codes and the folders created with them without removing folders that were already in the project.
+- **Annotation exports** — preserve exact selected spans and memos, including every memo and the source whitespace in merged exports.
+- **Coding text** — keep selections and highlights aligned with emoji-containing source text, and keep the source map usable in short windows.
+- **Codebook sidebar** — retain annotation counts and the cut marker when the tree redraws.
+- **Agreement results** — sort columns and expand guidance with the keyboard, with sort direction announced to assistive technology.
+- **Audit review** — keep rapid code navigation on the latest selection and make shortcut help visible in the header.
+
 ## 1.7.0
 
 ### Changes

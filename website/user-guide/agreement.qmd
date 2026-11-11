@@ -42,6 +42,8 @@ Steps:
 5. Compute agreement.
 6. Inspect the overall result and per-code results.
 
+In the results, focus a column's sort button and press `Enter` or `Space` to cycle its sort direction. Focus a per-code or coder-pair row and press `Enter` or `Space` to expand or hide its guidance.
+
 ## Export agreement data
 
 Export agreement data when you need a long-form record of spans, coders, sources, and codes for separate analysis.

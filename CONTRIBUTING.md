@@ -56,12 +56,12 @@ Then switch back to main and pull: `git checkout main && git pull`.
 
 ## Testing
 
-The suite has one registered marker, `slow` (see `pyproject.toml`), covering the launcher-lifecycle tests that wait on real process start-up and shutdown:
+The suite has one registered marker, `slow` (see `pyproject.toml`), covering launcher-lifecycle tests and browser integration tests:
 
 - **Fast routine (default loop):** `uv run pytest -m "not slow"` — no process waits. Run this before every push.
-- **Full suite:** `uv run pytest` — run once before a release.
+- **Full suite:** `uv run --with 'playwright==1.58.0' pytest` — includes process lifecycle and Chromium, Firefox, and WebKit browser regressions; run once before a release.
 
-GitHub Actions executes no pytest at all — that is a standing boundary, not an accident. If CI ever gains a pytest job, it must use the fast-loop command only.
+Before the full suite, install its three browser engines with `uv run --with 'playwright==1.58.0' python -m playwright install chromium firefox webkit`. The `--with` option makes Playwright available to both commands without changing the project's locked dependencies. Check the pytest summary: browser tests must pass in all three engines, with no browser skips. GitHub Actions currently does not run pytest, so run the fast suite locally before each pull request and the full suite before a release.
 
 If you're adding new behaviour, write a test for it. If you're fixing a bug, write a test that reproduces it first, then fix it.
 
@@ -75,7 +75,7 @@ To release:
 2. Bump the release number in `src/ace/__init__.py`, `desktop/launcher/Cargo.toml`, `desktop/launcher/Cargo.lock`, `desktop/launcher/Packager.toml`, `.zenodo.json`, `CITATION.cff`, the README citation, and the website citation on `website/index.qmd`
 3. Check `CITATION.cff` has the intended `version`, `date-released`, DOI, authors, license, and repository URL. Zenodo reads citation metadata from the tagged archive, so stale or uncommitted metadata changes can appear on the DOI record.
 4. Run `uv run python scripts/check_release_metadata.py` and `uv lock --check`
-5. Run the full suite once: `uv run pytest`
+5. Install the Chromium, Firefox, and WebKit engines as described above, then run the full suite once with `uv run --with 'playwright==1.58.0' pytest`. Confirm no browser test was skipped.
 6. Stage only the release metadata files, then commit them: `git commit -m "chore(release): X.Y.Z"`
 7. Push `main`: `git push origin main`
 8. Create an annotated tag from the release commit on `main`: `git tag -a vX.Y.Z -m "X.Y.Z"`

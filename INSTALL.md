@@ -83,6 +83,7 @@ uv run ace
 ```
 
 ACE will open in your web browser.
+If port 8080 is already in use, ACE reports the conflict without stopping the other app. Try a free port with `uv run ace --port 8081`.
 
 After the first install, run ACE from the project folder with:
 
