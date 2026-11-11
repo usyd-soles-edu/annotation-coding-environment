@@ -2,7 +2,8 @@
 
 import os
 import sqlite3
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+from unittest.mock import Mock
 
 import pytest
 
@@ -12,7 +13,7 @@ from ace.models.source import add_source
 from ace.models.codebook import add_code
 from ace.models.annotation import add_annotation
 from ace.models.project import add_coder
-from ace.services.agreement_loader import AgreementLoader
+from ace.services.agreement_loader import AgreementLoader, _read_only_uri
 
 
 def _make_coder_file(path: Path, coder_name: str, text: str, code_name: str, spans: list[tuple[int, int]]) -> Path:
@@ -118,6 +119,18 @@ def test_missing_uri_path_does_not_create_file(tmp_path):
 
     assert "Cannot open" in info["error"]
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(("windows_path", "expected"), [
+    ("//server/share/hash#project.ace", "file:////server/share/hash%23project.ace?mode=ro"),
+    ("//server/share/café 100%.ace", "file:////server/share/caf%C3%A9%20100%25.ace?mode=ro"),
+    ("C:/projects/hash#project.ace", "file:///C:/projects/hash%23project.ace?mode=ro"),
+])
+def test_windows_read_only_uri_has_no_network_authority(windows_path, expected):
+    path = Mock(spec=Path)
+    path.resolve.return_value = PureWindowsPath(windows_path)
+
+    assert _read_only_uri(path) == expected
 
 
 def test_warn_wal_file(tmp_path):
