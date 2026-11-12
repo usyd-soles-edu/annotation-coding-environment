@@ -412,7 +412,7 @@ async def import_commit(
 ):
     """Commit the uploaded file: import selected columns as sources."""
     from ace.app import get_db
-    from ace.services.importer import import_csv, read_tabular
+    from ace.services.importer import import_csv
 
     tmp_path = getattr(request.app.state, "import_tmp_path", None)
     current_token = getattr(request.app.state, "import_stage_token", None)
@@ -436,29 +436,10 @@ async def import_commit(
     if not text_col_list:
         return _oob_status("Choose at least one text column.")
 
-    try:
-        tabular_data = read_tabular(Path(tmp_path))
-        _rows, columns = tabular_data
-    except Exception:
-        return _oob_status(_friendly_import_error())
-
-    if id_column not in columns:
-        return _oob_status(
-            "Selected source label column was not found. Choose a column from the file."
-        )
-    for column in text_col_list:
-        if column not in columns:
-            return _oob_status(
-                f'Selected text column "{column}" was not found. '
-                "Choose text columns from the file."
-            )
-
     db_gen = get_db(request)
     conn = next(db_gen)
     try:
-        result = import_csv(
-            conn, tmp_path, id_column, text_col_list, tabular_data=tabular_data
-        )
+        result = import_csv(conn, tmp_path, id_column, text_col_list)
         count, skipped, created_ids = result
     except ValueError as exc:
         return _oob_status(str(exc))

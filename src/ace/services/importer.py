@@ -3,9 +3,11 @@
 import csv
 import hashlib
 import os
+import random
 import sqlite3
 import stat
 from collections.abc import Iterable, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -69,38 +71,59 @@ def import_csv(
     new source ids (used by the 'Remove last import' button).
     """
     path = Path(path)
-    rows, columns = tabular_data if tabular_data is not None else read_tabular(path)
+    if tabular_data is None:
+        with stream_tabular(path) as (columns, rows):
+            return _import_tabular_rows(conn, path, rows, columns, id_column, text_columns)
+    rows, columns = tabular_data
+    return _import_tabular_rows(conn, path, rows, columns, id_column, text_columns)
 
-    meta_columns = [c for c in columns if c != id_column and c not in text_columns]
-    empty_skipped = 0
-    candidates: list[_SourceCandidate] = []
 
-    for row in rows:
-        raw_display_id = row[id_column]
-        has_selected_text = _row_has_selected_text(row, text_columns)
-        if not has_selected_text and _is_blank_value(raw_display_id):
-            empty_skipped += 1
-            continue
-        display_id = _validated_display_id(raw_display_id)
-        metadata = (
-            {
-                c: _coerce_value(row[c])
-                if path.suffix.lower() != ".xlsx" and isinstance(row[c], str)
-                else row[c]
-                for c in meta_columns
-            }
-            if meta_columns and has_selected_text
-            else None
+def _import_tabular_rows(
+    conn: sqlite3.Connection,
+    path: Path,
+    rows: Iterable[dict],
+    columns: list[str],
+    id_column: str,
+    text_columns: list[str],
+) -> ImportResult:
+    if id_column not in columns:
+        raise ValueError(
+            "Selected source label column was not found. Choose a column from the file."
         )
-        if has_selected_text:
-            content_text, section_heading_spans = _combine_text_columns(
-                row, text_columns
+    for column in text_columns:
+        if column not in columns:
+            raise ValueError(
+                f'Selected text column "{column}" was not found. '
+                "Choose text columns from the file."
             )
-        else:
-            content_text, section_heading_spans = "", None
+    meta_columns = [c for c in columns if c != id_column and c not in text_columns]
 
-        candidates.append(
-            _SourceCandidate(
+    def candidates() -> Iterable[_SourceCandidate | None]:
+        for row in rows:
+            raw_display_id = row[id_column]
+            has_selected_text = _row_has_selected_text(row, text_columns)
+            if not has_selected_text and _is_blank_value(raw_display_id):
+                yield None
+                continue
+            display_id = _validated_display_id(raw_display_id)
+            metadata = (
+                {
+                    c: _coerce_value(row[c])
+                    if path.suffix.lower() != ".xlsx" and isinstance(row[c], str)
+                    else row[c]
+                    for c in meta_columns
+                }
+                if meta_columns and has_selected_text
+                else None
+            )
+            if has_selected_text:
+                content_text, section_heading_spans = _combine_text_columns(
+                    row, text_columns
+                )
+            else:
+                content_text, section_heading_spans = "", None
+
+            yield _SourceCandidate(
                 display_id=display_id,
                 content_text=content_text,
                 source_type="row",
@@ -110,9 +133,8 @@ def import_csv(
                 section_heading_spans=section_heading_spans,
                 empty=not has_selected_text,
             )
-        )
 
-    return _insert_candidates(conn, candidates, empty_skipped=empty_skipped)
+    return _insert_candidates(conn, candidates())
 
 
 def _row_has_selected_text(row: dict, text_columns: list[str]) -> bool:
@@ -721,12 +743,10 @@ def _validated_display_id(value: object) -> str:
 
 def _insert_candidates(
     conn: sqlite3.Connection,
-    candidates: list[_SourceCandidate],
+    candidates: Iterable[_SourceCandidate | None],
     empty_skipped: int = 0,
 ) -> ImportResult:
     """Insert one prepared import batch atomically in candidate order."""
-    if not candidates:
-        return ImportResult(0, 0, empty_skipped, [])
     if conn.in_transaction:
         raise sqlite3.OperationalError(
             "Cannot import sources inside an existing transaction."
@@ -740,6 +760,9 @@ def _insert_candidates(
         transaction_started = True
         existing = _existing_display_ids(conn)
         for candidate in candidates:
+            if candidate is None:
+                empty_skipped += 1
+                continue
             if candidate.display_id in existing:
                 duplicate_skipped += 1
                 continue
@@ -772,10 +795,39 @@ def _insert_candidates(
 
 def read_tabular(path: Path) -> tuple[list[dict], list[str]]:
     """Read a CSV or Excel file, returning (rows as dicts, column names)."""
-    suffix = path.suffix.lower()
-    if suffix == ".xlsx":
-        return _read_xlsx(path)
-    return _read_csv(path)
+    with stream_tabular(path) as (columns, rows):
+        return list(rows), columns
+
+
+def scan_tabular_preview(
+    path: Path, limit: int = 20
+) -> tuple[int, list[dict], list[dict], list[str], list[str]]:
+    """Count rows with a fixed inference prefix and bounded random sample."""
+    if limit < 1:
+        raise ValueError("Preview limit must be positive")
+    sample: list[dict] = []
+    leading: list[dict] = []
+    example_labels: list[str] = []
+    seen_labels: set[str] = set()
+    with stream_tabular(path) as (columns, rows):
+        row_count = 0
+        for row in rows:
+            row_count += 1
+            if len(leading) < 8:
+                leading.append(row)
+            if columns and len(example_labels) < 3:
+                value = row.get(columns[0])
+                label = "" if value is None else str(value)
+                if label and label not in seen_labels:
+                    seen_labels.add(label)
+                    example_labels.append(label)
+            if row_count <= limit:
+                sample.append(row)
+            else:
+                slot = random.randrange(row_count - 1) + 1
+                if slot < limit:
+                    sample[slot] = row
+    return row_count, leading, sample, example_labels, columns
 
 
 def _validate_column_headings(columns: list[str]) -> None:
@@ -789,23 +841,14 @@ def _validate_column_headings(columns: list[str]) -> None:
         seen.add(column)
 
 
-def _read_csv(path: Path) -> tuple[list[dict], list[str]]:
-    """Read raw CSV strings with encoding fallback (utf-8, cp1252, latin-1)."""
+def _csv_encoding(path: Path) -> str:
+    """Find an encoding using bounded reads, including late invalid UTF-8."""
     for encoding in _CSV_ENCODINGS:
         try:
             with open(path, newline="", encoding=encoding) as f:
-                reader = csv.DictReader(f)
-                columns = reader.fieldnames or []
-                _validate_column_headings(columns)
-                rows = []
-                for row in reader:
-                    if None in row:
-                        raise ValueError(
-                            f"CSV row ending at line {reader.line_num} has more fields than column headings. "
-                            "Check the headings and quote any commas inside values."
-                        )
-                    rows.append(row)
-                return rows, list(columns)
+                while f.read(65536):
+                    pass
+            return encoding
         except UnicodeDecodeError:
             continue
 
@@ -814,33 +857,55 @@ def _read_csv(path: Path) -> tuple[list[dict], list[str]]:
     )
 
 
-def _read_xlsx(path: Path) -> tuple[list[dict], list[str]]:
-    """Read first sheet of .xlsx with openpyxl (read-only, data-only)."""
-    import openpyxl
+@contextmanager
+def stream_tabular(path: Path):
+    """Yield headings and rows without retaining the spreadsheet in memory."""
+    if path.suffix.lower() == ".xlsx":
+        import openpyxl
 
-    wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    try:
-        ws = wb.active
-        # Producers like Microsoft Forms can write stale <dimension> metadata that
-        # hides populated cells; reset so iteration scans the actual sheet XML.
-        ws.reset_dimensions()
-        row_iter = ws.iter_rows()
-        header_cells = next(row_iter)
-        columns = [str(c.value) if c.value is not None else f"col_{i}" for i, c in enumerate(header_cells)]
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        try:
+            ws = wb.active
+            # Stale dimension metadata can hide populated rows.
+            ws.reset_dimensions()
+            row_iter = ws.iter_rows()
+            header_cells = next(row_iter)
+            columns = [
+                str(cell.value) if cell.value is not None else f"col_{i}"
+                for i, cell in enumerate(header_cells)
+            ]
+            _validate_column_headings(columns)
+
+            def excel_rows():
+                for row_cells in row_iter:
+                    row = dict.fromkeys(columns)
+                    for col_name, cell in zip(columns, row_cells):
+                        value = cell.value
+                        if isinstance(value, datetime):
+                            value = value.isoformat()
+                        row[col_name] = value
+                    yield row
+
+            yield columns, excel_rows()
+        finally:
+            wb.close()
+        return
+
+    with open(path, newline="", encoding=_csv_encoding(path)) as f:
+        reader = csv.DictReader(f)
+        columns = list(reader.fieldnames or [])
         _validate_column_headings(columns)
 
-        rows = []
-        for row_cells in row_iter:
-            row = dict.fromkeys(columns)
-            for col_name, cell in zip(columns, row_cells):
-                value = cell.value
-                if isinstance(value, datetime):
-                    value = value.isoformat()
-                row[col_name] = value
-            rows.append(row)
-        return rows, columns
-    finally:
-        wb.close()
+        def csv_rows():
+            for row in reader:
+                if None in row:
+                    raise ValueError(
+                        f"CSV row ending at line {reader.line_num} has more fields than column headings. "
+                        "Check the headings and quote any commas inside values."
+                    )
+                yield row
+
+        yield columns, csv_rows()
 
 
 def _read_text_file(path: Path) -> str:
