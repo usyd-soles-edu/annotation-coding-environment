@@ -1062,3 +1062,72 @@ def test_drag_waits_for_keyboard_reorder_save(reorder_server, engine):
                 await browser.close()
 
     asyncio.run(exercise())
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+@pytest.mark.parametrize("move_kind", ["reorder", "reparent"])
+def test_delayed_drag_save_preserves_destination_source(reorder_server, engine, move_kind):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, _second = reorder_server
+    if move_kind == "reparent":
+        with sqlite3.connect(project) as setup:
+            setup.row_factory = sqlite3.Row
+            folder = add_folder(setup, "Group")
+
+    async def exercise():
+        drag_saved = asyncio.Event()
+        release_response = asyncio.Event()
+        async with async_api.async_playwright() as playwright:
+            browser = await getattr(playwright, engine).launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+                first_annotations = await page.locator("#ace-ann-data").get_attribute(
+                    "data-annotations"
+                )
+
+                async def hold_drag_response(route):
+                    response = await route.fetch()
+                    drag_saved.set()
+                    await release_response.wait()
+                    await route.fulfill(response=response)
+
+                route_pattern = (
+                    "**/api/codes/reorder-in-scope" if move_kind == "reorder"
+                    else f"**/api/codes/{first}/parent"
+                )
+                await page.route(route_pattern, hold_drag_response)
+                source_row = page.locator(f'.ace-ht-row[data-code-id="{first}"]')
+                if move_kind == "reorder":
+                    await source_row.click()
+                    await page.keyboard.press("Control+Shift+d")
+                    await page.keyboard.press("ArrowDown")
+                    await page.keyboard.press("Enter")
+                else:
+                    await source_row.drag_to(
+                        page.locator(f'.ace-ht-row[data-folder-id="{folder}"]')
+                    )
+                await asyncio.wait_for(drag_saved.wait(), timeout=5)
+                async with page.expect_response("**/api/navigation"):
+                    await page.evaluate("window.aceNavigate(1)")
+                await page.wait_for_function("window.__aceCurrentIndex === 1")
+                destination_annotations = await page.locator(
+                    "#ace-ann-data"
+                ).get_attribute("data-annotations")
+                assert destination_annotations != first_annotations
+                release_response.set()
+                await page.wait_for_load_state("networkidle", timeout=5000)
+                assert await page.locator("#ace-ann-data").get_attribute(
+                    "data-annotations"
+                ) == destination_annotations
+                assert await page.evaluate("window.__aceCurrentIndex") == 1
+            finally:
+                release_response.set()
+                await browser.close()
+
+    asyncio.run(exercise())

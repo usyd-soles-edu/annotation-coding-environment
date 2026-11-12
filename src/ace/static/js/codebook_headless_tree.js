@@ -2023,6 +2023,7 @@
           });
         }
         setStatus("");
+        if (isCodingMode()) void refreshSavedTree(++reorderResolutionVersion);
       } catch (error) {
         setStatus("Move failed");
         if (saveGeneration === initGeneration) restoreChildrenByParent(restoreSnapshot);
@@ -2125,7 +2126,7 @@
       });
       return changed;
     }
-    async function refreshKeyboardShortcuts(version) {
+    async function refreshSavedTree(version) {
       const sidebarGeneration = initGeneration;
       try {
         const response = await fetch("/api/codes/tree", { headers: { Accept: "application/json" } });
@@ -2141,7 +2142,7 @@
         if (applyAuthoritativeTreeData(refreshedTreeData.items)) tree.rebuildTree();
         scheduleRender();
       } catch (error) {
-        setStatus("Shortcut refresh failed");
+        setStatus("Codebook refresh failed");
         window.__aceHeadlessTreePreviewError = String(error?.message || error);
       }
     }
@@ -2194,7 +2195,7 @@
         activeKeyboardReorderId = null;
         setTimeout(sendNextKeyboardReorder, 0);
       }
-      if (!pendingReorders.size) void refreshKeyboardShortcuts(reorderResolutionVersion);
+      if (!pendingReorders.size) void refreshSavedTree(reorderResolutionVersion);
     }
     document.addEventListener("htmx:afterRequest", function(event) {
       const detail = event.detail;
