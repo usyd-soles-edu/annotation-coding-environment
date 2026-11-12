@@ -76,6 +76,99 @@ async def import_page(request: Request):
     )
 
 
+def _source_annotation_context(
+    conn: sqlite3.Connection,
+    coder_id: str,
+    source_id: str | None,
+    source_text: str,
+    section_heading_spans: tuple[tuple[int, int], ...],
+    *,
+    render_sentences: bool,
+) -> dict:
+    """Shape the current source's annotations without reading project-wide data."""
+    codes_list = [dict(code) for code in list_codes(conn)]
+    codes_by_id = {code["id"]: code for code in codes_list}
+    annotations_list = (
+        [dict(ann) for ann in get_annotations_for_source(conn, source_id, coder_id)]
+        if source_id else []
+    )
+
+    sentence_html = ""
+    if render_sentences:
+        from ace.services.coding_render import render_sentence_text
+        from ace.services.text_splitter import split_into_units
+
+        sentence_units = split_into_units(source_text, section_heading_spans)
+        sentence_html = render_sentence_text(sentence_units, annotations_list, codes_by_id)
+
+    seen_codes: set[str] = set()
+    margin_codes: list[dict] = []
+    applied_code_rows: list[dict] = []
+    annotations_by_code: dict[str, list[dict]] = {}
+    code_counts: dict[str, int] = {}
+    for ann in annotations_list:
+        cid = ann["code_id"]
+        annotations_by_code.setdefault(cid, []).append(ann)
+        code_counts[cid] = code_counts.get(cid, 0) + 1
+        if cid not in seen_codes:
+            code = codes_by_id.get(cid)
+            if code:
+                seen_codes.add(cid)
+                margin_codes.append({
+                    "code_id": cid,
+                    "code_name": code["name"],
+                    "colour": code["colour"],
+                })
+
+    source_length = max(len(source_text), 1)
+    for code in margin_codes:
+        cid = code["code_id"]
+        segments = []
+        occurrences = []
+        for idx, ann in enumerate(annotations_by_code.get(cid, []), start=1):
+            start_pct = max(0.0, min(100.0, 100.0 * ann["start_offset"] / source_length))
+            width_pct = max(0.2, min(100.0 - start_pct, 100.0 * (ann["end_offset"] - ann["start_offset"]) / source_length))
+            segments.append({
+                "annotation_id": ann["id"],
+                "left": round(start_pct, 3),
+                "width": round(width_pct, 3),
+            })
+            occurrences.append({
+                "annotation_id": ann["id"],
+                "ordinal": idx,
+                "excerpt": _annotation_excerpt(
+                    source_text,
+                    ann["start_offset"],
+                    ann["end_offset"],
+                ),
+            })
+        applied_code_rows.append({
+            "code_id": cid,
+            "code_name": code["code_name"],
+            "colour": code["colour"],
+            "count": code_counts.get(cid, 0),
+            "segments": segments,
+            "occurrences": occurrences,
+        })
+
+    annotation_highlights_json = Markup(html.escape(json.dumps([
+        {"id": ann["id"], "code_id": ann["code_id"],
+         "start": ann["start_offset"], "end": ann["end_offset"]}
+        for ann in annotations_list
+        if ann["code_id"] in codes_by_id
+    ])))
+    return {
+        "codes": codes_list,
+        "codes_by_id": codes_by_id,
+        "annotations": annotations_list,
+        "code_counts": code_counts,
+        "margin_codes": margin_codes,
+        "applied_code_rows": applied_code_rows,
+        "annotation_highlights_json": annotation_highlights_json,
+        "sentence_html": sentence_html,
+    }
+
+
 def _coding_context(
     conn: sqlite3.Connection,
     coder_id: str,
@@ -137,99 +230,19 @@ def _coding_context(
         current_note_text = get_note(conn, current_source["id"], coder_id) or ""
     notes_present = source_ids_with_notes(conn, coder_id)
 
-    # Codes
-    codes = list_codes(conn)
-    codes_list = [dict(c) for c in codes]
-    codes_by_id = {c["id"]: c for c in codes_list}
+    source_ctx = _source_annotation_context(
+        conn,
+        coder_id,
+        current_source["id"] if current_source else None,
+        source_text,
+        section_heading_spans,
+        render_sentences=render_sentences,
+    )
 
-    # Annotations for current source
-    annotations = []
-    if current_source:
-        annotations = get_annotations_for_source(conn, current_source["id"], coder_id)
-    annotations_list = [dict(a) for a in annotations]
-
-    # Annotation counts by source (for grid)
+    # Global counts and source data are needed when rendering the whole page.
     annotation_counts = get_annotation_counts_by_source(conn, coder_id)
-
-    # Annotation counts by code (for the count cell next to each sidebar code row)
     code_counts_by_id = get_annotation_counts_by_code(conn, coder_id)
-
-    # Annotation-only responses update the overlay and applied-code panels
-    # without replacing the text DOM, so they need no sentence segmentation.
-    sentence_html = ""
-    if render_sentences:
-        from ace.services.coding_render import render_sentence_text
-        from ace.services.text_splitter import split_into_units
-
-        sentence_units = split_into_units(source_text, section_heading_spans)
-        sentence_html = render_sentence_text(sentence_units, annotations_list, codes_by_id)
-
-    # --- Tree-shaped codebook for sidebar ---
     tree_codes = list_codes_with_tree(conn)
-
-    # Deduplicated codes applied to this source, preserving first occurrence
-    # order for the right-side applied-codes inspector.
-    seen_codes: set[str] = set()
-    margin_codes: list[dict] = []
-    applied_code_rows: list[dict] = []
-    annotations_by_code: dict[str, list[dict]] = {}
-    for ann in annotations_list:
-        cid = ann["code_id"]
-        annotations_by_code.setdefault(cid, []).append(ann)
-        if cid not in seen_codes:
-            code = codes_by_id.get(cid)
-            if code:
-                seen_codes.add(cid)
-                margin_codes.append({
-                    "code_id": cid,
-                    "code_name": code["name"],
-                    "colour": code["colour"],
-                })
-
-    # Per-code frequency counts for current source
-    code_counts: dict[str, int] = {}
-    for ann in annotations_list:
-        cid = ann["code_id"]
-        code_counts[cid] = code_counts.get(cid, 0) + 1
-    source_length = max(len(source_text), 1)
-    for code in margin_codes:
-        cid = code["code_id"]
-        segments = []
-        occurrences = []
-        for idx, ann in enumerate(annotations_by_code.get(cid, []), start=1):
-            start_pct = max(0.0, min(100.0, 100.0 * ann["start_offset"] / source_length))
-            width_pct = max(0.2, min(100.0 - start_pct, 100.0 * (ann["end_offset"] - ann["start_offset"]) / source_length))
-            segments.append({
-                "annotation_id": ann["id"],
-                "left": round(start_pct, 3),
-                "width": round(width_pct, 3),
-            })
-            occurrences.append({
-                "annotation_id": ann["id"],
-                "ordinal": idx,
-                "excerpt": _annotation_excerpt(
-                    source_text,
-                    ann["start_offset"],
-                    ann["end_offset"],
-                ),
-            })
-        applied_code_rows.append({
-            "code_id": cid,
-            "code_name": code["code_name"],
-            "colour": code["colour"],
-            "count": code_counts.get(cid, 0),
-            "segments": segments,
-            "occurrences": occurrences,
-        })
-
-    # Annotation data for the SVG overlay (client-side rendering via _paintSvg).
-    # Only id/code_id/start/end — colour comes from rect.ace-hl-{cid} CSS rules.
-    annotation_highlights_json = Markup(html.escape(json.dumps([
-        {"id": ann["id"], "code_id": ann["code_id"],
-         "start": ann["start_offset"], "end": ann["end_offset"]}
-        for ann in annotations_list
-        if ann["code_id"] in codes_by_id
-    ])))
     code_counts_json = Markup(html.escape(json.dumps(code_counts_by_id)))
 
     # Coder name
@@ -260,24 +273,17 @@ def _coding_context(
         "current_source": current_source,
         "is_flagged": is_flagged,
         "source_text": source_text,
-        "codes": codes_list,
+        **source_ctx,
         "colour_palette": [hex_val for hex_val, _label in COLOUR_PALETTE],
-        "codes_by_id": codes_by_id,
-        "annotations": annotations_list,
         "annotation_counts": annotation_counts,
-        "code_counts": code_counts,
         "coder_name": coder_name,
         "current_note_text": current_note_text,
         "has_note": bool(current_note_text),
         "source_ids_with_notes": notes_present,
         "assignments": [dict(a) for a in assignments],
         "sources_json": sources_json,
-        "sentence_html": sentence_html,
         "tree_codes": tree_codes,
         "code_counts_by_id": code_counts_by_id,
-        "margin_codes": margin_codes,
-        "applied_code_rows": applied_code_rows,
-        "annotation_highlights_json": annotation_highlights_json,
         "code_counts_json": code_counts_json,
         "show_coding_text_controls": True,
         "version": __version__,

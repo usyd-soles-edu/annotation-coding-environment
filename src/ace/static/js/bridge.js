@@ -1209,6 +1209,8 @@
 
   let _aceSourceGridState = {
     sources: [],
+    sourceDataEl: null,
+    sourceDataText: null,
     windowStart: 0,
     visibleCount: 0,
     resizeObs: null,
@@ -1664,10 +1666,16 @@
   window._aceRenderSourceGrid = function () {
     const blob = document.getElementById("ace-sources-data");
     if (!blob) return;
-    try {
-      _aceSourceGridState.sources = JSON.parse(blob.textContent || "[]");
-    } catch (e) {
-      _aceSourceGridState.sources = [];
+    const payload = blob.textContent || "[]";
+    if (blob !== _aceSourceGridState.sourceDataEl ||
+        payload !== _aceSourceGridState.sourceDataText) {
+      try {
+        _aceSourceGridState.sources = JSON.parse(payload);
+      } catch (e) {
+        _aceSourceGridState.sources = [];
+      }
+      _aceSourceGridState.sourceDataEl = blob;
+      _aceSourceGridState.sourceDataText = payload;
     }
     const tiles = document.getElementById("ace-grid-tiles");
     // Only tear down + recreate the observer when the tile host node changed
@@ -1693,11 +1701,34 @@
     _aceAnnounceCurrentSource();
   };
 
+  window._acePatchSourceCount = function (sourceId, sourceIndex, count) {
+    const st = _aceSourceGridState;
+    let source = st.sources[sourceIndex];
+    if (!source || source.source_id !== sourceId) {
+      source = st.sources.find(s => s.source_id === sourceId);
+    }
+    if (!source) return;
+    source.count = Math.max(0, Number(count) || 0);
+    const tile = document.querySelector(
+      `#ace-grid-tiles .ace-grid-tile[data-source-index="${source.index}"]`
+    );
+    if (tile) {
+      tile.dataset.count = String(source.count);
+      tile.classList.toggle("hot", source.count >= 6);
+      tile.classList.toggle("warm", source.count >= 3 && source.count < 6);
+      tile.title = "#" + (source.index + 1) + " · " + source.display_id +
+        " · " + source.count + " annotation" + (source.count === 1 ? "" : "s");
+      const label = tile.querySelector("span");
+      if (label) label.textContent = String(source.count);
+    }
+    _aceUpdateInspector();
+    _aceRenderSparkline();
+  };
+
   function _aceSetSourceFlag(sourceIndex, flagged) {
     const blob = document.getElementById("ace-sources-data");
     if (!blob) return;
-    let sources;
-    try { sources = JSON.parse(blob.textContent || "[]"); } catch (_) { return; }
+    const sources = _aceSourceGridState.sources;
     const source = sources[sourceIndex];
     if (!source || source.index !== sourceIndex) return;
     source.flagged = flagged;
@@ -1708,8 +1739,7 @@
   window._aceSetSourceNote = function (sourceId, hasNote) {
     const blob = document.getElementById("ace-sources-data");
     if (!blob) return;
-    let sources;
-    try { sources = JSON.parse(blob.textContent || "[]"); } catch (_) { return; }
+    const sources = _aceSourceGridState.sources;
     const source = sources.find(s => s.source_id === sourceId);
     if (!source) return;
     source.note = hasNote;
@@ -2040,9 +2070,24 @@
   // Patch per-row code-count chips from #ace-ann-data so annotation-only
   // updates don't need to re-render the full sidebar.
   let _lastCodeCountPayload = "";
+  let _lastCodeCountPatchEl = null;
   function _syncCodeCounts() {
     const dataEl = document.getElementById("ace-ann-data");
     if (!dataEl) return;
+    if (dataEl.dataset.codePatchId) {
+      if (dataEl === _lastCodeCountPatchEl) return;
+      _lastCodeCountPatchEl = dataEl;
+      // The next full snapshot must be applied even if it matches the last
+      // snapshot seen before this patch (another tab may have undone it).
+      _lastCodeCountPayload = "";
+      const controller = _getSidebarTreeController();
+      if (controller && typeof controller.patchCodeCount === "function") {
+        controller.patchCodeCount(
+          dataEl.dataset.codePatchId, dataEl.dataset.codePatchCount
+        );
+      }
+      return;
+    }
     const annPayload = dataEl.dataset.annotations || "[]";
     const countPayload = dataEl.dataset.codeCounts || "";
     const payloadKey = `${annPayload}\n${countPayload}`;
@@ -2111,12 +2156,72 @@
   // DOM. Primary HTMX swaps don't fire htmx:oobAfterSwap for OOB targets,
   // so call this explicitly from afterSettle to keep the tile grid in
   // sync with the server-rendered `ace-sources-data` JSON.
+  let _lastSourceCountPatchEl = null;
   function _rerenderSourceGridIfPresent() {
+    const dataEl = document.getElementById("ace-ann-data");
+    if (dataEl && dataEl.dataset.sourcePatchId) {
+      if (dataEl !== _lastSourceCountPatchEl &&
+          typeof window._acePatchSourceCount === "function") {
+        _lastSourceCountPatchEl = dataEl;
+        window._acePatchSourceCount(
+          dataEl.dataset.sourcePatchId,
+          Number(dataEl.dataset.sourcePatchIndex),
+          Number(dataEl.dataset.sourcePatchCount),
+        );
+      }
+      const blob = document.getElementById("ace-sources-data");
+      if (blob === _aceSourceGridState.sourceDataEl &&
+          (blob.textContent || "[]") === _aceSourceGridState.sourceDataText &&
+          document.getElementById("ace-grid-tiles") === _aceSourceGridState.tilesEl) {
+        return;
+      }
+    }
     if (document.getElementById("ace-sources-data") &&
         typeof window._aceRenderSourceGrid === "function") {
       window._aceRenderSourceGrid();
     }
   }
+
+  // Another tab can change counts between this tab's actions. In that case,
+  // request one full snapshot on the next annotation action; normal actions
+  // keep using the small patch response.
+  let _countInvalidationGeneration = 0;
+  let _countRefreshGeneration = 0;
+  const _countChannel = typeof BroadcastChannel === "function"
+    ? new BroadcastChannel("ace-annotation-counts") : null;
+  if (_countChannel) {
+    _countChannel.addEventListener("message", function (evt) {
+      if (evt.data === "changed") _countInvalidationGeneration += 1;
+    });
+  }
+  document.addEventListener("htmx:configRequest", function (evt) {
+    if (_countInvalidationGeneration > _countRefreshGeneration &&
+        evt.detail && evt.detail.headers) {
+      evt.detail.headers["X-Ace-Counts-Dirty"] = String(_countInvalidationGeneration);
+    }
+  });
+  document.addEventListener("htmx:afterRequest", function (evt) {
+    if (!_countChannel || !evt.detail?.xhr ||
+        evt.detail.xhr.status < 200 || evt.detail.xhr.status >= 300) return;
+    const config = evt.detail.requestConfig || {};
+    const verb = String(config.verb || "").toUpperCase();
+    if (!["POST", "PUT", "DELETE", "PATCH"].includes(verb)) return;
+    const path = new URL(config.path || "", window.location.href).pathname;
+    if (path.startsWith("/api/")) _countChannel.postMessage("changed");
+  });
+
+  // A queued HTMX request can swap a second annotation payload before the
+  // first request settles. Consume each patch when its OOB node is swapped,
+  // so counts from rapid actions on different codes are not lost.
+  document.addEventListener("htmx:oobAfterSwap", function (evt) {
+    const detail = evt.detail || {};
+    const isAnnotationData = [detail.target, detail.elt, evt.target]
+      .some(el => el && el.id === "ace-ann-data");
+    if (isAnnotationData) {
+      _syncCodeCounts();
+      _rerenderSourceGridIfPresent();
+    }
+  });
 
   // After HTMX swap: restore focus, rebuild tabs, update keycaps,
   // and refresh the ambient status-bar segment. Use afterSettle (not
@@ -2158,6 +2263,13 @@
     // timer that _setStatus sets up. Mirror the same 2 s fade so they
     // don't sit forever waiting for the next user action.
     _maybeFadeOkStatus();
+
+    const refreshed = Number(
+      document.getElementById("ace-ann-data")?.dataset.countRefreshVersion || 0
+    );
+    if (refreshed && refreshed === _countInvalidationGeneration) {
+      _countRefreshGeneration = refreshed;
+    }
 
     const target = (evt.detail || {}).target;
     if (!target) return;
