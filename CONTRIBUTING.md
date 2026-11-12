@@ -61,7 +61,7 @@ The suite has one registered marker, `slow` (see `pyproject.toml`), covering lau
 - **Fast routine (default loop):** `uv run pytest -m "not slow"` — no process waits. Run this before every push.
 - **Full suite:** `uv run --with 'playwright==1.58.0' pytest` — includes process lifecycle and Chromium, Firefox, and WebKit browser regressions; run once before a release.
 
-Before the full suite, install its three browser engines with `uv run --with 'playwright==1.58.0' python -m playwright install chromium firefox webkit`. The `--with` option makes Playwright available to both commands without changing the project's locked dependencies. Check the pytest summary: browser tests must pass in all three engines, with no browser skips. GitHub Actions currently does not run pytest, so run the fast suite locally before each pull request and the full suite before a release.
+Before the full suite, install its three browser engines with `uv run --with 'playwright==1.58.0' python -m playwright install chromium firefox webkit`. The `--with` option makes Playwright available to both commands without changing the project's locked dependencies. Check the pytest summary: browser tests must pass in all three engines, with no browser skips. GitHub Actions runs the fast tests, the browser regressions in all three engines, and the Rust launcher tests on pull requests and pushes to `main`. Run the fast suite locally before each pull request and the full suite before a release.
 
 If you're adding new behaviour, write a test for it. If you're fixing a bug, write a test that reproduces it first, then fix it.
 
