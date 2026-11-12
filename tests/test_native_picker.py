@@ -162,7 +162,7 @@ def test_picker_preflight_cli_exits_without_starting_server(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["ace", "--check-native-picker"])
     with (
         patch("ace.routes.api_support.check_native_picker_runtime") as check,
-        patch("ace.__main__.run") as run,
+        patch("ace.app.run") as run,
     ):
         main()
     check.assert_called_once_with()
