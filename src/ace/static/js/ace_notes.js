@@ -19,6 +19,7 @@
 
 let _noteSaveTimer = null;
 let _noteInFlight = null;
+const _noteSaveGenerations = new Map();
 let _noteStatusClearTimer = null;
 let _previouslyFocused = null;
 // #13: a dirty note edit captured before an inspector OOB swap so it can be
@@ -181,6 +182,8 @@ function _doSaveNote() {
   const sourceId = textarea.getAttribute("data-source-id");
   if (!sourceId) return Promise.resolve();
   const text = textarea.value;
+  const generation = (_noteSaveGenerations.get(sourceId) || 0) + 1;
+  _noteSaveGenerations.set(sourceId, generation);
   // Returns the same OOB payload as flag_route — pill, grid strip, and
   // status badge all refresh together.
   const promise = fetch("/api/source-note/" + encodeURIComponent(sourceId), {
@@ -193,16 +196,22 @@ function _doSaveNote() {
     if (ct.indexOf("application/json") !== -1) return resp.json();
     return { has_note: !!text.trim() };
   }).then(function (data) {
-    var pill = document.getElementById("note-pill");
-    if (pill) {
-      if (data.has_note) {
-        pill.classList.add("ace-note-pill--has-note");
-      } else {
-        pill.classList.remove("ace-note-pill--has-note");
-      }
+    if (_noteSaveGenerations.get(sourceId) !== generation) return;
+    if (typeof window._aceSetSourceNote === "function") {
+      window._aceSetSourceNote(sourceId, data.has_note);
     }
-    if (document.getElementById("note-status")?.textContent !== LONG_NOTE_WARNING) {
-      _setNoteStatus("Saved", false);
+    if (document.getElementById("note-textarea")?.getAttribute("data-source-id") === sourceId) {
+      var pill = document.getElementById("note-pill");
+      if (pill) {
+        if (data.has_note) {
+          pill.classList.add("ace-note-pill--has-note");
+        } else {
+          pill.classList.remove("ace-note-pill--has-note");
+        }
+      }
+      if (document.getElementById("note-status")?.textContent !== LONG_NOTE_WARNING) {
+        _setNoteStatus("Saved", false);
+      }
     }
   }).catch(function (err) {
     if (err.name === "AbortError") return;
