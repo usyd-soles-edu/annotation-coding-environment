@@ -8,7 +8,7 @@
 
 - **Folder imports** — review the files and import outcomes before confirming a folder import.
 - **Codebook CSV import** — optionally map a colour column to retain code colours, including when reimporting an exported codebook.
-- **Source navigation** — move between coding sources in place without reloading the page or resending an unchanged source map on every move.
+- **Source navigation** — move between coding sources in place without reloading the page or resending an unchanged source map on every move; reuse sentence boundaries when revisiting long sources.
 - **Spreadsheet imports** — show rows scanned while preparing the preview and processed-row progress during import; allow cancelling either step before adding sources from that batch.
 - **Audit review** — print the currently shown excerpts, including active source and text filters, without the editing controls.
 - **Development checks** — run fast Python, browser-engine, and Rust launcher tests on pull requests.
@@ -19,12 +19,15 @@
 - **Large spreadsheet imports** — stream rows with bounded previews, keep preview loading responsive, and reject previews whose source file has changed.
 - **Agreement files** — preserve source identity across project copies and open read-only project paths containing URI characters or Windows network shares correctly.
 - **Multiple projects** — keep separate browser sessions for project runtimes opened on different local ports.
-- **Local startup** — report an occupied port without stopping another process or ACE runtime, and retain bounded diagnostics when the launcher fails to start.
+- **Local startup** — report an occupied port without stopping another process or ACE runtime, and retain bounded diagnostics and a safe failure category when the launcher fails to start.
 - **Template safety** — restore safe JSON escaping when inserting project data into HTML.
 - **Codebook imports** — undo imported codes and the folders created with them without removing folders that were already in the project.
 - **Annotation exports** — preserve exact selected spans and memos, including every memo and the source whitespace in merged exports.
 - **Coding text** — keep selections and highlights aligned with emoji-containing source text, and keep the source map usable in short windows.
+- **Narrow coding windows** — provide a visible way to reach the codebook and applied codes while keeping an open source note in view.
+- **Source notes** — retain unsaved drafts after failed or overlapping saves.
 - **Codebook sidebar** — retain annotation counts and the cut marker when the tree redraws.
+- **Codebook order** — restore the saved order after a failed drag or keyboard move instead of leaving a misleading unsaved arrangement.
 - **Codebook editing** — warn when another ACE tab is open so edits in separate tabs do not silently overwrite one another.
 - **Agreement results** — sort columns and expand guidance with the keyboard, with sort direction announced to assistive technology.
 - **Audit review** — keep rapid code navigation on the latest selection and make shortcut help visible in the header.
