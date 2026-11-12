@@ -541,33 +541,62 @@ def _native_selection_path(value: str) -> Path:
     return Path(value)
 
 
-def _parse_tabular_for_mapping(
+async def _parse_tabular_for_mapping(
     request: Request, path: Path, *, cleanup: bool, filename: str
 ) -> HTMLResponse:
     from ace.services.importer import scan_tabular_preview
 
-    active_job = getattr(request.app.state, "tabular_import_job", None)
-    if active_job is not None and not active_job.done.is_set():
+    app_state = request.app.state
+    project_path = getattr(app_state, "project_path", None)
+    request_id = secrets.token_urlsafe(16)
+    app_state.import_preview_request_id = request_id
+
+    def is_current() -> bool:
+        return (
+            app_state.import_preview_request_id == request_id
+            and app_state.project_path == project_path
+        )
+
+    def stale_response() -> HTMLResponse:
         if cleanup:
             path.unlink(missing_ok=True)
-        return _oob_status("An import is already running. Wait or cancel it first.")
+        return HTMLResponse(
+            "This file preview is no longer current. Choose the file again.",
+            status_code=409,
+        )
 
     try:
-        row_count, leading, sampled, example_labels, columns = scan_tabular_preview(path)
+        row_count, leading, sampled, example_labels, columns = await asyncio.to_thread(
+            scan_tabular_preview, path
+        )
+    except asyncio.CancelledError:
+        if is_current():
+            app_state.import_preview_request_id = None
+        raise
     except Exception as e:
+        if not is_current():
+            return stale_response()
+        app_state.import_preview_request_id = None
         if cleanup:
             path.unlink(missing_ok=True)
         return _oob_status(f"Could not parse file: {e}")
 
-    request.app.state.import_tmp_path = str(path)
-    request.app.state.import_tmp_cleanup = cleanup
-    request.app.state.import_source_name = filename
-    request.app.state.import_stage_project_path = getattr(
-        request.app.state, "project_path", None
-    )
+    if not is_current():
+        return stale_response()
+    active_job = getattr(app_state, "tabular_import_job", None)
+    if active_job is not None and not active_job.done.is_set():
+        app_state.import_preview_request_id = None
+        if cleanup:
+            path.unlink(missing_ok=True)
+        return _oob_status("An import is already running. Wait or cancel it first.")
+
+    app_state.import_tmp_path = str(path)
+    app_state.import_tmp_cleanup = cleanup
+    app_state.import_source_name = filename
+    app_state.import_stage_project_path = project_path
     stage_token = secrets.token_urlsafe(24)
-    request.app.state.import_stage_token = stage_token
-    request.app.state.import_stage_row_count = row_count
+    app_state.import_stage_token = stage_token
+    app_state.import_stage_row_count = row_count
     return HTMLResponse(
         _build_import_mapping_fragment(
             filename, leading, sampled, example_labels, columns, stage_token, row_count
