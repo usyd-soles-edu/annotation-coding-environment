@@ -5690,7 +5690,7 @@
     if (count) count.textContent = String(textCols.length);
 
     const submit = form.querySelector("#import-submit");
-    if (submit) submit.disabled = !(idCol && textCols.length);
+    if (submit) submit.disabled = form.dataset.importRunning === "1" || !(idCol && textCols.length);
 
     _updateImportExamples(form, rows, idCol);
     _renderImportPreview(form, rows, idCol, textCols);
