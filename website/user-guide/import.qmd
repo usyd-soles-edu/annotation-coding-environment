@@ -31,7 +31,7 @@ P02,"Second transcript text..."
 Steps:
 
 1. **Open your project** and choose **Import sources**.
-2. **Choose Import a spreadsheet** and select the `.csv` or `.xlsx` file.
+2. **Choose Import a spreadsheet** and select the `.csv` or `.xlsx` file. ACE shows how many rows it has scanned while preparing the preview. Choose **Cancel preview** to stop scanning; no sources are added.
 3. **Check the source label column** ACE suggests. Pick a different column if needed.
 4. **Tick the text columns** to code. Ticking more than one adds a labelled section for each column to every source.
 5. **Check the preview.** It shows a sample source with its label and selected text; use the refresh button to see another. Your column choices stay as they are while you look.

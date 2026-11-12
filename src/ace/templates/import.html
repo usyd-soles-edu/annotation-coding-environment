@@ -40,6 +40,12 @@
         <span aria-hidden="true">&rarr;</span>
       </button>
     </div>
+    <div class="ace-import-progress" id="import-preview-progress" hidden>
+      <label for="import-preview-progress-bar">Reading spreadsheet</label>
+      <progress id="import-preview-progress-bar"></progress>
+      <p data-import-preview-progress-text role="status" aria-live="polite">Scanning rows…</p>
+      <button class="ace-btn" type="button" data-import-preview-cancel>Cancel preview</button>
+    </div>
     <div class="ace-import-actions ace-import-actions--secondary">
       <a class="ace-wizard-link ace-wizard-link--inline" href="/">Back to home</a>
     </div>
@@ -225,6 +231,87 @@
 
   var importProgressTimer = null;
   var importProgressEpoch = 0;
+  var importPreviewProgressTimer = null;
+  var importPreviewProgressEpoch = 0;
+  var activePreviewToken = null;
+
+  function stopImportPreviewProgress(token) {
+    if (token && token !== activePreviewToken) return;
+    activePreviewToken = null;
+    importPreviewProgressEpoch += 1;
+    if (importPreviewProgressTimer !== null) clearTimeout(importPreviewProgressTimer);
+    importPreviewProgressTimer = null;
+    var panel = document.getElementById("import-preview-progress");
+    if (panel) panel.hidden = true;
+    var cancel = document.querySelector("[data-import-preview-cancel]");
+    if (cancel) {
+      cancel.disabled = false;
+      cancel.textContent = "Cancel preview";
+    }
+  }
+
+  function pollImportPreviewProgress(token, epoch) {
+    if (activePreviewToken !== token || epoch !== importPreviewProgressEpoch) return;
+    fetch("/api/import/preview-progress?" + new URLSearchParams({ preview_token: token }))
+      .then(function(response) { return response.ok ? response.json() : null; })
+      .then(function(data) {
+        if (activePreviewToken !== token || epoch !== importPreviewProgressEpoch || !data) return;
+        var label = document.querySelector("[data-import-preview-progress-text]");
+        var cancel = document.querySelector("[data-import-preview-cancel]");
+        if (label) {
+          label.textContent = data.status === "cancelling"
+            ? "Cancelling preview…"
+            : data.scanned.toLocaleString() + " rows scanned";
+        }
+        if (cancel) cancel.disabled = data.status !== "running";
+      })
+      .catch(function() {
+        var label = document.querySelector("[data-import-preview-progress-text]");
+        if (label && activePreviewToken === token) {
+          label.textContent = "Reading spreadsheet… progress temporarily unavailable.";
+        }
+      })
+      .finally(function() {
+        if (activePreviewToken === token && epoch === importPreviewProgressEpoch) {
+          importPreviewProgressTimer = setTimeout(function() {
+            pollImportPreviewProgress(token, epoch);
+          }, 250);
+        }
+      });
+  }
+
+  function startImportPreviewProgress(token) {
+    stopImportPreviewProgress();
+    activePreviewToken = token;
+    var panel = document.getElementById("import-preview-progress");
+    if (panel) panel.hidden = false;
+    var label = document.querySelector("[data-import-preview-progress-text]");
+    if (label) label.textContent = "Scanning rows…";
+    var epoch = importPreviewProgressEpoch;
+    importPreviewProgressTimer = setTimeout(function() {
+      pollImportPreviewProgress(token, epoch);
+    }, 250);
+  }
+
+  document.addEventListener("click", function(evt) {
+    var cancel = evt.target.closest("[data-import-preview-cancel]");
+    if (!cancel || !activePreviewToken) return;
+    var token = activePreviewToken;
+    cancel.disabled = true;
+    cancel.textContent = "Cancelling…";
+    fetch("/api/import/preview-cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ preview_token: token })
+    }).then(function(response) {
+      if (!response.ok) throw new Error();
+    }).catch(function() {
+      if (activePreviewToken !== token) return;
+      cancel.disabled = false;
+      cancel.textContent = "Cancel preview";
+      setImportMessage("Could not cancel the preview. Try again.", "err");
+    });
+  });
 
   function setImportMappingControlsDisabled(form, disabled) {
     form.querySelectorAll("#import-id-choice, [data-import-text-col], .ace-import-search, [data-import-preview-refresh]")
@@ -342,22 +429,48 @@
         btn.disabled = false;
         setButtonTitle(btn, "Import a spreadsheet");
         if (!path) return;
-        setImportMessage("Reading spreadsheet...", "");
         var previewRequestId = String(++importPreviewSequence);
-        var afterFileRequest = function(evt) {
-          var pathInfo = evt.detail.pathInfo || {};
-          var requestConfig = evt.detail.requestConfig || {};
-          var path = pathInfo.requestPath || pathInfo.finalRequestPath || requestConfig.path;
-          if (path !== "/api/import/file") return;
-          if (requestConfig.parameters?.preview_request_id !== previewRequestId) return;
-          document.removeEventListener("htmx:afterRequest", afterFileRequest);
-          if (responseIsSuccessful(evt)) showStep("step-columns");
-        };
-        document.addEventListener("htmx:afterRequest", afterFileRequest);
-        return htmx.ajax("POST", "/api/import/file", {
-          values: { path: path, preview_request_id: previewRequestId },
-          target: "#step-columns",
-          swap: "innerHTML"
+        var previewToken = crypto.randomUUID();
+        showStep("step-choose");
+        startImportPreviewProgress(previewToken);
+        setImportMessage("Reading spreadsheet…", "");
+        // Preview scans can overlap when a new file is chosen. Use fetch here
+        // so HTMX does not queue the replacement behind the older scan.
+        fetch("/api/import/file", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "HX-Request": "true"
+          },
+          body: new URLSearchParams({
+            path: path, preview_request_id: previewRequestId,
+            preview_token: previewToken
+          }).toString()
+        }).then(function(response) {
+          return response.text().then(function(html) {
+            return { response: response, html: html };
+          });
+        }).then(function(result) {
+          if (activePreviewToken !== previewToken ||
+              previewRequestId !== String(importPreviewSequence)) return;
+          stopImportPreviewProgress(previewToken);
+          if (result.html.indexOf('data-import-preview-cancelled="true"') !== -1) {
+            setImportMessage("Preview cancelled. No sources were added.", "");
+            return;
+          }
+          var error = extractOobError(result.html);
+          if (error !== null || !result.response.ok) {
+            setImportMessage(error || "Could not preview the spreadsheet. Try again.", "err");
+            return;
+          }
+          var target = document.getElementById("step-columns");
+          target.innerHTML = result.html;
+          htmx.process(target);
+          showStep("step-columns");
+        }).catch(function() {
+          if (activePreviewToken !== previewToken) return;
+          stopImportPreviewProgress(previewToken);
+          setImportMessage("Could not preview the spreadsheet. Try again.", "err");
         });
       })
       .catch(function(error) {
@@ -395,6 +508,7 @@
         btn.disabled = false;
         setButtonTitle(btn, "Import a folder");
         if (!path) return;
+        stopImportPreviewProgress();
         setImportMessage("Reviewing folder...", "");
         btn.disabled = true;
         setButtonTitle(btn, "Reviewing folder...");

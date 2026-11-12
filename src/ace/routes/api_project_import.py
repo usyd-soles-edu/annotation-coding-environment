@@ -178,6 +178,9 @@ def _clear_folder_import_manifests(request: Request) -> None:
 def _clear_tabular_import_stage(request: Request) -> None:
     """Invalidate a file preview and remove only app-owned temporary uploads."""
     request.app.state.import_preview_request_id = None
+    preview_job = getattr(request.app.state, "tabular_preview_job", None)
+    if preview_job is not None and not preview_job.done.is_set():
+        preview_job.cancel.set()
     job = getattr(request.app.state, "tabular_import_job", None)
     defer_upload_cleanup = (
         job is not None
@@ -452,7 +455,11 @@ async def project_open(request: Request, path: str = Form(...)):
 
 
 @router.post("/import/file")
-async def import_file_path(request: Request, path: str = Form(...)):
+async def import_file_path(
+    request: Request,
+    path: str = Form(...),
+    preview_token: str = Form(default=""),
+):
     """Parse a CSV/Excel file chosen by the native picker."""
     file_path = _native_selection_path(path)
     if not file_path.exists() or file_path.suffix.lower() not in {".csv", ".xlsx"}:
@@ -462,8 +469,27 @@ async def import_file_path(request: Request, path: str = Form(...)):
         return _oob_status("An import is already running. Wait or cancel it first.")
     _clear_tabular_import_stage(request)
     return await _parse_tabular_for_mapping(
-        request, file_path, cleanup=False, filename=file_path.name
+        request, file_path, cleanup=False, filename=file_path.name,
+        preview_token=preview_token,
     )
+
+
+@router.get("/import/preview-progress")
+async def import_preview_progress(request: Request, preview_token: str = Query(default="")):
+    job = getattr(request.app.state, "tabular_preview_job", None)
+    if not job or not preview_token or job.token != preview_token:
+        return JSONResponse({"error": "Preview job not found"}, status_code=404)
+    return JSONResponse(job.snapshot())
+
+
+@router.post("/import/preview-cancel")
+async def import_preview_cancel(request: Request, preview_token: str = Form(default="")):
+    job = getattr(request.app.state, "tabular_preview_job", None)
+    if not job or not preview_token or job.token != preview_token:
+        return JSONResponse({"error": "Preview job not found"}, status_code=404)
+    if not job.done.is_set():
+        job.cancel.set()
+    return JSONResponse(job.snapshot())
 
 
 @router.post("/import/commit")

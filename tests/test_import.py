@@ -105,10 +105,10 @@ def test_slow_preview_scan_does_not_block_other_requests(client_with_project, mo
     release = threading.Event()
     original_scan = importer.scan_tabular_preview
 
-    def held_scan(path):
+    def held_scan(path, **kwargs):
         started.set()
         assert release.wait(5), "preview scan was not released"
-        return original_scan(path)
+        return original_scan(path, **kwargs)
 
     monkeypatch.setattr(importer, "scan_tabular_preview", held_scan)
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -124,6 +124,61 @@ def test_slow_preview_scan_does_not_block_other_requests(client_with_project, mo
         assert preview.result(timeout=5).status_code == 200
 
 
+def test_preview_scan_reports_rows_and_cancels_before_mapping(client_with_project, monkeypatch):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "large.csv"
+    csv_path.write_text(
+        "id,text\n" + "".join(f"S{index},Response {index}\n" for index in range(600)),
+        encoding="utf-8",
+    )
+    token = "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa"
+    started = threading.Event()
+    release = threading.Event()
+    original_scan = importer.scan_tabular_preview
+
+    def held_scan(path, **kwargs):
+        report = kwargs["on_progress"]
+
+        def hold_after_first_report(scanned):
+            report(scanned)
+            if scanned == 256:
+                started.set()
+                assert release.wait(5), "preview scan was not released"
+
+        return original_scan(
+            path, on_progress=hold_after_first_report,
+            should_cancel=kwargs["should_cancel"],
+        )
+
+    monkeypatch.setattr(importer, "scan_tabular_preview", held_scan)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        preview = pool.submit(
+            client.post, "/api/import/file",
+            data={"path": str(csv_path), "preview_token": token},
+        )
+        assert started.wait(2)
+        try:
+            progress = client.get(
+                "/api/import/preview-progress", params={"preview_token": token}
+            )
+            assert progress.status_code == 200
+            assert progress.json() == {"scanned": 256, "status": "running"}
+            cancelled = client.post(
+                "/api/import/preview-cancel", data={"preview_token": token}
+            )
+            assert cancelled.status_code == 200
+            assert cancelled.json() == {"scanned": 256, "status": "cancelling"}
+        finally:
+            release.set()
+        response = preview.result(timeout=5)
+    assert response.status_code == 200
+    assert 'data-import-preview-cancelled="true"' in response.text
+    assert client.app.state.import_stage_token is None
+    assert client.get(
+        "/api/import/preview-progress", params={"preview_token": token}
+    ).json() == {"scanned": 256, "status": "cancelled"}
+
+
 def test_late_preview_cannot_replace_a_newer_file(client_with_project, monkeypatch):
     client, tmp_path = client_with_project
     first_path = tmp_path / "first.csv"
@@ -134,11 +189,11 @@ def test_late_preview_cannot_replace_a_newer_file(client_with_project, monkeypat
     release = threading.Event()
     original_scan = importer.scan_tabular_preview
 
-    def held_first_scan(path):
+    def held_first_scan(path, **kwargs):
         if path == first_path:
             started.set()
             assert release.wait(5), "first preview scan was not released"
-        return original_scan(path)
+        return original_scan(path, **kwargs)
 
     monkeypatch.setattr(importer, "scan_tabular_preview", held_first_scan)
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -166,10 +221,10 @@ def test_project_switch_invalidates_inflight_preview(client_with_project, monkey
     release = threading.Event()
     original_scan = importer.scan_tabular_preview
 
-    def held_scan(path):
+    def held_scan(path, **kwargs):
         started.set()
         assert release.wait(5), "preview scan was not released"
-        return original_scan(path)
+        return original_scan(path, **kwargs)
 
     monkeypatch.setattr(importer, "scan_tabular_preview", held_scan)
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -198,10 +253,10 @@ def test_folder_selection_invalidates_inflight_spreadsheet_preview(
     release = threading.Event()
     original_scan = importer.scan_tabular_preview
 
-    def held_scan(path):
+    def held_scan(path, **kwargs):
         started.set()
         assert release.wait(5), "spreadsheet preview was not released"
-        return original_scan(path)
+        return original_scan(path, **kwargs)
 
     monkeypatch.setattr(importer, "scan_tabular_preview", held_scan)
     with ThreadPoolExecutor(max_workers=2) as pool:
