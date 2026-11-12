@@ -1788,7 +1788,6 @@
     let chordHighlightActive = false;
     let chordHintShown = false;
     let cutItemId = null;
-    let pastePending = false;
     let pendingSidebarState = null;
     let initGeneration = 0;
     const RESERVED_SINGLE_KEYS = /* @__PURE__ */ new Set(["q", "x", "z", "n", "v"]);
@@ -2932,38 +2931,21 @@
           row.classList.toggle("ace-code-row--ghost", row.dataset.itemId === cutItemId);
         });
       }
-      async function pasteCutItem(targetId) {
+      function pasteCutItem(targetId) {
         const sourceId = cutItemId;
-        if (!sourceId || pastePending || targetId === sourceId || codebookEditingDisabled()) {
-          return false;
-        }
-        pastePending = true;
-        let succeeded = false;
-        const onAfterRequest = function(event) {
-          if (event.detail?.requestConfig?.path !== "/api/codes/cut-paste") return;
-          succeeded = event.detail.successful === true;
-        };
-        document.addEventListener("htmx:afterRequest", onAfterRequest);
-        try {
-          await htmxSwap("POST", "/api/codes/cut-paste", {
-            code_id: sourceId,
-            target_id: targetId || "",
-            current_index: currentIndex()
-          });
-          if (!succeeded) return false;
-          if (cutItemId === sourceId) {
-            setCutItemId(null);
-            window._setStatus?.("", "ok");
-          }
-          return true;
-        } catch (_) {
-          window._setStatus?.("Paste failed", "err");
-          return false;
-        } finally {
-          document.removeEventListener("htmx:afterRequest", onAfterRequest);
-          pastePending = false;
-        }
+        if (!sourceId || targetId === sourceId || codebookEditingDisabled()) return;
+        return htmxSwap("POST", "/api/codes/cut-paste", {
+          code_id: sourceId,
+          target_id: targetId || "",
+          current_index: currentIndex()
+        });
       }
+      document.addEventListener("htmx:afterRequest", function(event) {
+        const detail = event.detail;
+        if (!detail?.successful || detail.requestConfig?.path !== "/api/codes/cut-paste" || detail.requestConfig.parameters?.code_id !== cutItemId) return;
+        setCutItemId(null);
+        window._setStatus?.("", "ok");
+      });
       function setCodeCounts(counts) {
         Object.entries(items).forEach(function([id, data]) {
           if (data.kind !== "code") return;
