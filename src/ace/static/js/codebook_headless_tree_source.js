@@ -1365,7 +1365,6 @@ import {
       kind: "headless",
       refresh,
       rootElement,
-      initSortable: function () {},
       restoreCollapseState: scheduleRender,
       toggleFolderCollapse,
       expandFolder,
@@ -1383,11 +1382,6 @@ import {
       parentFolderRow,
       isHiddenByCollapsedAncestor: function () { return false; },
       itemIdFromTreeElement: itemIdFromElement,
-      directChildItemIds: function (container) {
-        if (container === rootElement()) return [...childrenOf(ROOT_ID)];
-        const id = itemIdFromElement(container);
-        return id ? [...childrenOf(id)] : [];
-      },
       firstChildOfFolderRow,
       moveItemInDirection,
       startRenaming,

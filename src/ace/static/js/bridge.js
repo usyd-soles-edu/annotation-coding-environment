@@ -2081,12 +2081,10 @@
   }
 
   // Re-bind sidebar event wiring after an HTMX swap replaces sidebar DOM.
-  // opts: { sortable: bool, gridResize: bool } — both default false.
-  // Sortable re-init is skipped while a drag is in progress.
+  // opts: { gridResize: bool } — defaults to false.
   // Tree focus, search and scroll restoration are owned by the tree controller.
   function _syncSidebarAfterSwap(opts) {
     opts = opts || {};
-    if (opts.sortable && !_isDragging) _initSortable();
     _restoreCollapseState();
     _updateKeycaps();
     if (opts.gridResize) _initGridResize();
@@ -2233,7 +2231,7 @@
       const sidebarEl = document.getElementById("code-sidebar");
       if (sidebarTarget || (sidebarEl && sidebarEl !== _lastSidebarEl)) {
         _lastSidebarEl = sidebarEl;
-        _syncSidebarAfterSwap({ sortable: true, gridResize: true });
+        _syncSidebarAfterSwap({ gridResize: true });
         const cutId = _getCutCode();
         if (cutId) {
           const r = _findCodebookItemRow(cutId);
@@ -2519,19 +2517,6 @@
     _closeColourPopover();
   }
 
-  function _refreshSidebar() {
-    htmx.ajax("POST", "/api/codes/reorder", {
-      target: "#code-sidebar",
-      swap: "outerHTML",
-      values: _codebookMutationValues({
-        code_ids: "[]",
-        current_index: window.__aceCurrentIndex,
-      }),
-    }).then(function () {
-      _syncSidebarAfterSwap({ sortable: true });
-    });
-  }
-
   function _executeDelete(codeId) {
     if (_denyCodebookEditing()) return;
     // Route the response through HTMX so the OOB fragments carrying the [Z]
@@ -2544,37 +2529,6 @@
     htmx.ajax("DELETE", `/api/codes/${codeId}?${query}`, {
       ..._codebookMutationSwapOptions(),
     });
-  }
-
-  let _isDragging = false;
-
-  function _initSortable() {
-    if (_codebookEditingDisabled()) return;
-    const controller = _getSidebarTreeController();
-    if (controller && typeof controller.initSortable === "function") {
-      controller.initSortable({
-        Sortable: typeof Sortable === "undefined" ? undefined : Sortable,
-        onDragStateChange: function (dragging) {
-          _isDragging = dragging;
-        },
-        onInvalidDrop: function () {
-          _refreshSidebar();
-          window._setStatus("A folder cannot move inside itself", "err");
-        },
-        onMoveParent: function (itemId, newParentId, targetOrderIds) {
-          htmx.ajax("PUT", "/api/codes/" + itemId + "/parent", {
-            ..._codebookMutationSwapOptions(),
-            values: _codebookMutationValues({
-              parent_id: newParentId,
-              target_order_ids: JSON.stringify(targetOrderIds || []),
-              current_index: window.__aceCurrentIndex,
-            }),
-          });
-        },
-        onPersistScopeOrder: _persistScopeOrder,
-      });
-      return;
-    }
   }
 
   /* ================================================================
@@ -3067,7 +3021,7 @@
     let row = e.target.closest(".ace-code-row");
     if (!row) return;
     if (e.target.closest(".ace-code-chip")) return;
-    if (e.target.closest(".ace-code-menu") || _isDragging) return;
+    if (e.target.closest(".ace-code-menu")) return;
     if (e.target.isContentEditable) return;
     _focusTreeItem(row);
   });
@@ -3227,21 +3181,6 @@
     }
     _pasteCutInto(targetId);
   });
-
-  function _persistScopeOrder(container, orderedIds) {
-    if (_denyCodebookEditing()) return;
-    if (!container) return;
-    const ids = Array.isArray(orderedIds) ? orderedIds : _directChildItemIds(container);
-    const parentId = container.getAttribute("data-folder-children") || "";
-    htmx.ajax("POST", "/api/codes/reorder-in-scope", {
-      ..._codebookMutationSwapOptions(),
-      values: _codebookMutationValues({
-        code_ids: JSON.stringify(ids),
-        parent_id: parentId,
-        current_index: window.__aceCurrentIndex || 0,
-      }),
-    });
-  }
 
   // _makeGroupElements was removed: only consumers were the deleted
   // _createGroupFromSearch and _promptNewGroupForCode helpers.
@@ -4221,11 +4160,6 @@
   function _itemIdFromTreeElement(el) {
     const controller = _getSidebarTreeController();
     return controller ? controller.itemIdFromTreeElement(el) : null;
-  }
-
-  function _directChildItemIds(container) {
-    const controller = _getSidebarTreeController();
-    return controller ? controller.directChildItemIds(container) : [];
   }
 
   // --- Indent/outdent helpers (Alt-arrow gestures) ---
@@ -5720,7 +5654,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     _initResize();
     _initNarrowPan();
-    _syncSidebarAfterSwap({ sortable: true, gridResize: true });
+    _syncSidebarAfterSwap({ gridResize: true });
     _paintSvg();
     _setAmbient();
     _initCodePeek();
