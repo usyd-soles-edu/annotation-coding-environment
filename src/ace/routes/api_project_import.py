@@ -716,6 +716,7 @@ async def import_codebook_preview_path(
                 detected.get("name"),
                 detected.get("group"),
                 detected.get("definition"),
+                detected.get("colour"),
             )
     except Exception:
         return _oob_status("Could not parse that codebook CSV. Check the columns and try again.")
@@ -754,6 +755,7 @@ async def import_codebook_preview_path(
         f'{_codebook_mapping_select(field_id="codebook-map-name", label="Code name", columns=columns, selected=detected.get("name"))}'
         f'{_codebook_mapping_select(field_id="codebook-map-group", label="Folder/group", columns=columns, selected=detected.get("group"), optional=True)}'
         f'{_codebook_mapping_select(field_id="codebook-map-definition", label="Definition", columns=columns, selected=detected.get("definition"), optional=True)}'
+        f'{_codebook_mapping_select(field_id="codebook-map-colour", label="Colour", columns=columns, selected=detected.get("colour"), optional=True)}'
         '</aside>'
         '<section id="codebook-import-panel-match" class="ace-codebook-import-panel is-active" '
         'data-codebook-import-panel="match" role="tabpanel" '
@@ -797,6 +799,7 @@ async def import_codebook_preview_map(
     name_column: str = Form(default=""),
     group_column: str = Form(default=""),
     definition_column: str = Form(default=""),
+    colour_column: str = Form(default=""),
 ):
     """Refresh codebook import preview after the user changes column mapping."""
     _require_coder(request)
@@ -810,6 +813,7 @@ async def import_codebook_preview_map(
                 _normalise_codebook_mapping_column(name_column),
                 group_column,
                 definition_column,
+                colour_column,
             )
     except Exception:
         return JSONResponse(

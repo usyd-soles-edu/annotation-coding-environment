@@ -323,8 +323,8 @@ def test_codebook_import_preview_uses_ledger_dialog(
 ):
     csv_path = tmp_path / "codebook.csv"
     csv_path.write_text(
-        "Code Label,Theme,Dictionary Definition\n"
-        "Access,Equity,Barriers to using a service\n"
+        "Code Label,Theme,Dictionary Definition,Colour\n"
+        "Access,Equity,Barriers to using a service,#123abc\n"
     )
 
     resp = client_with_sources_no_codes.post(
@@ -346,6 +346,9 @@ def test_codebook_import_preview_uses_ledger_dialog(
     assert 'value="Theme" selected' in resp.text
     assert 'id="codebook-map-definition"' in resp.text
     assert 'value="Dictionary Definition" selected' in resp.text
+    assert 'id="codebook-map-colour"' in resp.text
+    assert 'value="Colour" selected' in resp.text
+    assert "#123abc" in resp.text
     assert "Review changes" in resp.text
     assert "Skipped rows" in resp.text
     assert "Barriers to using a service" in resp.text
@@ -433,6 +436,42 @@ def test_codebook_import_preview_map_returns_definition_payload(
     codes = json.loads(payload["codes_json"])
     assert codes[0]["definition"] == "Barriers to using a service"
     assert codes[0]["group_name"] == "Equity"
+
+
+def test_codebook_import_maps_optional_colour_column(
+    client_with_sources_no_codes, tmp_path
+):
+    from ace.db.connection import open_project
+
+    csv_path = tmp_path / "codebook.csv"
+    csv_path.write_text("Code Label,Tint\nAccess,#123abc\n", encoding="utf-8")
+    resp = client_with_sources_no_codes.post(
+        "/api/codes/import/preview-map",
+        data={
+            "path": str(csv_path), "name_column": "Code Label",
+            "group_column": "", "definition_column": "",
+            "colour_column": "Tint",
+        },
+    )
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert "#123abc" in payload["preview_html"]
+    codes = json.loads(payload["codes_json"])
+    assert codes[0]["colour"] == "#123abc"
+
+    imported = client_with_sources_no_codes.post(
+        "/api/codes/import",
+        data={"codes_json": payload["codes_json"], "current_index": 0},
+    )
+    assert imported.status_code == 200
+    conn = open_project(client_with_sources_no_codes.app.state.project_path)
+    try:
+        row = conn.execute(
+            "SELECT colour FROM codebook_code WHERE name = 'Access' AND kind = 'code'"
+        ).fetchone()
+        assert row["colour"] == "#123abc"
+    finally:
+        conn.close()
 
 
 def test_codebook_import_preview_map_returns_ledger_payload(

@@ -5114,6 +5114,7 @@
       body.set("name_column", dialog.querySelector("#codebook-map-name")?.value || "");
       body.set("group_column", dialog.querySelector("#codebook-map-group")?.value || "");
       body.set("definition_column", dialog.querySelector("#codebook-map-definition")?.value || "");
+      body.set("colour_column", dialog.querySelector("#codebook-map-colour")?.value || "");
 
       const activePanel = dialog.querySelector(".ace-codebook-import-panel.is-active .ace-codebook-import-preview-list");
       if (activePanel) activePanel.setAttribute("aria-busy", "true");

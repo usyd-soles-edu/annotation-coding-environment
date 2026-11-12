@@ -3,6 +3,7 @@
 import csv
 import hashlib
 import json
+import re
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -34,6 +35,7 @@ CODEBOOK_COLUMN_ALIASES = {
         "definition", "description", "dictionary", "meaning", "notes",
         "dictionary definition", "code definition",
     ),
+    "colour": ("colour", "color", "hex colour", "hex color", "code colour", "code color"),
 }
 
 _CODEBOOK_CSV_ENCODINGS = ("utf-8-sig", "cp1252", "latin-1")
@@ -596,7 +598,8 @@ def _resolve_codebook_csv_columns(
     name_column: str | None = None,
     group_column: str | None = None,
     definition_column: str | None = None,
-) -> tuple[str, str | None, str | None]:
+    colour_column: str | None = None,
+) -> tuple[str, str | None, str | None, str | None]:
     detected = _detect_codebook_columns(fieldnames)
     resolved_name = name_column or detected.get("name")
     resolved_group = group_column if group_column is not None else detected.get("group")
@@ -605,6 +608,7 @@ def _resolve_codebook_csv_columns(
         if definition_column is not None
         else detected.get("definition")
     )
+    resolved_colour = colour_column if colour_column is not None else detected.get("colour")
 
     if not resolved_name or resolved_name not in fieldnames:
         raise ValueError("Choose a code-name column to import")
@@ -612,11 +616,25 @@ def _resolve_codebook_csv_columns(
         resolved_group = None
     if resolved_definition == "":
         resolved_definition = None
+    if resolved_colour == "":
+        resolved_colour = None
     if resolved_group is not None and resolved_group not in fieldnames:
         raise ValueError("Selected folder column was not found in the CSV")
     if resolved_definition is not None and resolved_definition not in fieldnames:
         raise ValueError("Selected definition column was not found in the CSV")
-    return resolved_name, resolved_group, resolved_definition
+    if resolved_colour is not None and resolved_colour not in fieldnames:
+        raise ValueError("Selected colour column was not found in the CSV")
+    return resolved_name, resolved_group, resolved_definition, resolved_colour
+
+
+def _codebook_csv_colour(row: dict, colour_column: str | None, fallback: str) -> str | None:
+    """Use a supplied hex colour, or the palette for an empty cell."""
+    if not colour_column:
+        return fallback
+    colour = _csv_cell(row, colour_column).strip()
+    if not colour:
+        return fallback
+    return colour if re.fullmatch(r"#[0-9a-fA-F]{6}", colour) else None
 
 
 def _normalise_codebook_csv_row(
@@ -654,21 +672,23 @@ def _parse_codebook_csv(
     name_column: str | None = None,
     group_column: str | None = None,
     definition_column: str | None = None,
+    colour_column: str | None = None,
 ) -> list[dict]:
     """Parse a codebook CSV file into code dicts using selected columns.
 
     Auto-detects columns when a role is not supplied. The code-name column is
-    required after detection. Group/folder and definition columns are optional.
-    Ignores colour columns — ACE always auto-assigns from the palette.
+    required after detection. Group/folder, definition and colour are optional.
+    Empty colours use the palette; rows with invalid non-empty colours are skipped.
     """
     fieldnames, csv_rows = _read_codebook_csv(path)
     if not fieldnames:
         raise ValueError("Choose a code-name column to import")
-    name_column, group_column, definition_column = _resolve_codebook_csv_columns(
+    name_column, group_column, definition_column, colour_column = _resolve_codebook_csv_columns(
         fieldnames,
         name_column=name_column,
         group_column=group_column,
         definition_column=definition_column,
+        colour_column=colour_column,
     )
 
     rows: list[dict] = []
@@ -678,9 +698,10 @@ def _parse_codebook_csv(
         name_key = name.lower()
         if not name or name_key in seen_names:
             continue
+        colour = _codebook_csv_colour(row, colour_column, next_colour(len(rows)))
+        if colour is None:
+            continue
         seen_names.add(name_key)
-
-        colour = next_colour(len(rows))
         rows.append(
             _normalise_codebook_csv_row(
                 row,
@@ -699,16 +720,18 @@ def preview_codebook_csv_ledger(
     name_column: str | None = None,
     group_column: str | None = None,
     definition_column: str | None = None,
+    colour_column: str | None = None,
 ) -> dict:
     """Return row-level preview metadata for the codebook import dialog."""
     fieldnames, csv_rows = _read_codebook_csv(path)
     if not fieldnames:
         raise ValueError("Choose a code-name column to import")
-    name_column, group_column, definition_column = _resolve_codebook_csv_columns(
+    name_column, group_column, definition_column, colour_column = _resolve_codebook_csv_columns(
         fieldnames,
         name_column=name_column,
         group_column=group_column,
         definition_column=definition_column,
+        colour_column=colour_column,
     )
 
     existing = {
@@ -755,9 +778,17 @@ def preview_codebook_csv_ledger(
                 "exists": False,
             })
             continue
+        colour = _codebook_csv_colour(row, colour_column, next_colour(accepted_count))
+        if colour is None:
+            rows.append({
+                **base,
+                "row_number": csv_index,
+                "status": "skipped",
+                "reason": "invalid colour (use #RRGGBB)",
+                "exists": False,
+            })
+            continue
         seen_names.add(name_key)
-
-        colour = next_colour(accepted_count)
         accepted_count += 1
         item = {
             **_normalise_codebook_csv_row(
@@ -802,6 +833,7 @@ def preview_codebook_csv(
     name_column: str | None = None,
     group_column: str | None = None,
     definition_column: str | None = None,
+    colour_column: str | None = None,
 ) -> list[dict]:
     """Parse a codebook CSV and mark which codes already exist in the project.
 
@@ -815,6 +847,7 @@ def preview_codebook_csv(
         name_column=name_column,
         group_column=group_column,
         definition_column=definition_column,
+        colour_column=colour_column,
     )
     return [
         {
@@ -982,7 +1015,8 @@ def export_codebook_to_csv(conn: sqlite3.Connection, path: str | Path) -> int:
         """
         SELECT c.name AS name,
                COALESCE(f.name, '') AS group_name,
-               COALESCE(c.definition, '') AS definition
+               COALESCE(c.definition, '') AS definition,
+               c.colour AS colour
         FROM codebook_code c
         LEFT JOIN codebook_code f
                ON f.id = c.parent_id AND f.kind = 'folder'
@@ -992,13 +1026,14 @@ def export_codebook_to_csv(conn: sqlite3.Connection, path: str | Path) -> int:
     )
     count = 0
     with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["name", "group", "definition"])
+        writer = csv.DictWriter(f, fieldnames=["name", "group", "definition", "colour"])
         writer.writeheader()
         for r in rows:
             writer.writerow({
                 "name": r["name"],
                 "group": r["group_name"] or "",
                 "definition": r["definition"] or "",
+                "colour": r["colour"],
             })
             count += 1
     return count
