@@ -2065,14 +2065,14 @@
       return currentCodebookMode() === "readonly";
     }
     function codebookEditingDisabled() {
-      return modePolicy().editingDisabled;
+      return modePolicy().editingDisabled || document.body.dataset.aceNavigating === "1";
     }
     function codeApplicationDisabled() {
       return modePolicy().enterOnCode !== "apply";
     }
     function denyCodebookEditing() {
       if (!codebookEditingDisabled()) return false;
-      setStatus("Back to source to edit the codebook");
+      setStatus(document.body.dataset.aceNavigating === "1" ? "Wait for source navigation to finish" : "Back to source to edit the codebook");
       return true;
     }
     function formParentId(parentId) {
@@ -2096,6 +2096,7 @@
       return next;
     }
     async function htmxSwap(method, url, values) {
+      if (document.body.dataset.aceNavigating === "1") return;
       if (!window.htmx || typeof window.htmx.ajax !== "function") {
         throw new Error("HTMX is unavailable");
       }
@@ -2106,6 +2107,7 @@
       });
     }
     async function htmxSidebarSwap(method, url, values) {
+      if (document.body.dataset.aceNavigating === "1") return;
       if (!window.htmx || typeof window.htmx.ajax !== "function") {
         throw new Error("HTMX is unavailable");
       }
@@ -2199,6 +2201,7 @@
     function applyCode(item) {
       const data = item.getItemData();
       if (data.kind !== "code") return;
+      if (document.body.dataset.aceNavigating === "1") return;
       if (codeApplicationDisabled()) {
         viewCode(item, {});
         return;
@@ -2837,6 +2840,7 @@
         scheduleRender();
       }
       function moveItemInDirection(itemId, direction) {
+        if (denyCodebookEditing()) return;
         const parentId = findParentId(itemId) || ROOT_ID;
         const order = [...childrenOf(parentId)];
         const index = order.indexOf(itemId);

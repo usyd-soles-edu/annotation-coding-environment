@@ -48,11 +48,11 @@
   }
 
   function _codebookEditingDisabled() {
-    return document.querySelector("#ace-headless-tree-mount[data-codebook-readonly='1']") !== null;
+    return _navigationInFlight || document.querySelector("#ace-headless-tree-mount[data-codebook-readonly='1']") !== null;
   }
 
   function _codeApplicationDisabled() {
-    return !!document.getElementById("code-view") || !document.getElementById("text-panel");
+    return _navigationInFlight || !!document.getElementById("code-view") || !document.getElementById("text-panel");
   }
 
   function _codebookMutationSwapOptions() {
@@ -93,7 +93,10 @@
   function _denyCodebookEditing() {
     if (!_codebookEditingDisabled()) return false;
     if (typeof window._setStatus === "function") {
-      window._setStatus("Back to source to edit the codebook", "ok");
+      window._setStatus(
+        _navigationInFlight ? "Wait for source navigation to finish" : "Back to source to edit the codebook",
+        "ok"
+      );
     }
     return true;
   }
@@ -332,10 +335,13 @@
   let _pendingFlagAnnounce = false;
   document.addEventListener("click", function (e) {
     if (e.target.closest("#nav-flag-btn")) {
+      if (_navigationInFlight) return;
       _updateCurrentIndex();
       _pendingFlagAnnounce = true;
       const triggerFlag = document.getElementById("trigger-flag");
-      if (triggerFlag) htmx.trigger(triggerFlag, "click");
+      if (triggerFlag) {
+        htmx.trigger(triggerFlag, "click", { sourceIndex: window.__aceCurrentIndex });
+      }
     }
   });
 
@@ -601,6 +607,7 @@
   }
 
   function _deleteSentenceAnnotation() {
+    if (_navigationInFlight) return;
     if (window.__aceFocusIndex < 0) return;
 
     htmx.ajax("POST", "/api/code/delete-sentence", {
@@ -614,6 +621,7 @@
   }
 
   function _deleteAppliedAnnotation(annotationId) {
+    if (_navigationInFlight) return;
     if (!annotationId) return;
 
     htmx.ajax("POST", "/api/code/delete-annotation", {
@@ -674,12 +682,12 @@
       }
       if (!ctrl && !e.altKey && key === "ArrowLeft" && shift) {
         e.preventDefault();
-        _navigateSourceFromKeyboard(window.__aceCurrentIndex - 1);
+        _navigateSourceFromKeyboard(-1);
         return;
       }
       if (!ctrl && !e.altKey && key === "ArrowRight" && shift) {
         e.preventDefault();
-        _navigateSourceFromKeyboard(window.__aceCurrentIndex + 1);
+        _navigateSourceFromKeyboard(1);
         return;
       }
       return;
@@ -692,6 +700,7 @@
     // redo over undo.
     if (key === "z" || key === "Z") {
       e.preventDefault();
+      if (_navigationInFlight) return;
       if (shift) {
         htmx.ajax("POST", "/api/redo", {
           target: "#text-panel",
@@ -714,12 +723,12 @@
     // Shift+← / Shift+→ — Navigate between sources
     if (key === "ArrowLeft" && shift) {
       e.preventDefault();
-      _navigateSourceFromKeyboard(window.__aceCurrentIndex - 1);
+      _navigateSourceFromKeyboard(-1);
       return;
     }
     if (key === "ArrowRight" && shift) {
       e.preventDefault();
-      _navigateSourceFromKeyboard(window.__aceCurrentIndex + 1);
+      _navigateSourceFromKeyboard(1);
       return;
     }
 
@@ -746,9 +755,12 @@
     // F — Flag (Shift+F)
     if (key === "F" && shift) {
       e.preventDefault();
+      if (_navigationInFlight) return;
       _updateCurrentIndex();
       const flagBtn = document.getElementById("trigger-flag");
-      if (flagBtn) htmx.trigger(flagBtn, "click");
+      if (flagBtn) {
+        htmx.trigger(flagBtn, "click", { sourceIndex: window.__aceCurrentIndex });
+      }
       return;
     }
 
@@ -817,22 +829,77 @@
    * 7. Navigation
    * ================================================================ */
 
-  async function _recordSourceNavigation(fromIndex, toIndex) {
-    if (!Number.isFinite(fromIndex) || !Number.isFinite(toIndex) || fromIndex === toIndex) return;
-    try {
-      const body = new URLSearchParams();
-      body.set("from_index", String(fromIndex));
-      body.set("to_index", String(toIndex));
-      await fetch("/api/navigation", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-      });
-    } catch (_) {}
+  let _navigationInFlight = false;
+  let _navigationQueued = null;
+  let _navigationIntentIndex = null;
+
+  function _lockNoteDuringNavigation() {
+    const textarea = document.getElementById("note-textarea");
+    if (!textarea) return;
+    textarea.readOnly = true;
+    textarea.setAttribute("aria-readonly", "true");
+    textarea.dataset.aceNavigationLocked = "1";
   }
 
-  function _navigateSourceFromKeyboard(index) {
-    if (!Number.isFinite(index)) return;
+  function _unlockNoteAfterNavigation() {
+    const textarea = document.getElementById("note-textarea");
+    if (!textarea || textarea.dataset.aceNavigationLocked !== "1") return;
+    textarea.readOnly = false;
+    textarea.removeAttribute("aria-readonly");
+    delete textarea.dataset.aceNavigationLocked;
+  }
+
+  async function _requestNavigation(values) {
+    let responseStatus = null;
+    let settled = false;
+    let resolveCompletion;
+    let rejectCompletion;
+    const completion = new Promise(function (resolve, reject) {
+      resolveCompletion = resolve;
+      rejectCompletion = reject;
+    });
+    const isNavigationResponse = function (event) {
+      const path = event.detail?.requestConfig?.path;
+      return !!path && new URL(path, window.location.origin).pathname === "/api/navigation";
+    };
+    const onAfterRequest = function (event) {
+      if (!isNavigationResponse(event)) return;
+      responseStatus = event.detail.xhr.status;
+      if (responseStatus !== 200) rejectCompletion(new Error("Navigation request failed"));
+      else if (settled) resolveCompletion();
+    };
+    const onAfterSettle = function (event) {
+      if (event.detail?.target?.id !== "text-panel" || !isNavigationResponse(event)) return;
+      settled = true;
+      if (responseStatus === 200) resolveCompletion();
+    };
+    document.addEventListener("htmx:afterRequest", onAfterRequest);
+    document.addEventListener("htmx:afterSettle", onAfterSettle);
+    try {
+      await Promise.all([
+        htmx.ajax("POST", "/api/navigation", {
+          // Keep the request target mounted while another HTMX response may
+          // replace the text panel. The server retargets to the live panel
+          // when this response arrives.
+          target: "body", swap: "outerHTML", values,
+        }),
+        completion,
+      ]);
+    } finally {
+      document.removeEventListener("htmx:afterRequest", onAfterRequest);
+      document.removeEventListener("htmx:afterSettle", onAfterSettle);
+    }
+  }
+
+  document.addEventListener("htmx:afterSettle", function (event) {
+    if (_navigationInFlight && event.detail?.target?.id === "text-panel") {
+      _lockNoteDuringNavigation();
+    }
+  });
+
+  function _navigateSourceFromKeyboard(step) {
+    const base = _navigationIntentIndex ?? window.__aceCurrentIndex;
+    const index = base + step;
     if (index < 0) {
       if (typeof window._setStatus === "function") window._setStatus("First source", "ok");
       return;
@@ -844,35 +911,79 @@
     window.aceNavigate(index);
   }
 
-  window.aceNavigate = async function (index) {
+  window.aceNavigate = function (index, options) {
     if (!Number.isFinite(index) || index < 0 || index >= window.__aceTotalSources) return;
-    const fromIndex = window.__aceCurrentIndex;
-    // Flush any pending or in-flight note save before tearing down the page.
-    // Without this, debounced saves get cancelled by the navigation.
-    if (typeof window.aceFlushNoteIfDirty === "function") {
-      try { await window.aceFlushNoteIfDirty(); } catch (_) {}
-    }
-    await _recordSourceNavigation(fromIndex, index);
-    try {
-      const url = new URL(window.location.href);
-      if (!url.searchParams.has("index")) {
-        url.searchParams.set("index", String(fromIndex));
-        history.replaceState({}, "", url.pathname + url.search);
+    const opts = options || {};
+    _navigationIntentIndex = index;
+    _navigationQueued = {
+      index,
+      recordUndo: opts.recordUndo !== false,
+      historyMode: opts.historyMode === "none" ? "none" : "push",
+    };
+    if (_navigationInFlight) return;
+    _navigationInFlight = true;
+    document.body.dataset.aceNavigating = "1";
+    const workspace = document.getElementById("coding-workspace");
+    if (workspace) workspace.setAttribute("aria-busy", "true");
+    _lockNoteDuringNavigation();
+
+    (async function () {
+      try {
+        while (_navigationQueued) {
+          const next = _navigationQueued;
+          _navigationQueued = null;
+          const fromIndex = window.__aceCurrentIndex;
+          if (next.index === fromIndex) continue;
+          // A note save must finish before the inspector is replaced.
+          if (typeof window.aceFlushNoteIfDirty === "function") {
+            try { await window.aceFlushNoteIfDirty(); } catch (_) {}
+          }
+          if (next.historyMode === "push") {
+            const url = new URL(window.location.href);
+            if (!url.searchParams.has("index")) {
+              url.searchParams.set("index", String(fromIndex));
+              history.replaceState({}, "", url.pathname + url.search);
+            }
+          }
+          await _requestNavigation({
+            from_index: fromIndex,
+            to_index: next.index,
+            note_open: document.documentElement.dataset.aceNoteOpen === "1",
+            record_undo: next.recordUndo,
+            history_mode: next.historyMode,
+          });
+        }
+      } catch (_) {
+        _navigationQueued = null;
+        try {
+          history.replaceState({}, "", "/code?index=" + window.__aceCurrentIndex);
+        } catch (_) {}
+        if (typeof window._setStatus === "function") window._setStatus("Source navigation failed", "err");
+      } finally {
+        _navigationInFlight = false;
+        _navigationIntentIndex = null;
+        delete document.body.dataset.aceNavigating;
+        if (workspace) workspace.removeAttribute("aria-busy");
+        _unlockNoteAfterNavigation();
       }
-    } catch (_) {}
-    window.__aceCurrentIndex = index;
-    window.__aceFocusIndex = -1;
-    _setAmbient();
-    window.location.href = `/code?index=${index}`;
+    })();
   };
 
   window.aceNavigatePrev = function () {
-    window.aceNavigate(window.__aceCurrentIndex - 1);
+    _navigateSourceFromKeyboard(-1);
   };
 
   window.aceNavigateNext = function () {
-    window.aceNavigate(window.__aceCurrentIndex + 1);
+    _navigateSourceFromKeyboard(1);
   };
+
+  window.addEventListener("popstate", function () {
+    if (window.location.pathname !== "/code") return;
+    const index = Number(new URLSearchParams(window.location.search).get("index"));
+    if (Number.isInteger(index)) {
+      window.aceNavigate(index, { recordUndo: false, historyMode: "none" });
+    }
+  });
 
   /* ================================================================
    * 8. Cheat sheet overlay
@@ -1576,6 +1687,18 @@
     _aceAnnounceCurrentSource();
   };
 
+  function _aceSetSourceFlag(sourceIndex, flagged) {
+    const blob = document.getElementById("ace-sources-data");
+    if (!blob) return;
+    let sources;
+    try { sources = JSON.parse(blob.textContent || "[]"); } catch (_) { return; }
+    const source = sources[sourceIndex];
+    if (!source || source.index !== sourceIndex) return;
+    source.flagged = flagged;
+    blob.textContent = JSON.stringify(sources);
+    window._aceRenderSourceGrid();
+  }
+
   window._aceSetSourceNote = function (sourceId, hasNote) {
     const blob = document.getElementById("ace-sources-data");
     if (!blob) return;
@@ -1843,6 +1966,21 @@
    * 4xx error feedback — surface HTMX error bodies in the status bar
    * ================================================================ */
 
+  // The declarative flag button uses #coding-workspace as its HTMX sync
+  // owner, while programmatic navigation uses body. A flag response can
+  // therefore arrive after the destination source is already visible.
+  document.addEventListener("htmx:beforeOnLoad", function (e) {
+    if (e.detail?.requestConfig?.path !== "/api/code/flag") return;
+    const sourceIndex = Number(e.detail.requestConfig.parameters?.source_index);
+    if (sourceIndex === window.__aceCurrentIndex) return;
+    const flagged = e.detail.xhr?.getResponseHeader("X-ACE-Flagged");
+    if (Number.isInteger(sourceIndex) && (flagged === "1" || flagged === "0")) {
+      _aceSetSourceFlag(sourceIndex, flagged === "1");
+    }
+    e.preventDefault();
+    _pendingFlagAnnounce = false;
+  });
+
   // Surface 4xx response bodies as a sticky status-bar error instead of
   // letting HTMX silently drop them. Coding routes raise HTTPException(400),
   // which FastAPI serialises to {"detail": "..."} — prefer that, fall back to
@@ -2085,8 +2223,12 @@
     if (!elt || !elt.id) return;
 
     if (elt.id === "trigger-flag") {
-      e.detail.parameters.current_index = window.__aceCurrentIndex;
-      e.detail.parameters.source_index = window.__aceCurrentIndex;
+      // HTMX may dispatch a queued flag request after navigation. Keep the
+      // source captured by the triggering action, not the source visible now.
+      const origin = e.detail.triggeringEvent?.detail?.sourceIndex;
+      const sourceIndex = Number.isInteger(origin) ? origin : window.__aceCurrentIndex;
+      e.detail.parameters.current_index = sourceIndex;
+      e.detail.parameters.source_index = sourceIndex;
     }
   });
 
@@ -2099,6 +2241,8 @@
       _setCut(null);
     }
     _clearCodeCues();
+    window.__aceLastSelection = null;
+    window.getSelection()?.removeAllRanges();
     const detail = e.detail || {};
     if (detail.index !== undefined) {
       window.__aceCurrentIndex = parseInt(detail.index, 10);
@@ -2112,11 +2256,20 @@
     // Reset scroll position for new source
     const cs = document.getElementById("text-scroll") || document.getElementById("content-scroll");
     if (cs) cs.scrollTop = 0;
-    // Sync URL so a refresh lands on the same source as the visible panel.
-    // Used by cross-source undo/redo, where the server swaps the body but
-    // the page never reloads.
+    const storageKey = window.__aceSourceIndexStorageKey;
+    if (storageKey) {
+      try { localStorage.setItem(storageKey, String(window.__aceCurrentIndex)); } catch (_) {}
+    }
+    // Keep URL and rendered source in sync. Ordinary navigation creates a
+    // history entry; undo/redo replace it; popstate already changed the URL.
     try {
-      history.replaceState({}, "", "/code?index=" + window.__aceCurrentIndex);
+      if (detail.history === "push" && _navigationQueued?.historyMode !== "none") {
+        history.pushState({}, "", "/code?index=" + window.__aceCurrentIndex);
+      } else if (detail.history === "none") {
+        history.replaceState({}, "", "/code?index=" + window.__aceCurrentIndex);
+      } else if (detail.history !== "push") {
+        history.replaceState({}, "", "/code?index=" + window.__aceCurrentIndex);
+      }
     } catch (_) {}
   });
 
@@ -2229,6 +2382,10 @@
       swatch.style.background = hex;
       swatch.setAttribute("aria-label", "Set code colour to " + hex);
       swatch.addEventListener("click", function () {
+        if (_denyCodebookEditing()) {
+          _closeAllPopovers();
+          return;
+        }
         _closeAllPopovers();
         htmx.ajax("PUT", `/api/codes/${codeId}`, {
           ..._codebookMutationSwapOptions(),
@@ -3841,6 +3998,7 @@
       btn.addEventListener("focusout", _undoResume);
       btn.addEventListener("click", function (e) {
         e.preventDefault();
+        if (_navigationInFlight) return;
         document.querySelectorAll(".ace-statusbar-undo-keycap").forEach(function (k) {
           k.classList.add("ace-statusbar-undo-keycap--pressed");
         });
