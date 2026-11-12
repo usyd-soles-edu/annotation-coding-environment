@@ -81,10 +81,10 @@ def _coding_context(
     coder_id: str,
     current_index: int,
     project_path: str | None = None,
+    *,
+    render_sentences: bool = True,
 ) -> dict:
     """Assemble all data needed to render the coding page."""
-    from ace.services.coding_render import render_sentence_text
-    from ace.services.text_splitter import split_into_units
 
     project = get_project(conn)
     sources = list_sources(conn)
@@ -154,9 +154,15 @@ def _coding_context(
     # Annotation counts by code (for the count cell next to each sidebar code row)
     code_counts_by_id = get_annotation_counts_by_code(conn, coder_id)
 
-    # --- New: sentence-based rendering ---
-    sentence_units = split_into_units(source_text, section_heading_spans)
-    sentence_html = render_sentence_text(sentence_units, annotations_list, codes_by_id)
+    # Annotation-only responses update the overlay and applied-code panels
+    # without replacing the text DOM, so they need no sentence segmentation.
+    sentence_html = ""
+    if render_sentences:
+        from ace.services.coding_render import render_sentence_text
+        from ace.services.text_splitter import split_into_units
+
+        sentence_units = split_into_units(source_text, section_heading_spans)
+        sentence_html = render_sentence_text(sentence_units, annotations_list, codes_by_id)
 
     # --- Tree-shaped codebook for sidebar ---
     tree_codes = list_codes_with_tree(conn)

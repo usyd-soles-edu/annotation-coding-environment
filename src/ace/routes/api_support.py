@@ -1154,7 +1154,10 @@ def _annotation_only_response(
 
     templates = request.app.state.templates
     project_path = request.app.state.project_path
-    ctx = _coding_context(conn, coder_id, target_index, project_path=project_path)
+    ctx = _coding_context(
+        conn, coder_id, target_index, project_path=project_path,
+        render_sentences=False,
+    )
     ctx["request"] = request
 
     applied_html = render_block(templates.env, "coding.html", "applied_codes_panel", ctx)
