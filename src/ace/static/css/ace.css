@@ -120,6 +120,8 @@ body {
 }
 
 .ace-statusbar-event {
+  pointer-events: auto;
+  user-select: text;
   transition: opacity var(--ace-transition);
   opacity: 1;
 }
@@ -140,10 +142,8 @@ body {
   color: #a8332e;
 }
 
-/* Soft-delete with inline undo keycap. Parent #ace-statusbar has
-   pointer-events:none for ambient text — the inline button needs auto. */
+/* Soft-delete with inline undo keycap. */
 .ace-statusbar-event--undo {
-  pointer-events: auto;
   display: inline-flex;
   align-items: center;
   gap: 8px;
