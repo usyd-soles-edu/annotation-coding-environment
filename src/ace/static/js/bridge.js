@@ -63,22 +63,11 @@
   }
 
   function _codebookMutationContext() {
-    const mount = document.getElementById("ace-headless-tree-mount");
-    const codeView = document.getElementById("code-view");
-    return {
-      mode: mount?.dataset?.codebookMode || "coding",
-      currentCodeId: codeView?.dataset?.codeId || "",
-    };
+    return _getSidebarTreeController().mutationContext();
   }
 
   function _codebookMutationValues(values) {
-    const next = { ...(values || {}) };
-    const ctx = _codebookMutationContext();
-    if (ctx.mode !== "coding") next.codebook_mode = ctx.mode;
-    if (ctx.currentCodeId && !next.current_code_id) {
-      next.current_code_id = ctx.currentCodeId;
-    }
-    return next;
+    return _getSidebarTreeController().mutationValues(values);
   }
 
   function _codebookMutationQueryString(values) {
