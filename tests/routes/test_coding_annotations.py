@@ -576,6 +576,46 @@ def test_navigation_redo_replays_source_jump(client_with_codes):
     assert _json.loads(redo.headers["HX-Trigger"])["ace-navigate"]["index"] == 1
 
 
+def test_htmx_navigation_renders_next_source_and_open_note_drawer(client_with_codes):
+    client, _coder_id, _code_id, _, _db_path = client_with_codes
+    response = client.post(
+        "/api/navigation",
+        data={
+            "from_index": 0,
+            "to_index": 1,
+            "note_open": "true",
+            "history_mode": "push",
+        },
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert 'id="text-panel"' in response.text
+    assert "Second document with different text." in response.text
+    assert 'id="ace-right-inspector"' in response.text
+    assert 'id="note-drawer"' in response.text
+    assert 'aria-hidden="false"' in response.text
+    assert 'id="note-textarea"' in response.text
+    assert 'id="ace-sources-data"' in response.text
+    assert 'id="code-sidebar"' not in response.text
+    trigger = json.loads(response.headers["HX-Trigger"])["ace-navigate"]
+    assert trigger == {
+        "index": 1, "total": 2, "history": "push", "from_index": 0,
+    }
+
+
+def test_popstate_navigation_does_not_add_undo_entry(client_with_codes):
+    client, _coder_id, _code_id, _, _db_path = client_with_codes
+    response = client.post(
+        "/api/navigation",
+        data={"from_index": 0, "to_index": 1, "record_undo": "false", "history_mode": "none"},
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 200
+    assert json.loads(response.headers["HX-Trigger"])["ace-navigate"]["history"] == "none"
+    undo = client.post("/api/undo", data={"current_index": 1})
+    assert "ace-navigate" not in undo.headers.get("HX-Trigger", "")
+
+
 @pytest.mark.parametrize(
     ("from_index", "to_index"),
     [(-1, 0), (0, -1), (2, 0), (0, 2)],

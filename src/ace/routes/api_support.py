@@ -936,6 +936,7 @@ def _render_full_coding_oob(
     coder_id: str,
     target_index: int,
     include_sidebar: bool = True,
+    open_note_drawer: bool = False,
 ) -> str:
     """Render all coding swap zones with text-panel as the primary target.
 
@@ -951,6 +952,7 @@ def _render_full_coding_oob(
     project_path = request.app.state.project_path
     ctx = _coding_context(conn, coder_id, target_index, project_path=project_path)
     ctx["request"] = request
+    ctx["open_note_drawer"] = open_note_drawer
 
     parts = [render_block(templates.env, "coding.html", "text_panel", ctx)]
     inspector_html = render_block(templates.env, "coding.html", "right_inspector", ctx)
