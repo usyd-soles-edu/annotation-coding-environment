@@ -10,6 +10,8 @@ The coding screen has three main areas:
 
 ![Coding screen with codebook, source text, and applied-code inspector](../assets/guide/coding-view-with-codebook.png)
 
+In a narrow window, use **Show applied codes panel** and **Show codebook panel** to move between the two sides. The button stays available when a source note is open. You can also reach it with `Tab` from the source text and press `Enter` to switch sides.
+
 ## Read the source map
 
 The source map is the small grid below the codebook.
