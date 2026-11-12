@@ -1372,6 +1372,7 @@ import {
       firstCodeItem,
       activeCodeItem,
       setChordHighlight,
+      getCutItemId: function () { return cutItemId; },
       setCutItemId,
       setCodeCounts,
       patchCodeCount,

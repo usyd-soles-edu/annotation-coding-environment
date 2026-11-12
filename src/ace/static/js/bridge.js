@@ -2247,8 +2247,9 @@
       if (sidebarEl && sidebarEl !== _lastSidebarEl) {
         _lastSidebarEl = sidebarEl;
         _syncSidebarAfterSwap({ sortable: true, gridResize: true });
-        if (_cutCode) {
-          const r = _findCodebookItemRow(_cutCode);
+        const cutId = _getCutCode();
+        if (cutId) {
+          const r = _findCodebookItemRow(cutId);
           if (r) {
             r.classList.add("ace-code-row--ghost");
           } else {
@@ -2269,8 +2270,9 @@
       _initCodingTextControls();
       // Re-apply ghost class if a cut is staged and the row still exists.
       // If the row vanished (deleted by another action), clear the cut state.
-      if (_cutCode) {
-        const r = _findCodebookItemRow(_cutCode);
+      const cutId = _getCutCode();
+      if (cutId) {
+        const r = _findCodebookItemRow(cutId);
         if (r) {
           r.classList.add("ace-code-row--ghost");
         } else {
@@ -2353,13 +2355,18 @@
    * ================================================================ */
 
   let _menuOpen = false;
-  let _lastSelectedCodeId = null;
 
   // Cut/paste state for the codebook sidebar (⌘X / ⌘V).
-  // `_cutCode` holds the id of the codebook item currently flagged for paste;
+  // The tree controller owns the id of the item currently flagged for paste;
   // the matching row carries `.ace-code-row--ghost` so the user sees what's cut.
   // Cleared on paste, on Esc, or when a sibling write swaps the sidebar.
-  let _cutCode = null;
+  function _cutStateController() {
+    return window.AceHeadlessTreePreview?.getController?.() || null;
+  }
+
+  function _getCutCode() {
+    return _cutStateController()?.getCutItemId?.() || null;
+  }
 
   function _findCodebookItemRow(itemId) {
     if (!itemId) return null;
@@ -2407,12 +2414,12 @@
   }
 
   function _setCut(codeId) {
-    if (_cutCode) {
-      const old = _findCodebookItemRow(_cutCode);
+    const previousId = _getCutCode();
+    if (previousId) {
+      const old = _findCodebookItemRow(previousId);
       if (old) old.classList.remove("ace-code-row--ghost");
     }
-    _cutCode = codeId;
-    _getSidebarTreeController()?.setCutItemId?.(codeId);
+    _cutStateController()?.setCutItemId?.(codeId);
     if (codeId) {
       const row = _findCodebookItemRow(codeId);
       if (row) row.classList.add("ace-code-row--ghost");
@@ -2699,7 +2706,6 @@
 
   function _executeDelete(codeId) {
     if (_denyCodebookEditing()) return;
-    _lastSelectedCodeId = null;
     // Route the response through HTMX (not _codeAction's plain fetch) so the
     // OOB statusbar/pill fragments carrying the [Z] undo affordance get
     // applied to the page. current_index goes in the URL — htmx.ajax's
@@ -2897,8 +2903,8 @@
   /** Paste the cut item onto a code row (target_id is a code id). */
   function _pasteCodeInto(targetId) {
     if (_denyCodebookEditing()) return;
-    if (!_cutCode || !targetId || targetId === _cutCode) return;
-    const cutId = _cutCode;
+    const cutId = _getCutCode();
+    if (!cutId || !targetId || targetId === cutId) return;
     htmx.ajax("POST", "/api/codes/cut-paste", {
       ..._codebookMutationSwapOptions(),
       values: _codebookMutationValues({
@@ -2915,8 +2921,8 @@
   /** Paste the cut item into a folder (target_id is a folder id; "" = root). */
   function _pasteCodeIntoFolder(folderId) {
     if (_denyCodebookEditing()) return;
-    if (!_cutCode) return;
-    const cutId = _cutCode;
+    const cutId = _getCutCode();
+    if (!cutId) return;
     htmx.ajax("POST", "/api/codes/cut-paste", {
       ..._codebookMutationSwapOptions(),
       values: _codebookMutationValues({
@@ -3036,7 +3042,7 @@
     items.push({
       label: "Paste here",
       shortcut: "\u2318V",
-      disabled: !_cutCode || _cutCode === codeId,
+      disabled: !_getCutCode() || _getCutCode() === codeId,
       handler: function () { _pasteCodeInto(codeId); },
     });
     items.push({ sep: true });
@@ -3087,7 +3093,7 @@
       {
         label: "Paste here",
         shortcut: "\u2318V",
-        disabled: !_cutCode || _cutCode === folderId,
+        disabled: !_getCutCode() || _getCutCode() === folderId,
         handler: function () { _pasteCodeIntoFolder(folderId); },
       },
       { sep: true },
@@ -3110,7 +3116,7 @@
       {
         label: "Paste here",
         shortcut: "\u2318V",
-        disabled: !_cutCode,
+        disabled: !_getCutCode(),
         handler: function () { _pasteCodeIntoFolder(""); },
       },
     ];
@@ -3337,7 +3343,7 @@
     // for paste (⌘X), Esc clears it without moving focus. Runs before the
     // treeitem / input / contentEditable bail-outs so the cancellation works
     // from any sidebar element.
-    if (_cutCode) {
+    if (_getCutCode()) {
       _setCut(null);
       window._setStatus("Cut cleared", "ok");
       e.stopPropagation();
@@ -3426,7 +3432,8 @@
     }
 
     // key === "v"
-    if (!_cutCode) return;
+    const cutId = _getCutCode();
+    if (!cutId) return;
     if (!(e.target.closest && e.target.closest("#code-sidebar"))) return;
     if (_denyCodebookEditing()) {
       e.preventDefault();
@@ -3451,11 +3458,10 @@
       window._setStatus("Focus a code or folder row first", "err");
       return;
     }
-    if (targetId === _cutCode) {
+    if (targetId === cutId) {
       _announce("Already there — press Esc to clear cut.");
       return;
     }
-    const cutId = _cutCode;
     htmx.ajax("POST", "/api/codes/cut-paste", {
       ..._codebookMutationSwapOptions(),
       values: _codebookMutationValues({
@@ -4778,7 +4784,7 @@
     if (key === "Escape" && !alt && !shift) {
       if (!document.getElementById("text-panel")) return;
       e.preventDefault();
-      if (_cutCode) {
+      if (_getCutCode()) {
         _setCut(null);
         window._setStatus("Cut cleared", "ok");
         return;

@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.slow
-def test_cut_ghost_survives_code_and_folder_focus_changes(tmp_path):
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_cut_ghost_survives_code_and_folder_focus_changes(tmp_path, engine):
     sync_api = pytest.importorskip("playwright.sync_api")
     project = tmp_path / "cut.ace"
     conn = create_project(str(project), "Cut test")
@@ -54,10 +55,10 @@ def test_cut_ghost_survives_code_and_folder_focus_changes(tmp_path):
 
         with sync_api.sync_playwright() as playwright:
             try:
-                browser = playwright.chromium.launch()
+                browser = getattr(playwright, engine).launch()
             except sync_api.Error as exc:
                 if "Executable doesn't exist" in str(exc):
-                    pytest.skip("Playwright Chromium is not installed")
+                    pytest.skip(f"Playwright {engine} is not installed")
                 raise
             try:
                 page = browser.new_page()
@@ -69,17 +70,37 @@ def test_cut_ghost_survives_code_and_folder_focus_changes(tmp_path):
                 codes.first.click()
                 cut_id = codes.first.get_attribute("data-item-id")
                 page.keyboard.press("Meta+x")
+                assert page.evaluate(
+                    "window.AceHeadlessTreePreview.getController().getCutItemId()"
+                ) == cut_id
                 cut_row = page.locator(f'.ace-ht-row[data-item-id="{cut_id}"]')
+                page.evaluate("""() => htmx.ajax('POST', '/api/codes/reorder', {
+                    target: '#code-sidebar', swap: 'outerHTML',
+                    values: { code_ids: '[]', current_index: 0 },
+                })""")
+                page.wait_for_function(
+                    "id => document.querySelector(`.ace-ht-row[data-item-id='${id}']`)?.classList.contains('ace-code-row--ghost')",
+                    arg=cut_id,
+                )
+                assert page.evaluate(
+                    "window.AceHeadlessTreePreview.getController().getCutItemId()"
+                ) == cut_id
                 codes.nth(1).click()
                 assert "ace-code-row--ghost" in cut_row.get_attribute("class")
                 assert cut_row.evaluate("el => getComputedStyle(el).opacity") == "0.4"
 
                 page.keyboard.press("Escape")
+                assert page.evaluate(
+                    "window.AceHeadlessTreePreview.getController().getCutItemId()"
+                ) is None
                 assert "ace-code-row--ghost" not in cut_row.get_attribute("class")
                 folder = page.locator('.ace-ht-row[data-kind="folder"]').first
                 folder.click()
                 folder_id = folder.get_attribute("data-item-id")
                 page.keyboard.press("Meta+x")
+                assert page.evaluate(
+                    "window.AceHeadlessTreePreview.getController().getCutItemId()"
+                ) == folder_id
                 codes.first.click()
                 folder_row = page.locator(f'.ace-ht-row[data-item-id="{folder_id}"]')
                 assert "ace-code-row--ghost" in folder_row.get_attribute("class")
