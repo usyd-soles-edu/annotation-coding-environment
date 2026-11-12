@@ -15,6 +15,9 @@ import {
   let tree = null;
   let items = {};
   let renderQueued = false;
+  let focusRenderQueued = false;
+  let renderedFocusedId = "";
+  let renderedParentById = new Map();
   let dragRenderQueued = false;
   let dropLog = [];
   let mountedElement = null;
@@ -118,11 +121,6 @@ import {
     return labels[index] || "";
   }
 
-  function codeRank(itemId) {
-    const codeIds = visibleCodeItems().map((item) => item.getId());
-    return codeIds.indexOf(itemId);
-  }
-
   function itemMatchesSearch(id) {
     if (!searchText) return true;
     const item = itemData(id);
@@ -171,7 +169,15 @@ import {
     }) || null;
   }
 
-  function pathNamesFor(id) {
+  function parentMap() {
+    const parents = new Map();
+    Object.entries(items).forEach(function ([parentId, item]) {
+      for (const childId of item.children || []) parents.set(childId, parentId);
+    });
+    return parents;
+  }
+
+  function pathNamesFor(id, parents) {
     const names = [];
     let current = id;
     const seen = new Set();
@@ -180,19 +186,19 @@ import {
       const item = itemData(current);
       if (!item) break;
       names.push(item.name || "");
-      current = findParentId(current);
+      current = parents.get(current);
     }
     return names.reverse().filter(Boolean);
   }
 
-  function ancestorIdsFor(id) {
+  function ancestorIdsFor(id, parents) {
     const ancestors = [];
-    let current = findParentId(id);
+    let current = parents.get(id);
     const seen = new Set();
     while (current && current !== ROOT_ID && !seen.has(current)) {
       seen.add(current);
       ancestors.push(current);
-      current = findParentId(current);
+      current = parents.get(current);
     }
     return new Set(ancestors);
   }
@@ -300,6 +306,38 @@ import {
     queueMicrotask(function () {
       renderQueued = false;
       renderTree();
+    });
+  }
+
+  function scheduleFocusRender() {
+    if (focusRenderQueued || renderQueued) return;
+    focusRenderQueued = true;
+    queueMicrotask(function () {
+      focusRenderQueued = false;
+      if (renderQueued || !tree || !mountedElement?.isConnected) return;
+      const nextId = tree.getFocusedItem?.()?.getId?.() || "";
+      if (nextId === renderedFocusedId) return;
+
+      const previousRow = rowByItemId(renderedFocusedId);
+      const nextRow = rowByItemId(nextId);
+      if (previousRow) previousRow.tabIndex = -1;
+      if (nextRow) nextRow.tabIndex = 0;
+
+      const previousAncestors = ancestorIdsFor(renderedFocusedId, renderedParentById);
+      const nextAncestors = ancestorIdsFor(nextId, renderedParentById);
+      for (const id of previousAncestors) {
+        if (!nextAncestors.has(id)) rowByItemId(id)?.classList.remove("ace-ht-row--path-parent");
+      }
+      for (const id of nextAncestors) {
+        rowByItemId(id)?.classList.add("ace-ht-row--path-parent");
+      }
+      renderedFocusedId = nextId;
+
+      const active = document.activeElement;
+      if (!tree.getRenamingItem?.() && nextRow &&
+          (!active || active === document.body || mountedElement.contains(active))) {
+        nextRow.focus({ preventScroll: true });
+      }
     });
   }
 
@@ -530,7 +568,6 @@ import {
     if (!item) return;
     options = options || {};
     item.setFocused();
-    scheduleRender();
     queueMicrotask(function () {
       item.getElement()?.focus({ preventScroll: true });
     });
@@ -720,11 +757,9 @@ import {
     mount.replaceChildren(...actions.map(button));
   }
 
-  function rowForItem(item) {
+  function rowForItem(item, context) {
     const data = item.getItemData();
     const row = document.createElement("div");
-    const focusedId = tree.getFocusedItem?.()?.getId?.() || "";
-    const focusedAncestors = focusedId ? ancestorIdsFor(focusedId) : new Set();
     const dropReceiverId = dropReceiverFolderId();
     const itemProps = { ...item.getProps() };
     const defaultKeyDown = itemProps.onKeyDown;
@@ -852,7 +887,7 @@ import {
       row.setAttribute("aria-description", `Shortcut: press semicolon, then ${data.chord.split("").join(" then ")}.`);
     }
     if (item.getId() === cutItemId) row.classList.add("ace-code-row--ghost");
-    if (focusedAncestors.has(item.getId())) row.classList.add("ace-ht-row--path-parent");
+    if (context.focusedAncestors.has(item.getId())) row.classList.add("ace-ht-row--path-parent");
     if (dropReceiverId === item.getId()) row.classList.add("ace-ht-row--drop-receiver");
     row.dataset.itemId = item.getId();
     row.dataset.kind = data.kind;
@@ -861,7 +896,7 @@ import {
     if (data.kind === "code" && data.definition) row.dataset.definition = data.definition;
     if (data.chord) row.dataset.chord = data.chord;
     const level = item.getItemMeta().level + 1;
-    const path = pathNamesFor(item.getId());
+    const path = pathNamesFor(item.getId(), context.parents);
     row.dataset.level = String(level);
     row.dataset.path = path.join(" / ");
     row.style.setProperty("--ht-indent", `${Math.max(0, level - 1) * 14}px`);
@@ -1008,7 +1043,7 @@ import {
       chip.className = data.chord ? "ace-ht-chip ace-ht-chip--chord" : "ace-ht-chip";
       chip.setAttribute("aria-hidden", "true");
       if (!codeApplicationDisabled()) {
-        const label = data.chord || keyLabel(codeRank(item.getId()));
+        const label = data.chord || keyLabel(context.codeRanks.get(item.getId()));
         chip.textContent = label;
         chip.setAttribute(
           "title",
@@ -1033,8 +1068,22 @@ import {
     const mount = document.getElementById("ace-headless-tree-mount");
     if (!mount || !tree) return;
 
-    const rows = visibleTreeItems().map(rowForItem);
+    const visibleItems = visibleTreeItems();
+    const parents = parentMap();
+    const focusedId = tree.getFocusedItem?.()?.getId?.() || "";
+    const codeRanks = new Map();
+    for (const item of visibleItems) {
+      if (item.getItemData().kind === "code") codeRanks.set(item.getId(), codeRanks.size);
+    }
+    const context = {
+      parents,
+      codeRanks,
+      focusedAncestors: ancestorIdsFor(focusedId, parents),
+    };
+    const rows = visibleItems.map(function (item) { return rowForItem(item, context); });
     mount.replaceChildren(...rows);
+    renderedParentById = parents;
+    renderedFocusedId = focusedId;
     renderCreateActions();
     const dragLine = document.createElement("div");
     dragLine.className = "ace-ht-drag-line";
@@ -1119,7 +1168,7 @@ import {
         scheduleRender();
       },
       setExpandedItems: scheduleRender,
-      setFocusedItem: scheduleRender,
+      setFocusedItem: scheduleFocusRender,
       setRenamingItem: scheduleRender,
       setRenamingValue: function () {},
       setDndState: scheduleDragStateRender,
