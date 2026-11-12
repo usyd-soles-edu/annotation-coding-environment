@@ -73,10 +73,19 @@ def test_export_notes_feedback_matches_download(tmp_path, engine):
                     form={"note_text": "A source note"},
                 )
                 assert saved.ok
+                count = page.request.head(base + "/api/export/notes")
+                assert count.ok
+                assert count.headers["x-ace-notes-count"] == "1"
                 page.locator("#codebook-menu-btn").click()
-                with page.expect_download() as info:
+                with page.expect_response(
+                    lambda response: response.url.endswith("/api/export/notes")
+                    and response.request.method == "GET"
+                ) as info:
                     page.locator("#export-notes-btn").click()
-                assert info.value.suggested_filename.endswith(".csv")
+                assert info.value.ok
+                assert "attachment" in info.value.headers["content-disposition"]
+                assert ".csv" in info.value.headers["content-disposition"]
+                assert page.url.endswith("/code")
                 page.wait_for_function(
                     "document.querySelector('.ace-statusbar-event')?.textContent === 'Exported'"
                 )
