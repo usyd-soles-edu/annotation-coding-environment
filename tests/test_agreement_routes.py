@@ -5,6 +5,7 @@ import json
 import shutil
 import sqlite3
 from io import StringIO
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -387,6 +388,23 @@ def test_compute_returns_new_results_html(client_with_agreement_files):
     assert "ace-section-heading" in html
 
 
+def test_excluded_sources_open_agreement_warnings(client, tmp_path):
+    paths = []
+    for name, extra in (("alice", "Alice only"), ("bob", "Bob only")):
+        path = _make_ace_file(
+            tmp_path / f"{name}.ace", "Project", name,
+            sources=[("shared", "Shared source text"), ("extra", extra)],
+            codes=[("Theme", "#00AA00")],
+            annotations=[(0, 0, 0, 6, "Shared")],
+        )
+        paths.append(str(path))
+
+    response = client.post("/api/agreement/compute", data={"paths": json.dumps(paths)})
+    assert response.status_code == 200
+    assert "sources match across all files" in response.text
+    assert '<details class="ace-agreement-warnings" open>' in response.text
+
+
 def test_results_show_coders_and_filenames_without_full_paths(client_with_agreement_files):
     client, paths = client_with_agreement_files
     resp = client.post("/api/agreement/compute", data={"paths": json.dumps(paths)})
@@ -423,8 +441,9 @@ def test_result_provenance_escapes_coder_and_filename(client, tmp_path):
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
 def test_agreement_results_support_keyboard_sort_and_row_expansion(
-    client_with_agreement_files,
+    client_with_agreement_files, engine,
 ):
     """The rendered results remain operable without a pointing device."""
     sync_api = pytest.importorskip("playwright.sync_api")
@@ -434,14 +453,15 @@ def test_agreement_results_support_keyboard_sort_and_row_expansion(
 
     with sync_api.sync_playwright() as playwright:
         try:
-            browser = playwright.chromium.launch()
+            browser = getattr(playwright, engine).launch()
         except sync_api.Error as exc:
             if "Executable doesn't exist" in str(exc):
-                pytest.skip("Playwright Chromium is not installed")
+                pytest.skip(f"Playwright {engine} is not installed")
             raise
         try:
             page = browser.new_page()
             page.set_content(f'<div id="agreement-results">{response.text}</div>')
+            page.add_style_tag(path=str(Path(__file__).resolve().parents[1] / "src/ace/static/css/agreement.css"))
             header = page.locator('#per-code-table th[data-sort="code"]')
             button = header.locator("button")
             rows = page.locator("#per-code-table .ace-code-row")
@@ -458,13 +478,50 @@ def test_agreement_results_support_keyboard_sort_and_row_expansion(
             assert rows.evaluate_all("rows => rows.map(row => row.dataset.codeName)") == original
 
             row = rows.first
+            caret = row.locator(".ace-expand-caret")
+            assert caret.is_visible()
+            assert caret.get_attribute("aria-hidden") == "true"
+            collapsed_transform = caret.evaluate("el => getComputedStyle(el).transform")
             row.focus()
             page.keyboard.press("Enter")
             assert row.get_attribute("aria-expanded") == "true"
             assert row.evaluate("row => row.nextElementSibling.hidden") is False
+            page.wait_for_function(
+                "([element, previous]) => getComputedStyle(element).transform !== previous",
+                arg=[caret.element_handle(), collapsed_transform],
+            )
             page.keyboard.press("Space")
             assert row.get_attribute("aria-expanded") == "false"
             assert row.evaluate("row => row.nextElementSibling.hidden") is True
+        finally:
+            browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_agreement_fallback_shows_server_message_safely(client, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    with sync_api.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        try:
+            page = browser.new_page()
+            page.set_content(client.get("/agreement").text)
+            page.evaluate("""() => {
+              window.fetch = async (url) => {
+                if (url === '/api/native/pick-files') {
+                  return {ok: true, json: async () => ({paths: ['a.ace', 'b.ace']})};
+                }
+                if (url === '/api/agreement/clear') return {ok: true};
+                return new Response('Could not read <img src=x onerror=alert(1)>', {
+                  status: 503, headers: {'content-type': 'text/plain'}
+                });
+              };
+              acePickAndCompute();
+            }""")
+            message = page.locator("#ace-agreement-error-message")
+            message.wait_for()
+            assert message.text_content() == "Could not read <img src=x onerror=alert(1)>"
+            assert page.locator(".ace-agreement-error img").count() == 0
         finally:
             browser.close()
 

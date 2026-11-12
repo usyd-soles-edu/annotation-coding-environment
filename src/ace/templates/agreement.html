@@ -92,19 +92,40 @@
     }
   });
 
-  function _showGenericAgreementError() {
+  function _agreementResponseError(response, fallback) {
+    return response.text().then(function(body) {
+      var message = body.trim();
+      if (message.charAt(0) === "<") {
+        var template = document.createElement("template");
+        template.innerHTML = message;
+        var paragraph = template.content.querySelector(".ace-agreement-error p");
+        message = paragraph ? paragraph.textContent.trim() : "";
+      } else if ((response.headers.get("content-type") || "").indexOf("application/json") !== -1) {
+        try {
+          var parsed = JSON.parse(message);
+          message = typeof parsed.detail === "string" ? parsed.detail : "";
+        } catch (_) { message = ""; }
+      }
+      throw new Error(message || fallback + " (HTTP " + response.status + ").");
+    });
+  }
+
+  function _showGenericAgreementError(error) {
     var results = document.getElementById("agreement-results");
+    var message = error && typeof error.message === "string" && error.message.trim()
+      ? error.message.trim() : "Something went wrong. Please try again.";
     _agreementSelectedPaths = [];
     _setAgreementReviewBusy(false);
     results.innerHTML =
       _HEADING +
       '<div class="ace-agreement-error">' +
-      '<p>Something went wrong. Please try again.</p>' +
+      '<p id="ace-agreement-error-message"></p>' +
       '<div class="ace-agreement-empty-actions">' +
       '<button class="ace-agreement-choose-btn" data-agreement-pick-start aria-keyshortcuts="F R" onclick="acePickAndCompute()">Choose different files</button>' +
       '<span class="ace-agreement-empty-shortcut">F</span>' +
       '</div>' +
       '</div>';
+    document.getElementById("ace-agreement-error-message").textContent = message;
     _focusAgreementTitle();
   }
 
@@ -359,7 +380,7 @@
       body: body.toString()
     })
       .then(function (r) {
-        if (!r.ok) { throw new Error("Preview failed"); }
+        if (!r.ok) { return _agreementResponseError(r, "Preview failed"); }
         return r.text();
       })
       .then(function (html) {
@@ -537,7 +558,10 @@
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: "accept=.ace"
     })
-      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (!r.ok) { return _agreementResponseError(r, "Could not choose files"); }
+        return r.json();
+      })
       .then(function(data) {
         if (!data.paths || data.paths.length < 2) {
           _focusAgreementChoose();
@@ -546,7 +570,7 @@
         return fetch("/api/agreement/clear", { method: "POST" })
           .then(function (clearResponse) {
             if (!clearResponse.ok) {
-              throw new Error("Could not clear cached agreement results");
+              return _agreementResponseError(clearResponse, "Could not clear cached agreement results");
             }
             return _renderAgreementPreview(data.paths);
           });
