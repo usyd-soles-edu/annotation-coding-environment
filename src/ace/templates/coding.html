@@ -191,6 +191,7 @@ rect.ace-flash-{{ code["id"] }} {
               </button>
               <button type="button"
                       id="note-pill"
+                      data-source-id="{{ current_source['id'] if current_source else '' }}"
                       class="ace-note-pill{% if has_note %} ace-note-pill--has-note{% endif %}"
                       aria-label="Open source note (N)"
                       aria-keyshortcuts="N"

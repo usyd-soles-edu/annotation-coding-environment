@@ -203,6 +203,9 @@ def test_source_navigation_keeps_page_and_note_drawer(tmp_path, browser_name):
                 assert page.locator("#note-textarea").input_value() == "Second source note"
                 assert page.locator("#note-drawer").get_attribute("aria-hidden") == "false"
                 assert page.locator("#note-textarea").is_enabled()
+                page.wait_for_function(
+                    "!document.querySelector('#note-textarea')?.readOnly"
+                )
                 assert not page.locator("#note-textarea").evaluate("el => el.readOnly")
                 assert page.evaluate("window.__aceLastSelection === null")
                 assert page.evaluate("window.getSelection().toString()") == ""

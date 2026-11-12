@@ -183,7 +183,9 @@ def test_late_note_save_does_not_restore_old_marker(tmp_path, engine):
                     await textarea.fill("First")
                     await asyncio.wait_for(first_started.wait(), timeout=5)
                     await textarea.fill("")
-                    await page.wait_for_function("window.__noteResponsesHandled === 1", timeout=5000)
+                    # The second save waits for the first response, then
+                    # deletes the note. Release the held response before
+                    # waiting for both acknowledgements.
                     release_first.set()
                     await page.wait_for_function("window.__noteResponsesHandled === 2", timeout=5000)
                     assert await page.locator(".spark-note-ticks").count() == 0
