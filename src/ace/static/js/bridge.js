@@ -1075,6 +1075,30 @@
     );
   }
 
+  function _initNarrowPan() {
+    const button = document.getElementById("ace-narrow-pan");
+    if (!button) return;
+
+    function maxScroll() {
+      return Math.max(0, document.documentElement.scrollWidth - window.innerWidth);
+    }
+
+    function sync() {
+      const atRight = window.scrollX >= maxScroll() - 2;
+      button.textContent = atRight ? "← Codebook" : "Applied codes →";
+      button.setAttribute("aria-label", atRight
+        ? "Show codebook panel" : "Show applied codes panel");
+    }
+
+    button.addEventListener("click", function () {
+      window.scrollTo(window.scrollX >= maxScroll() - 2 ? 0 : maxScroll(), window.scrollY);
+      sync();
+    });
+    window.addEventListener("scroll", sync, { passive: true });
+    window.addEventListener("resize", sync);
+    sync();
+  }
+
   function _initGridResize() {
     const handle = document.querySelector(".ace-sidebar-vsplit");
     if (!handle || handle.dataset.aceResizeWired) return;
@@ -5941,6 +5965,7 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     _initResize();
+    _initNarrowPan();
     _syncSidebarAfterSwap({ sortable: true, gridResize: true });
     _paintSvg();
     _setAmbient();

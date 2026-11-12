@@ -269,7 +269,7 @@ document.addEventListener("input", function (e) {
 // source grid overlay) so closing those doesn't also close the drawer.
 document.addEventListener("mousedown", function (e) {
   if (!_isDrawerOpen()) return;
-  if (e.target.closest("#note-drawer") || e.target.closest("#note-pill")) return;
+  if (e.target.closest("#note-drawer, #note-pill, #ace-narrow-pan")) return;
   // A source switch rebinds the open drawer to the destination source.
   if (e.target.closest("#btn-prev, #btn-next, #ace-grid-tiles, #ace-grid-spark")) return;
   aceCloseNote();

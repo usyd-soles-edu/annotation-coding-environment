@@ -21,6 +21,36 @@
   overflow: hidden;
 }
 
+/* The desktop layout keeps its 1000px floor so the text stays readable.
+   Give narrow windows an explicit way to reach either end of the page. */
+.ace-narrow-pan { display: none; }
+
+@media (max-width: 999px) {
+  body:has(#coding-workspace) { overflow-x: auto; }
+
+  .ace-narrow-pan {
+    position: fixed;
+    z-index: 40;
+    top: var(--ace-space-1);
+    left: 50%;
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
+    max-width: calc(100vw - 16px);
+    padding: 0 var(--ace-space-2);
+    border: 1px solid var(--ace-border);
+    border-radius: var(--ace-radius);
+    background: var(--ace-bg);
+    color: var(--ace-text);
+    font: inherit;
+    font-size: var(--ace-font-size-2xs);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+}
+
 /* Suppress the global statusbar on the coding page — the visible event channel
    is rehoused into the source-panel receipt (#ace-notification-receipt).
    coding.css is only loaded on /code, so this rule is scoped implicitly. */
