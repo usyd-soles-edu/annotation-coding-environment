@@ -1,5 +1,6 @@
 """Browser regression for in-place source navigation."""
 
+import asyncio
 import sqlite3
 from urllib.parse import urlsplit
 
@@ -262,3 +263,96 @@ def test_source_navigation_keeps_page_and_note_drawer(tmp_path, browser_name):
                 page.wait_for_function("window.__aceCurrentIndex === 2 && !document.body.dataset.aceNavigating")
             finally:
                 browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("browser_name", ["chromium", "firefox", "webkit"])
+def test_late_flag_response_cannot_replace_navigated_source(tmp_path, browser_name):
+    async_api = pytest.importorskip("playwright.async_api")
+    project = tmp_path / "late-flag.ace"
+    conn = create_project(str(project), "Late flag")
+    coder_id = list_coders(conn)[0]["id"]
+    first_id = add_source(conn, "S1", "First source text.", "row")
+    second_id = add_source(conn, "S2", "Second source text.", "row")
+    conn.close()
+
+    app = create_app()
+    with TestClient(app, base_url="http://127.0.0.1:8080") as client:
+        app.state.project_path = str(project)
+        app.state.coder_id = coder_id
+
+        async def exercise():
+            flag_started = asyncio.Event()
+            release_flag = asyncio.Event()
+            async with async_api.async_playwright() as playwright:
+                browser = await getattr(playwright, browser_name).launch()
+                try:
+                    page = await browser.new_page()
+
+                    async def serve_from_test_client(route):
+                        request = route.request
+                        url = urlsplit(request.url)
+                        path = url.path + (f"?{url.query}" if url.query else "")
+                        headers = {
+                            key: value for key, value in request.headers.items()
+                            if key.lower() not in {"host", "content-length"}
+                        }
+                        response = client.request(
+                            request.method, path, content=request.post_data_buffer, headers=headers
+                        )
+                        if url.path == "/api/code/flag":
+                            flag_started.set()
+                            await release_flag.wait()
+                        await route.fulfill(
+                            status=response.status_code,
+                            headers=dict(response.headers),
+                            body=response.content,
+                        )
+
+                    await page.route("http://127.0.0.1:8080/**", serve_from_test_client)
+                    await page.goto("http://127.0.0.1:8080/code?index=0")
+                    await page.evaluate("""() => {
+                        window.__flagDone = false;
+                        document.addEventListener('htmx:afterRequest', event => {
+                            if (event.detail?.requestConfig?.path === '/api/code/flag') {
+                                window.__flagDone = true;
+                            }
+                        });
+                        htmx.trigger(document.getElementById('trigger-flag'), 'click');
+                        window.aceNavigateNext();
+                    }""")
+                    await asyncio.wait_for(flag_started.wait(), timeout=5)
+                    await page.wait_for_function(
+                        "window.__aceCurrentIndex === 1 && !document.body.dataset.aceNavigating",
+                        timeout=5000,
+                    )
+                    assert "Second source text." in await page.locator("#text-panel").inner_text()
+                    await page.evaluate("window.aceOpenNoteRead(); window.aceEnterEditMode()")
+                    await page.locator("#note-textarea").fill("B note pending")
+                    release_flag.set()
+                    await page.wait_for_function("window.__flagDone", timeout=5000)
+                    assert "Second source text." in await page.locator("#text-panel").inner_text()
+                    assert await page.locator("#nav-flag-btn").get_attribute("aria-pressed") == "false"
+                    assert await page.locator("#note-textarea").input_value() == "B note pending"
+                    await page.wait_for_function(
+                        "document.getElementById('note-status')?.textContent.includes('Saved')",
+                        timeout=5000,
+                    )
+                    with sqlite3.connect(project) as stored:
+                        assert stored.execute(
+                            "SELECT flagged FROM assignment WHERE source_id = ? AND coder_id = ?",
+                            (first_id, coder_id),
+                        ).fetchone()[0] == 1
+                        assert stored.execute(
+                            "SELECT flagged FROM assignment WHERE source_id = ? AND coder_id = ?",
+                            (second_id, coder_id),
+                        ).fetchone()[0] == 0
+                        assert stored.execute(
+                            "SELECT note_text FROM source_note WHERE source_id = ? AND coder_id = ?",
+                            (second_id, coder_id),
+                        ).fetchone()[0] == "B note pending"
+                finally:
+                    release_flag.set()
+                    await browser.close()
+
+        asyncio.run(exercise())

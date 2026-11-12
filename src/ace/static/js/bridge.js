@@ -1908,6 +1908,17 @@
    * 4xx error feedback — surface HTMX error bodies in the status bar
    * ================================================================ */
 
+  // The declarative flag button uses #coding-workspace as its HTMX sync
+  // owner, while programmatic navigation uses body. A flag response can
+  // therefore arrive after the destination source is already visible.
+  document.addEventListener("htmx:beforeOnLoad", function (e) {
+    if (e.detail?.requestConfig?.path !== "/api/code/flag") return;
+    const sourceIndex = Number(e.detail.requestConfig.parameters?.source_index);
+    if (sourceIndex === window.__aceCurrentIndex) return;
+    e.preventDefault();
+    _pendingFlagAnnounce = false;
+  });
+
   // Surface 4xx response bodies as a sticky status-bar error instead of
   // letting HTMX silently drop them. Coding routes raise HTTPException(400),
   // which FastAPI serialises to {"detail": "..."} — prefer that, fall back to
