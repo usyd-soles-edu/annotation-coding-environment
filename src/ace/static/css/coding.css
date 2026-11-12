@@ -1050,6 +1050,16 @@ body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match) {
 body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
   color: var(--ace-text-muted);
 }
+body[data-chord-mode] .ace-ht-chip--chord {
+  background: #e8e8e4;
+  color: var(--ace-text);
+  box-shadow: inset 0 0 0 2px var(--ace-focus);
+}
+body[data-chord-buffer] .ace-ht-chip--chord:not(.ace-chord-match) {
+  background: #f4f4f0;
+  color: var(--ace-text-muted);
+  box-shadow: none;
+}
 
 /* ---- Hotkey hints ---- */
 /* Smaller sibling of .ace-code-chip. Always visible on search + sources header,

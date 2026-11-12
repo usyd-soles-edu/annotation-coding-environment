@@ -427,11 +427,11 @@
   window.aceIsChordAwaiting = function () { return _chordMode === "awaiting"; };
   let _chordBuffer = "";
 
-  function _setChordCodebookFilter(active) {
+  function _setChordCodebookHighlight(active) {
     const controller = window.__aceHeadlessTreeController ||
       window.AceHeadlessTreePreview?.getController?.();
-    if (controller && typeof controller.setChordFilter === "function") {
-      controller.setChordFilter(!!active);
+    if (controller && typeof controller.setChordHighlight === "function") {
+      controller.setChordHighlight(!!active);
     }
   }
 
@@ -439,14 +439,14 @@
     _chordMode = "awaiting";
     _chordBuffer = "";
     document.body.dataset.chordMode = "awaiting";
-    _setChordCodebookFilter(true);
+    _setChordCodebookHighlight(true);
     _setStatus("Two-key shortcut: ;__ · type two letters", "ok-sticky");
   }
 
   function _exitChordMode() {
     _chordMode = null;
     _chordBuffer = "";
-    _setChordCodebookFilter(false);
+    _setChordCodebookHighlight(false);
     delete document.body.dataset.chordMode;
     delete document.body.dataset.chordBuffer;
     document.querySelectorAll(".ace-chord-match").forEach(function (el) {
