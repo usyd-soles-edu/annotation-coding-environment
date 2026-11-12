@@ -156,13 +156,17 @@ def test_coding_page_shows_source_content(client_with_sources):
     assert "First document content for coding." in resp.text
 
 
-def test_coding_page_shows_codes(client_with_sources):
-    """Codes appear in the sidebar."""
+def test_coding_page_loads_codes_from_tree_endpoint(client_with_sources):
+    """The coding page mounts the controller that fetches the codebook."""
     client, _ = client_with_sources
     resp = client.get("/code")
     assert resp.status_code == 200
-    assert "Theme A" in resp.text
-    assert "Theme B" in resp.text
+    assert 'id="ace-headless-tree-mount"' in resp.text
+    assert 'src="/static/js/codebook_headless_tree.js"' in resp.text
+    tree = client.get("/api/codes/tree")
+    assert tree.status_code == 200
+    names = {item.get("name") for item in tree.json()["items"].values()}
+    assert {"Theme A", "Theme B"} <= names
 
 
 def test_custom_selection_uses_source_codepoint_slice_and_rejects_bad_ranges(tmp_path):
