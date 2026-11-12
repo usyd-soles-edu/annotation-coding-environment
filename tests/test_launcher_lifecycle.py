@@ -219,6 +219,42 @@ class TestServerStartsReachable:
         assert _check_server_live(info["port"], info["token"])
 
 
+@pytest.mark.slow
+def test_failed_server_startup_reports_bounded_persistent_diagnostic(
+    launcher_bin: Path, runtime_file: Path, tmp_path: Path
+) -> None:
+    if sys.platform.startswith("win"):
+        failing_server = tmp_path / "failing-server.cmd"
+        failing_server.write_text(
+            "@echo off\r\necho PRIVATE_SENTINEL 1>&2\r\nexit /b 23\r\n",
+            encoding="utf-8",
+        )
+    else:
+        failing_server = tmp_path / "failing-server"
+        failing_server.write_text(
+            "#!/bin/sh\nprintf 'PRIVATE_SENTINEL\\n' >&2\nexit 23\n",
+            encoding="utf-8",
+        )
+        failing_server.chmod(0o755)
+
+    started = time.monotonic()
+    proc = _run_launcher(launcher_bin, failing_server, runtime_file)
+    assert time.monotonic() - started < 10
+
+    log_path = runtime_file.with_name("launcher-startup.log")
+    assert proc.returncode != 0
+    assert "bundled ACE server exited before startup" in proc.stderr
+    assert str(log_path) in proc.stderr
+    assert log_path.exists()
+    assert log_path.stat().st_size < 2_200
+    diagnostic = log_path.read_text(encoding="utf-8")
+    assert "bundled ACE server exited before startup" in diagnostic
+    assert "PRIVATE_SENTINEL" not in diagnostic
+    assert "PRIVATE_SENTINEL" not in proc.stderr
+    assert "--launcher-token" not in diagnostic
+    assert not runtime_file.exists()
+
+
 class TestOpenPathUrl:
     """Launching with a .ace path produces a /launch URL in suppress-browser."""
 
