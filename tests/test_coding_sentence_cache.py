@@ -60,6 +60,11 @@ def test_sentence_cache_has_a_size_limit(tmp_path):
             cache.get_sentence_units(str(project), f"source-{index}", text, ())
         assert cache._sentence_chars <= 250_000
         assert len(cache._sentence_units) <= 3
+        for index in range(5):
+            text = "- item\n" * 3000 + f"- item {index}"
+            cache.get_sentence_units(str(project), f"list-{index}", text, ())
+        assert cache._sentence_unit_count <= 10_000
+        assert len(cache._sentence_units) <= 3
     finally:
         cache.close()
 

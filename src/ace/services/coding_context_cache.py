@@ -31,6 +31,7 @@ class CodingContextCache:
             tuple[tuple[dict, ...], int],
         ] = OrderedDict()
         self._sentence_chars = 0
+        self._sentence_unit_count = 0
 
     def get(
         self,
@@ -106,11 +107,16 @@ class CodingContextCache:
                 and self._file_id == file_id == current_file_id
                 and key not in self._sentence_units
             ):
-                while self._sentence_chars + len(text) > _MAX_SENTENCE_CHARS:
-                    _, (_, removed_chars) = self._sentence_units.popitem(last=False)
+                while (
+                    self._sentence_chars + len(text) > _MAX_SENTENCE_CHARS
+                    or self._sentence_unit_count + len(units) > _MAX_SENTENCE_UNITS
+                ):
+                    _, (removed_units, removed_chars) = self._sentence_units.popitem(last=False)
                     self._sentence_chars -= removed_chars
+                    self._sentence_unit_count -= len(removed_units)
                 self._sentence_units[key] = (tuple(unit.copy() for unit in units), len(text))
                 self._sentence_chars += len(text)
+                self._sentence_unit_count += len(units)
         return units
 
     def _observe_project_locked(self, project_path: str) -> None:
@@ -136,3 +142,4 @@ class CodingContextCache:
         self._snapshot = None
         self._sentence_units.clear()
         self._sentence_chars = 0
+        self._sentence_unit_count = 0
