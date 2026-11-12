@@ -13,7 +13,9 @@ from urllib.request import urlopen
 import pytest
 
 from ace.db.connection import create_project
+from ace.models.annotation import add_annotation
 from ace.models.codebook import add_code
+from ace.models.project import list_coders
 from ace.models.source import add_source
 
 
@@ -25,9 +27,11 @@ def reorder_server(tmp_path):
     project = tmp_path / "reorder.ace"
     conn = create_project(str(project), "Reorder status")
     # This is ordinary coding text, not an OOB error fragment.
-    add_source(conn, "S1", "One sentence. ace-statusbar-event--err", "row")
+    source_one = add_source(conn, "S1", "One sentence. ace-statusbar-event--err", "row")
+    add_source(conn, "S2", "Another sentence.", "row")
     first = add_code(conn, "First", "#AA0000")
     second = add_code(conn, "Second", "#00AA00")
+    add_annotation(conn, source_one, list_coders(conn)[0]["id"], first, 0, 3, "One")
     conn.close()
 
     with socket.socket() as sock:
@@ -224,6 +228,283 @@ def test_failed_queued_reorder_restores_last_saved_order(reorder_server):
                 assert responses == [200, 500]
             finally:
                 release_first.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
+def test_three_rapid_reorders_all_settle(reorder_server):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+        all_responses = asyncio.Event()
+        responses = []
+        async with async_api.async_playwright() as playwright:
+            browser = await playwright.chromium.launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                def track_response(response):
+                    if response.url.endswith("/api/codes/reorder-in-scope"):
+                        responses.append(response.status)
+                        if len(responses) == 3:
+                            all_responses.set()
+
+                page.on("response", track_response)
+                calls = 0
+
+                async def hold_first(route):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1:
+                        first_started.set()
+                        await release_first.wait()
+                    await route.fulfill(response=await route.fetch())
+
+                await page.route("**/api/codes/reorder-in-scope", hold_first)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(first_started.wait(), timeout=5)
+                await page.keyboard.press("Alt+Shift+ArrowUp")
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                release_first.set()
+                await asyncio.wait_for(all_responses.wait(), timeout=8)
+                await page.wait_for_function(
+                    "document.querySelector('[data-headless-tree-status]')?.textContent === ''"
+                )
+                assert responses == [200, 200, 200]
+                assert _stored_order(project) == [second, first]
+            finally:
+                release_first.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
+def test_queued_reorder_waits_for_source_navigation(reorder_server):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+        both_responses = asyncio.Event()
+        responses = []
+        async with async_api.async_playwright() as playwright:
+            browser = await playwright.chromium.launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                def track_response(response):
+                    if response.url.endswith("/api/codes/reorder-in-scope"):
+                        responses.append(response.status)
+                        if len(responses) == 2:
+                            both_responses.set()
+
+                page.on("response", track_response)
+                calls = 0
+
+                async def hold_first(route):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1:
+                        first_started.set()
+                        await release_first.wait()
+                    await route.fulfill(response=await route.fetch())
+
+                await page.route("**/api/codes/reorder-in-scope", hold_first)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(first_started.wait(), timeout=5)
+                await page.keyboard.press("Alt+Shift+ArrowUp")
+                await page.evaluate("window.aceNavigate(1)")
+                await page.wait_for_function("document.body.dataset.aceNavigating === '1'")
+                release_first.set()
+                await asyncio.wait_for(both_responses.wait(), timeout=8)
+                await page.wait_for_function(
+                    "window.__aceCurrentIndex === 1 && "
+                    "document.querySelector('[data-headless-tree-status]')?.textContent === ''"
+                )
+                assert responses == [200, 200]
+                assert _stored_order(project) == [first, second]
+            finally:
+                release_first.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
+def test_reorder_survives_other_htmx_actions(reorder_server):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        first_action_started = asyncio.Event()
+        release_first_action = asyncio.Event()
+        reorder_response = asyncio.Event()
+        async with async_api.async_playwright() as playwright:
+            browser = await playwright.chromium.launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def hold_other_action(route):
+                    first_action_started.set()
+                    await release_first_action.wait()
+                    await route.fulfill(status=204)
+
+                await page.route("**/api/code/apply-sentence", hold_other_action)
+                page.on("response", lambda response: reorder_response.set()
+                        if response.url.endswith("/api/codes/reorder-in-scope") else None)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.evaluate("""() => {
+                    void htmx.ajax('POST', '/api/code/apply-sentence', {
+                        target: '#text-panel', values: {}
+                    });
+                }""")
+                await asyncio.wait_for(first_action_started.wait(), timeout=5)
+
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await page.evaluate("""() => {
+                    void htmx.ajax('POST', '/api/code/apply-sentence', {
+                        target: '#text-panel', values: {}
+                    });
+                }""")
+                # The reorder must complete while the unrelated request is held.
+                await asyncio.wait_for(reorder_response.wait(), timeout=5)
+                release_first_action.set()
+                await page.wait_for_function(
+                    "document.querySelector('[data-headless-tree-status]')?.textContent === ''"
+                )
+                assert _stored_order(project) == [second, first]
+            finally:
+                release_first_action.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
+def test_delayed_reorder_response_preserves_new_source_details(reorder_server):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        reorder_saved = asyncio.Event()
+        release_reorder = asyncio.Event()
+        async with async_api.async_playwright() as playwright:
+            browser = await playwright.chromium.launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def hold_response(route):
+                    response = await route.fetch()
+                    reorder_saved.set()
+                    await release_reorder.wait()
+                    await route.fulfill(response=response)
+
+                await page.route("**/api/codes/reorder-in-scope", hold_response)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(reorder_saved.wait(), timeout=5)
+                assert _stored_order(project) == [second, first]
+                await page.evaluate("window.aceNavigate(1)")
+                await page.wait_for_function(
+                    "window.__aceCurrentIndex === 1 && document.body.dataset.aceNavigating !== '1'"
+                )
+                before = await page.evaluate("""() => ({
+                    annotations: document.querySelector('#ace-ann-data')?.outerHTML,
+                    inspector: document.querySelector('#ace-right-inspector')?.outerHTML,
+                })""")
+                assert 'data-annotations="[]"' in before["annotations"]
+                assert 'aria-label="0 applied codes"' in before["inspector"]
+                release_reorder.set()
+                await page.wait_for_function(
+                    "document.querySelector('[data-headless-tree-status]')?.textContent === ''"
+                )
+                after = await page.evaluate("""() => ({
+                    annotations: document.querySelector('#ace-ann-data')?.outerHTML,
+                    inspector: document.querySelector('#ace-right-inspector')?.outerHTML,
+                })""")
+                assert after == before
+            finally:
+                release_reorder.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
+def test_reorder_reconciles_after_sidebar_rebuild(reorder_server):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        reorder_started = asyncio.Event()
+        release_reorder = asyncio.Event()
+        async with async_api.async_playwright() as playwright:
+            browser = await playwright.chromium.launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def hold_reorder(route):
+                    reorder_started.set()
+                    await release_reorder.wait()
+                    await route.fulfill(response=await route.fetch())
+
+                await page.route("**/api/codes/reorder-in-scope", hold_reorder)
+                first_row = page.locator(f'.ace-ht-row[data-code-id="{first}"]')
+                await first_row.click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(reorder_started.wait(), timeout=5)
+
+                await page.keyboard.press("F2")
+                rename_input = page.locator(f'.ace-ht-row[data-code-id="{first}"] input.ace-ht-rename')
+                await rename_input.fill("Renamed")
+                async with page.expect_response(f"**/api/codes/{first}"):
+                    await rename_input.press("Enter")
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').get_by_text("Renamed").wait_for()
+                assert _stored_order(project) == [first, second]
+                release_reorder.set()
+                await page.wait_for_function(
+                    "document.querySelector('[data-headless-tree-status]')?.textContent === ''"
+                )
+                assert _stored_order(project) == [second, first]
+                assert await page.locator(
+                    "#ace-headless-tree-mount .ace-ht-row[data-code-id]"
+                ).evaluate_all("rows => rows.map(row => row.dataset.codeId)") == [str(second), str(first)]
+            finally:
+                release_reorder.set()
                 await browser.close()
 
     asyncio.run(exercise())

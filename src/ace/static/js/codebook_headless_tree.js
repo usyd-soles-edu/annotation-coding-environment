@@ -1793,6 +1793,10 @@
     let nextReorderRequestId = 0;
     const pendingReorders = /* @__PURE__ */ new Map();
     const reorderScopes = /* @__PURE__ */ new Map();
+    const settledReorderOrders = /* @__PURE__ */ new Map();
+    let reorderResolutionVersion = 0;
+    const queuedKeyboardReorders = [];
+    let activeKeyboardReorderId = null;
     let reorderFailureVisible = false;
     const RESERVED_SINGLE_KEYS = /* @__PURE__ */ new Set(["q", "x", "z", "n", "v"]);
     const MODE_POLICIES = Object.freeze({
@@ -2068,6 +2072,57 @@
       template.innerHTML = responseText;
       return !!template.content.querySelector("#ace-statusbar-event.ace-statusbar-event--err");
     }
+    function setScopeOrder(parentId, desired) {
+      const parent = items[parentId];
+      if (!parent) return false;
+      const current = parent.children || [];
+      const available = new Set(current);
+      const next = desired.filter(function(id) {
+        return available.has(id);
+      });
+      const included = new Set(next);
+      current.forEach(function(id) {
+        if (!included.has(id)) next.push(id);
+      });
+      if (next.every(function(id, index) {
+        return id === current[index];
+      })) return false;
+      parent.children = next;
+      return true;
+    }
+    function latestPendingOrder(scope) {
+      const pendingIds = [...scope.pending];
+      return pendingReorders.get(pendingIds[pendingIds.length - 1])?.order;
+    }
+    function reconcileFetchedReorders(fetchStartedVersion) {
+      settledReorderOrders.forEach(function(settled, parentId) {
+        if (settled.version > fetchStartedVersion) setScopeOrder(parentId, settled.order);
+      });
+      reorderScopes.forEach(function(scope, parentId) {
+        const pendingOrder = latestPendingOrder(scope);
+        if (pendingOrder) setScopeOrder(parentId, pendingOrder);
+      });
+    }
+    function sendNextKeyboardReorder() {
+      if (activeKeyboardReorderId) return;
+      if (document.body.dataset.aceNavigating === "1") {
+        setTimeout(sendNextKeyboardReorder, 50);
+        return;
+      }
+      const requestId = queuedKeyboardReorders.shift();
+      if (!requestId) return;
+      const request = pendingReorders.get(requestId);
+      if (!request) return sendNextKeyboardReorder();
+      activeKeyboardReorderId = requestId;
+      htmxSwap("POST", "/api/codes/reorder-in-scope", {
+        code_ids: JSON.stringify(request.order),
+        parent_id: formParentId(request.parentId),
+        current_index: currentIndex(),
+        _ace_reorder_request_id: requestId
+      }, document.documentElement).catch(function(error) {
+        settleKeyboardReorder(requestId, false, error);
+      });
+    }
     function settleKeyboardReorder(requestId, successful, error) {
       const request = pendingReorders.get(requestId);
       if (!request) return;
@@ -2082,16 +2137,24 @@
         reorderFailureVisible = true;
         window.__aceHeadlessTreePreviewError = String(error?.message || error || "Save failed");
       }
+      settledReorderOrders.set(request.parentId, {
+        order: [...scope.confirmed],
+        version: ++reorderResolutionVersion
+      });
+      const displayOrder = latestPendingOrder(scope) || scope.confirmed;
+      if (setScopeOrder(request.parentId, displayOrder) && tree) {
+        tree.rebuildTree();
+        focusItemById(request.itemId);
+        scheduleRender();
+      }
       if (!scope.pending.size) {
         reorderScopes.delete(request.parentId);
-        if (!successful && items[request.parentId]) {
-          items[request.parentId].children = [...scope.confirmed];
-          tree.rebuildTree();
-          focusItemById(request.itemId);
-          scheduleRender();
-        }
       }
       setStatus(reorderFailureVisible ? "Move failed" : pendingReorders.size ? "Saving" : "");
+      if (activeKeyboardReorderId === requestId) {
+        activeKeyboardReorderId = null;
+        setTimeout(sendNextKeyboardReorder, 0);
+      }
     }
     document.addEventListener("htmx:afterRequest", function(event) {
       const detail = event.detail;
@@ -2167,12 +2230,13 @@
       }
       return next;
     }
-    async function htmxSwap(method, url, values) {
+    async function htmxSwap(method, url, values, source) {
       if (document.body.dataset.aceNavigating === "1") return;
       if (!window.htmx || typeof window.htmx.ajax !== "function") {
         throw new Error("HTMX is unavailable");
       }
       return window.htmx.ajax(method, url, {
+        source,
         target: document.getElementById("text-panel") ? "#text-panel" : "#code-sidebar",
         swap: document.getElementById("text-panel") ? "outerHTML" : "none",
         values: codebookMutationValues(values)
@@ -2946,14 +3010,8 @@
         scope.pending.add(requestId);
         pendingReorders.set(requestId, { parentId, itemId, order });
         setStatus("Saving");
-        htmxSwap("POST", "/api/codes/reorder-in-scope", {
-          code_ids: JSON.stringify(order),
-          parent_id: formParentId(parentId),
-          current_index: currentIndex(),
-          _ace_reorder_request_id: requestId
-        }).catch(function(error) {
-          settleKeyboardReorder(requestId, false, error);
-        });
+        queuedKeyboardReorders.push(requestId);
+        sendNextKeyboardReorder();
       }
       function startRenaming(itemId) {
         const item = itemId && tree ? tree.getItemInstance(itemId) : null;
@@ -3072,6 +3130,7 @@
       if (!mount) return;
       if (mount === mountedElement && tree) return;
       const generation = ++initGeneration;
+      const fetchStartedVersion = reorderResolutionVersion;
       const restore = pendingSidebarState;
       mountedElement = mount;
       dropLog = [];
@@ -3089,6 +3148,7 @@
           return;
         }
         items = payload.items || {};
+        reconcileFetchedReorders(fetchStartedVersion);
         searchRaw = search?.value.trim() || "";
         searchText = searchRaw.toLowerCase();
         buildTree(restore?.zone === "tree" ? restore.itemId : null);

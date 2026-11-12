@@ -1952,6 +1952,28 @@ def test_reorder_in_scope_returns_text_panel_and_sidebar(client_with_codes):
     assert '>Saved</span>' in r.text
 
 
+def test_keyboard_reorder_returns_status_without_source_fragments(client_with_codes):
+    client, _coder_id, a, b, db_path = client_with_codes
+    r = client.post(
+        "/api/codes/reorder-in-scope",
+        data={
+            "code_ids": json.dumps([b, a]),
+            "parent_id": "",
+            "current_index": 0,
+            "_ace_reorder_request_id": "1",
+        },
+    )
+    assert r.status_code == 200
+    assert r.headers["HX-Reswap"] == "none"
+    assert 'class="ace-statusbar-event ace-statusbar-event--ok"' in r.text
+    assert 'id="text-panel"' not in r.text
+    assert 'id="ace-ann-data"' not in r.text
+    assert 'id="ace-right-inspector"' not in r.text
+    orders = _sort_orders_at_root(db_path)
+    assert orders[b] == 0
+    assert orders[a] == 1
+
+
 def test_audit_mode_reorder_in_scope_returns_audit_sidebar_only(client_with_codes):
     client, _coder_id, a, b, _db_path = client_with_codes
     r = client.post(
