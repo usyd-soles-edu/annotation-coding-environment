@@ -1,6 +1,7 @@
 """Keyboard regression for the codebook context menu in all browser engines."""
 
 import os
+import sqlite3
 import socket
 import subprocess
 import sys
@@ -168,7 +169,7 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                     "menuitem", name="View coded text V"
                 ).wait_for()
                 page.keyboard.press("ArrowDown")
-                assert audit_menu.get_by_role("menuitem", name="Convert to folder").evaluate(
+                assert audit_menu.get_by_role("menuitem", name="Convert to folder…").evaluate(
                     "el => el === document.activeElement"
                 )
                 assert page.locator('.cv-track-row[tabindex="0"]').count() == 0
@@ -182,6 +183,36 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                 page.keyboard.press("Escape")
                 assert audit_row.evaluate("el => el === document.activeElement")
                 assert page.url == f"{base}/code/{alpha_id}/view"
+
+                audit_row.press("Shift+F10")
+                convert = page.get_by_role("menuitem", name="Convert to folder…")
+                warnings = []
+
+                def dismiss_conversion(dialog):
+                    warnings.append(dialog.message)
+                    dialog.dismiss()
+
+                page.once("dialog", dismiss_conversion)
+                convert.click()
+                assert "You can undo this conversion" in warnings[0]
+                assert "no separate Convert back action" in warnings[0]
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT kind FROM codebook_code WHERE id = ?", (alpha_id,)
+                    ).fetchone()[0] == "code"
+
+                audit_row.press("Shift+F10")
+                page.once("dialog", lambda dialog: dialog.accept())
+                with page.expect_response(f"**/api/codes/{alpha_id}/convert-to-folder"):
+                    page.get_by_role("menuitem", name="Convert to folder…").click()
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT kind FROM codebook_code WHERE id = ?", (alpha_id,)
+                    ).fetchone()[0] == "folder"
+                    assert stored.execute(
+                        "SELECT COUNT(*) FROM codebook_code WHERE parent_id = ? AND kind = 'code'",
+                        (alpha_id,),
+                    ).fetchone()[0] == 1
             finally:
                 browser.close()
     finally:
