@@ -245,6 +245,8 @@ async def set_code_parent_route(
         status_html = ""
         if _request_codebook_mode(request, explicit=codebook_mode) == "audit":
             status_html = _oob_status("Saved code folder.", "ok").body.decode()
+        elif target_order_ids:
+            status_html = _oob_status("Saved", "ok").body.decode()
         return _render_codebook_mutation_response(
             request,
             conn,
@@ -503,6 +505,7 @@ async def reorder_in_scope_route(
             mode=codebook_mode,
             current_code_id=current_code_id,
             headers={"HX-Reswap": "none"},
+            status_html=_oob_status("Saved", "ok").body.decode(),
         )
 
 

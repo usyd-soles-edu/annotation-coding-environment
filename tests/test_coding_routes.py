@@ -52,6 +52,9 @@ def test_coding_shortcuts_dialog_and_shared_codebook_help(client_with_sources):
     assert "q, v, x, z and n are reserved" in dialog.group(0)
     assert "<dt>/</dt><dd>Focus codebook search</dd>" in dialog.group(0)
     assert "<dt>V</dt><dd>View coded text</dd>" in dialog.group(0)
+    assert "<dt>N</dt><dd>Open note in read mode; press N again to edit</dd>" in dialog.group(0)
+    assert "<dt>Esc (editing)</dt><dd>Return to note read mode</dd>" in dialog.group(0)
+    assert "<dt>Esc (read mode)</dt><dd>Close the note</dd>" in dialog.group(0)
     assert "Codebook editing (on the coding page)" in dialog.group(0)
 
 
