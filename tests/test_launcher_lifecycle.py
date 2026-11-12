@@ -209,6 +209,7 @@ class TestServerStartsReachable:
             f"launcher exited {proc.returncode}\n"
             f"stdout: {proc.stdout}\nstderr: {proc.stderr}"
         )
+        assert not list(runtime_file.parent.glob("server-startup-*.json"))
 
         info = _read_runtime(runtime_file)
         assert "port" in info
@@ -252,6 +253,46 @@ def test_failed_server_startup_reports_bounded_persistent_diagnostic(
     assert "PRIVATE_SENTINEL" not in diagnostic
     assert "PRIVATE_SENTINEL" not in proc.stderr
     assert "--launcher-token" not in diagnostic
+    assert not runtime_file.exists()
+
+
+@pytest.mark.slow
+def test_safe_server_startup_report_reaches_launcher_diagnostic(
+    launcher_bin: Path, runtime_file: Path, tmp_path: Path
+) -> None:
+    script = tmp_path / "failed_startup.py"
+    script.write_text(
+        "import sys\n"
+        "from ace.__main__ import _write_startup_report\n"
+        "args = sys.argv[1:]\n"
+        "path = args[args.index('--startup-report') + 1]\n"
+        "_write_startup_report(path, 'import', ModuleNotFoundError("
+        "'PRIVATE_SENTINEL', name='secret_module'))\n"
+        "print('PRIVATE_SENTINEL', file=sys.stderr)\n"
+        "sys.exit(23)\n",
+        encoding="utf-8",
+    )
+    if sys.platform.startswith("win"):
+        failing_server = tmp_path / "failed_startup.cmd"
+        failing_server.write_text(
+            f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n',
+            encoding="utf-8",
+        )
+    else:
+        failing_server = tmp_path / "failed_startup"
+        failing_server.write_text(
+            f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n',
+            encoding="utf-8",
+        )
+        failing_server.chmod(0o755)
+
+    proc = _run_launcher(launcher_bin, failing_server, runtime_file)
+    diagnostic = runtime_file.with_name("launcher-startup.log").read_text(encoding="utf-8")
+    assert proc.returncode != 0
+    assert "loading application code: missing packaged dependency" in diagnostic
+    assert "PRIVATE_SENTINEL" not in diagnostic
+    assert "PRIVATE_SENTINEL" not in proc.stderr
+    assert not list(tmp_path.glob("server-startup-*.json"))
     assert not runtime_file.exists()
 
 

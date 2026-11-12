@@ -6,11 +6,14 @@ use serde::Deserialize;
 use std::env;
 use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
+use std::io::Read;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::{Duration, Instant, SystemTime};
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 
 const PREFERRED_PORT: u16 = 18080;
 const RUNTIME_FILE_NAME: &str = "runtime.json";
@@ -22,6 +25,7 @@ const STATUS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_millis(800);
 const DIAGNOSTIC_FILE_NAME: &str = "launcher-startup.log";
 const MAX_DIAGNOSTIC_CHARS: usize = 2_000;
+const MAX_STARTUP_REPORT_BYTES: u64 = 512;
 
 type LauncherResult<T> = Result<T, String>;
 
@@ -35,6 +39,13 @@ struct RuntimeInfo {
 struct LaunchedServer {
     runtime: RuntimeInfo,
     child: Child,
+    startup_report: Option<PathBuf>,
+}
+
+#[derive(Deserialize)]
+struct StartupReport {
+    stage: String,
+    reason: String,
 }
 
 struct StartupLock {
@@ -82,6 +93,45 @@ fn record_startup_error(error: &str) -> Option<PathBuf> {
     // output and request contents are deliberately excluded.
     fs::write(&path, format!("ACE launcher startup failure: {message}\n")).ok()?;
     Some(path)
+}
+
+fn prepare_startup_report(runtime_file: &Path) -> Option<PathBuf> {
+    let path = runtime_file.with_file_name(format!("server-startup-{}.json", generate_token()));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    options.open(&path).ok()?;
+    Some(path)
+}
+
+fn read_startup_report(path: &Path) -> Option<String> {
+    let mut bytes = Vec::new();
+    fs::File::open(path).ok()?
+        .take(MAX_STARTUP_REPORT_BYTES + 1)
+        .read_to_end(&mut bytes).ok()?;
+    startup_report_detail(&bytes)
+}
+
+fn startup_report_detail(bytes: &[u8]) -> Option<String> {
+    if bytes.len() as u64 > MAX_STARTUP_REPORT_BYTES {
+        return None;
+    }
+    let report: StartupReport = serde_json::from_slice(&bytes).ok()?;
+    let stage = match report.stage.as_str() {
+        "import" => "loading application code",
+        "serve" => "starting the server",
+        _ => return None,
+    };
+    let reason = match report.reason.as_str() {
+        "missing_dependency" => "missing packaged dependency",
+        "permission_denied" => "permission denied",
+        "os_error" => "operating system error",
+        "server_exit" => "server exited",
+        "unexpected_error" => "unexpected error",
+        _ => return None,
+    };
+    Some(format!("server failed while {stage}: {reason}"))
 }
 
 fn show_startup_error(message: &str) {
@@ -137,15 +187,15 @@ fn run() -> LauncherResult<()> {
     };
     let _startup_lock = acquire_startup_lock(&runtime_file)?;
 
-    let (runtime, mut launched_child) = if open_path.is_some() {
+    let (runtime, mut launched_child, startup_report) = if open_path.is_some() {
         let launched = start_server(&runtime_file)?;
-        (launched.runtime, Some(launched.child))
+        (launched.runtime, Some(launched.child), launched.startup_report)
     } else {
         match reusable_runtime_from_file(&runtime_file, open_path.as_deref()) {
-            Some(runtime) => (runtime, None),
+            Some(runtime) => (runtime, None, None),
             None => {
                 let launched = start_server(&runtime_file)?;
-                (launched.runtime, Some(launched.child))
+                (launched.runtime, Some(launched.child), launched.startup_report)
             }
         }
     };
@@ -154,7 +204,18 @@ fn run() -> LauncherResult<()> {
         .and_then(|()| open_browser_for_runtime(&runtime, open_path.as_deref()))
     {
         cleanup_failed_launch(launched_child, &runtime_file, &runtime);
-        return Err(error);
+        let detail = startup_report.as_deref().and_then(read_startup_report);
+        if let Some(path) = startup_report.as_deref() {
+            let _ = fs::remove_file(path);
+        }
+        return Err(match detail {
+            Some(detail) => format!("{error}; {detail}"),
+            None => error,
+        });
+    }
+
+    if let Some(path) = startup_report.as_deref() {
+        let _ = fs::remove_file(path);
     }
 
     Ok(())
@@ -328,6 +389,8 @@ fn start_server(runtime_file: &Path) -> LauncherResult<LaunchedServer> {
         })?;
     }
 
+    let startup_report = prepare_startup_report(runtime_file);
+
     let mut command = Command::new(&server_binary);
     command
         .arg("--port")
@@ -342,6 +405,9 @@ fn start_server(runtime_file: &Path) -> LauncherResult<LaunchedServer> {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    if let Some(path) = startup_report.as_deref() {
+        command.arg("--startup-report").arg(path);
+    }
 
     #[cfg(windows)]
     {
@@ -351,6 +417,9 @@ fn start_server(runtime_file: &Path) -> LauncherResult<LaunchedServer> {
     }
 
     let mut child = command.spawn().map_err(|error| {
+        if let Some(path) = startup_report.as_deref() {
+            let _ = fs::remove_file(path);
+        }
         format!(
             "failed to start bundled ACE server {}: {error}",
             server_binary.display()
@@ -365,9 +434,12 @@ fn start_server(runtime_file: &Path) -> LauncherResult<LaunchedServer> {
     if let Err(error) = write_runtime_info(runtime_file, &runtime) {
         let _ = child.kill();
         let _ = child.wait();
+        if let Some(path) = startup_report.as_deref() {
+            let _ = fs::remove_file(path);
+        }
         return Err(error);
     }
-    Ok(LaunchedServer { runtime, child })
+    Ok(LaunchedServer { runtime, child, startup_report })
 }
 
 fn write_runtime_info(runtime_file: &Path, runtime: &RuntimeInfo) -> LauncherResult<()> {
@@ -801,5 +873,17 @@ mod tests {
     #[test]
     fn hex_encoding_uses_two_lowercase_digits_per_byte() {
         assert_eq!(hex_encode(&[0, 1, 15, 16, 255]), "00010f10ff");
+    }
+
+    #[test]
+    fn startup_report_uses_only_known_codes() {
+        let report = br#"{"stage":"import","reason":"missing_dependency","private":"SECRET"}"#;
+        assert_eq!(
+            startup_report_detail(report).as_deref(),
+            Some("server failed while loading application code: missing packaged dependency"),
+        );
+        assert!(startup_report_detail(br#"{"stage":"SECRET","reason":"os_error"}"#).is_none());
+        assert!(startup_report_detail(br#"{"stage":"serve","reason":"SECRET"}"#).is_none());
+        assert!(startup_report_detail(&vec![b'x'; 513]).is_none());
     }
 }
