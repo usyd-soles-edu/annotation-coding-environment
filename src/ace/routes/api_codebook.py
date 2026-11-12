@@ -437,6 +437,7 @@ async def reorder_in_scope_route(
     current_index: int = Form(default=0),
     codebook_mode: str = Form(default="coding"),
     current_code_id: str | None = Form(default=None),
+    keyboard_reorder_id: str = Form(default="", alias="_ace_reorder_request_id"),
 ):
     """Reorder codebook items within a single scope. Returns text-panel + sidebar OOB.
 
@@ -496,6 +497,13 @@ async def reorder_in_scope_route(
         # Skip recording on no-ops so one drag doesn't burn two undo presses.
         if prev != new:
             _get_undo_manager(request).record_code_reorder(prev, new)
+        if keyboard_reorder_id and codebook_mode == "coding":
+            # The keyboard tree already has the new order. A full coding
+            # fragment could arrive after source navigation and replace the
+            # new source's annotations or inspector with stale data.
+            response = _oob_status("Saved", "ok")
+            response.headers["HX-Reswap"] = "none"
+            return response
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
         return _render_codebook_mutation_response(
             request,
