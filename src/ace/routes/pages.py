@@ -1,6 +1,7 @@
 """Page routes — HTML responses rendered via Jinja2."""
 
 import html
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
@@ -30,6 +31,12 @@ from ace.models.source_note import get_note, source_ids_with_notes
 from ace.routes.api_project_import import _clear_folder_import_manifests
 
 router = APIRouter()
+
+
+def _sources_snapshot_version(sources_json: list[dict]) -> str:
+    """Identify the project-wide source grid data sent to the browser."""
+    payload = json.dumps(sources_json, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _annotation_excerpt(source_text: str, start: int, end: int, limit: int = 58) -> str:
@@ -282,6 +289,7 @@ def _coding_context(
         "source_ids_with_notes": notes_present,
         "assignments": [dict(a) for a in assignments],
         "sources_json": sources_json,
+        "sources_snapshot_version": _sources_snapshot_version(sources_json),
         "tree_codes": tree_codes,
         "code_counts_by_id": code_counts_by_id,
         "code_counts_json": code_counts_json,

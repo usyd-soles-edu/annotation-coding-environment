@@ -1,4 +1,5 @@
 import json
+import re
 
 import sqlite3
 
@@ -659,6 +660,39 @@ def test_htmx_navigation_renders_next_source_and_open_note_drawer(client_with_co
     assert trigger == {
         "index": 1, "total": 2, "history": "push", "from_index": 0,
     }
+
+
+def test_navigation_reuses_unchanged_source_snapshot(client_with_codes):
+    client, _coder_id, _code_id, _, _db_path = client_with_codes
+    page = client.get("/code")
+    snapshot = re.search(r'data-snapshot-version="([0-9a-f]{64})"', page.text)
+    assert snapshot is not None
+
+    headers = {
+        "HX-Request": "true",
+        "X-Ace-Sources-Snapshot": snapshot.group(1),
+        "X-Ace-Counts-Dirty": "1",
+    }
+    response = client.post(
+        "/api/navigation",
+        data={"from_index": 0, "to_index": 1},
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert "Second document with different text." in response.text
+    assert 'id="ace-sources-data"' not in response.text
+    assert 'data-count-refresh-version="1"' in response.text
+
+    # A change in another tab must still refresh the cached project-wide grid.
+    client.post("/api/code/flag", data={"source_index": 0})
+    changed = client.post(
+        "/api/navigation",
+        data={"from_index": 1, "to_index": 0},
+        headers=headers,
+    )
+    assert 'id="ace-sources-data"' in changed.text
+    assert '"flagged": true' in changed.text
+    assert re.search(r'data-snapshot-version="([0-9a-f]{64})"', changed.text).group(1) != snapshot.group(1)
 
 
 def test_popstate_navigation_does_not_add_undo_entry(client_with_codes):

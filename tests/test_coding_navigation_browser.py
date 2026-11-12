@@ -17,6 +17,95 @@ from ace.models.source_note import upsert_note
 
 @pytest.mark.slow
 @pytest.mark.parametrize("browser_name", ["chromium", "firefox", "webkit"])
+def test_navigation_reuses_source_grid_until_project_data_changes(tmp_path, browser_name):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    project = tmp_path / "navigation-snapshot.ace"
+    conn = create_project(str(project), "Navigation snapshot")
+    coder_id = list_coders(conn)[0]["id"]
+    first_id = add_source(conn, "S1", "First source.", "row")
+    add_source(conn, "S2", "Second source.", "row")
+    conn.close()
+
+    app = create_app()
+    with TestClient(app, base_url="http://127.0.0.1:8080") as client:
+        app.state.project_path = str(project)
+        app.state.coder_id = coder_id
+        with sync_api.sync_playwright() as playwright:
+            try:
+                browser = getattr(playwright, browser_name).launch()
+            except sync_api.Error as exc:
+                if "Executable doesn't exist" in str(exc):
+                    pytest.skip(f"Playwright {browser_name} is not installed")
+                raise
+            try:
+                page = browser.new_page()
+
+                def serve_from_test_client(route):
+                    request = route.request
+                    url = urlsplit(request.url)
+                    path = url.path + (f"?{url.query}" if url.query else "")
+                    headers = {
+                        key: value for key, value in request.headers.items()
+                        if key.lower() not in {"host", "content-length"}
+                    }
+                    response = client.request(
+                        request.method, path, content=request.post_data_buffer, headers=headers
+                    )
+                    route.fulfill(
+                        status=response.status_code,
+                        headers=dict(response.headers),
+                        body=response.content,
+                    )
+
+                page.route("http://127.0.0.1:8080/**", serve_from_test_client)
+                page.goto("http://127.0.0.1:8080/code?index=0")
+                page.evaluate("window.__sourceBlob = document.getElementById('ace-sources-data')")
+
+                with page.expect_response("**/api/navigation") as first_navigation:
+                    page.evaluate("window.aceNavigate(1)")
+                assert 'id="ace-sources-data"' not in first_navigation.value.text()
+                page.wait_for_function("window.__aceCurrentIndex === 1")
+                assert page.evaluate(
+                    "window.__sourceBlob === document.getElementById('ace-sources-data')"
+                )
+
+                # A separate writer changes source metadata without touching
+                # this tab's cached DOM. Navigation must replace that snapshot.
+                with sqlite3.connect(project) as other_tab:
+                    other_tab.execute(
+                        "UPDATE assignment SET flagged = 1 WHERE source_id = ? AND coder_id = ?",
+                        (first_id, coder_id),
+                    )
+                with page.expect_response("**/api/navigation") as second_navigation:
+                    page.evaluate("window.aceNavigate(0)")
+                assert 'id="ace-sources-data"' in second_navigation.value.text()
+                page.wait_for_function("window.__aceCurrentIndex === 0")
+                assert page.evaluate(
+                    "window.__sourceBlob !== document.getElementById('ace-sources-data')"
+                )
+                assert page.evaluate(
+                    "JSON.parse(document.getElementById('ace-sources-data').textContent)[0].flagged"
+                )
+
+                # Local count patches must invalidate the previous server
+                # snapshot, even when the database later has identical data.
+                page.evaluate("id => window._acePatchSourceCount(id, 0, 7)", first_id)
+                assert page.locator("#ace-sources-data").get_attribute(
+                    "data-snapshot-version"
+                ) is None
+                with page.expect_response("**/api/navigation") as third_navigation:
+                    page.evaluate("window.aceNavigate(1)")
+                assert 'id="ace-sources-data"' in third_navigation.value.text()
+                page.wait_for_function("window.__aceCurrentIndex === 1")
+                assert page.evaluate(
+                    "JSON.parse(document.getElementById('ace-sources-data').textContent)[0].count"
+                ) == 0
+            finally:
+                browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("browser_name", ["chromium", "firefox", "webkit"])
 def test_source_navigation_keeps_page_and_note_drawer(tmp_path, browser_name):
     sync_api = pytest.importorskip("playwright.sync_api")
     project = tmp_path / "navigation.ace"
