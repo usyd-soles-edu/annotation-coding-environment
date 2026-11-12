@@ -1871,8 +1871,18 @@ html[data-ace-note-open="1"] .ace-applied-codes-panel {
   color: rgba(43, 48, 56, 0.72);
 }
 
-@container source-column (max-width: 680px) {
+@container source-column (max-width: 760px) {
   .ace-legend-action {
+    display: none;
+  }
+
+  .ace-legend-action--apply {
+    display: inline;
+  }
+}
+
+@container source-column (max-width: 480px) {
+  .ace-legend-action--apply {
     display: none;
   }
 }

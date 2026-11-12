@@ -101,5 +101,21 @@ def test_coding_shortcuts_are_modal_and_restore_focus(tmp_path, browser_name):
                 assert page.evaluate("window.aceIsNoteDrawerOpen()")
                 page.keyboard.press("Escape")
                 assert not page.evaluate("window.aceIsNoteDrawerOpen()")
+
+                apply_hint = page.locator(".ace-legend-action", has_text="apply (no advance)")
+                for viewport_width in (1500, 1400, 1200, 1100, 1000, 900, 800, 700):
+                    page.set_viewport_size({"width": viewport_width, "height": 900})
+                    left_gap, right_gap = page.locator(".ace-legend").evaluate(
+                        "el => { const r = el.getBoundingClientRect(); const items = el.querySelectorAll('.ace-legend-cmd'); return [items[0].getBoundingClientRect().left - r.left, r.right - items[items.length - 1].getBoundingClientRect().right]; }"
+                    )
+                    assert left_gap >= 0 and right_gap >= 0
+                    if viewport_width in (1500, 1400, 1200):
+                        assert apply_hint.is_visible()
+                page.set_viewport_size({"width": 1500, "height": 900})
+                source.click()
+                focus_before = page.evaluate("window.__aceFocusIndex")
+                page.keyboard.press("1")
+                page.wait_for_function("document.querySelectorAll('.ace-applied-code-row').length > 0")
+                assert page.evaluate("window.__aceFocusIndex") == focus_before
             finally:
                 browser.close()
