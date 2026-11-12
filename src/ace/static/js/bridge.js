@@ -885,6 +885,7 @@
   let _navigationIntentIndex = null;
 
   function _lockNoteDuringNavigation() {
+    if (typeof window.aceLockNoteEditing === "function") window.aceLockNoteEditing();
     const textarea = document.getElementById("note-textarea");
     if (!textarea) return;
     textarea.readOnly = true;
@@ -893,6 +894,7 @@
   }
 
   function _unlockNoteAfterNavigation() {
+    if (typeof window.aceUnlockNoteEditing === "function") window.aceUnlockNoteEditing();
     const textarea = document.getElementById("note-textarea");
     if (!textarea || textarea.dataset.aceNavigationLocked !== "1") return;
     textarea.readOnly = false;
@@ -983,6 +985,7 @@
     _lockNoteDuringNavigation();
 
     (async function () {
+      let noteSaveFailed = false;
       try {
         while (_navigationQueued) {
           const next = _navigationQueued;
@@ -991,7 +994,12 @@
           if (next.index === fromIndex) continue;
           // A note save must finish before the inspector is replaced.
           if (typeof window.aceFlushNoteIfDirty === "function") {
-            try { await window.aceFlushNoteIfDirty(); } catch (_) {}
+            try {
+              await window.aceFlushNoteIfDirty();
+            } catch (error) {
+              noteSaveFailed = true;
+              throw error;
+            }
           }
           if (next.historyMode === "push") {
             const url = new URL(window.location.href);
@@ -1013,7 +1021,14 @@
         try {
           history.replaceState({}, "", "/code?index=" + window.__aceCurrentIndex);
         } catch (_) {}
-        if (typeof window._setStatus === "function") window._setStatus("Source navigation failed", "err");
+        if (typeof window._setStatus === "function") {
+          window._setStatus(
+            noteSaveFailed
+              ? "Note save failed — draft kept; edit or navigate again to retry"
+              : "Source navigation failed",
+            "err"
+          );
+        }
       } finally {
         _navigationInFlight = false;
         _navigationIntentIndex = null;
