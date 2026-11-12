@@ -25,6 +25,7 @@
 - **Agreement results** — sort columns and expand guidance with the keyboard, with sort direction announced to assistive technology.
 - **Audit review** — keep rapid code navigation on the latest selection and make shortcut help visible in the header.
 - **Coding controls** — keep source actions visible while scrolling, show flag and note state on the source map, and avoid redrawing every sentence after annotation-only actions.
+- **Long highlights** — keep highlight painting responsive across sources with many text lines.
 - **Codebook actions** — make context menus keyboard accessible, show the create-code shortcut, and warn before turning a code into a folder.
 - **Shortcut help** — explain two-letter code shortcuts, unify help dialogs, and clarify that applying a code stays on the current sentence.
 - **Agreement results** — identify coder and file provenance and clarify pooled results and pairwise differences.
