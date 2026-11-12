@@ -1,0 +1,46 @@
+name: Application tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python-fast:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: '3.12'
+      - name: Run fast application tests
+        run: uv run --locked pytest -m 'not slow'
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: '3.12'
+      - name: Install browser engines and system dependencies
+        run: uv run --locked --with playwright==1.58.0 python -m playwright install --with-deps chromium firefox webkit
+      - name: Run browser regressions in all three engines
+        run: uv run --locked --with playwright==1.58.0 pytest -m slow --ignore=tests/test_launcher_lifecycle.py
+
+  launcher-rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - name: Run launcher unit tests
+        run: cargo test --manifest-path desktop/launcher/Cargo.toml --locked
