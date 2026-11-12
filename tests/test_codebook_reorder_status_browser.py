@@ -595,3 +595,71 @@ def test_shortcut_refresh_preserves_rename_draft(reorder_server, engine):
                 await browser.close()
 
     asyncio.run(exercise())
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_undo_invalidates_delayed_shortcut_refresh(reorder_server, engine):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, _first, _second = reorder_server
+    setup = sqlite3.connect(project)
+    try:
+        setup.row_factory = sqlite3.Row
+        for index in range(30):
+            add_code(setup, f"Extra {index:02d}", "#123456")
+    finally:
+        setup.close()
+    original = _stored_order(project)
+    last_single, first_chord = original[30:32]
+
+    async def exercise():
+        refresh_started = asyncio.Event()
+        release_refresh = asyncio.Event()
+        refresh_calls = 0
+        async with async_api.async_playwright() as playwright:
+            browser = await getattr(playwright, engine).launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def hold_refresh(route):
+                    nonlocal refresh_calls
+                    refresh_calls += 1
+                    if refresh_calls > 1:
+                        await route.continue_()
+                        return
+                    response = await route.fetch()
+                    refresh_started.set()
+                    await release_refresh.wait()
+                    await route.fulfill(response=response)
+
+                await page.route("**/api/codes/tree", hold_refresh)
+                await page.locator(f'.ace-ht-row[data-code-id="{last_single}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(refresh_started.wait(), timeout=5)
+                await page.locator(".ace-sentence").first.click()
+                async with page.expect_response("**/api/undo"):
+                    await page.keyboard.press("z")
+                await page.wait_for_function(
+                    "([single, chord]) => !document.querySelector(`[data-code-id=\"${single}\"]`)?.dataset.chord "
+                    "&& !!document.querySelector(`[data-code-id=\"${chord}\"]`)?.dataset.chord",
+                    arg=[last_single, first_chord], timeout=5000,
+                )
+                assert _stored_order(project) == original
+                release_refresh.set()
+                await page.wait_for_load_state("networkidle", timeout=5000)
+                assert await page.locator(
+                    f'.ace-ht-row[data-code-id="{last_single}"]'
+                ).get_attribute("data-chord") is None
+                assert await page.locator(
+                    f'.ace-ht-row[data-code-id="{first_chord}"]'
+                ).get_attribute("data-chord")
+            finally:
+                release_refresh.set()
+                await browser.close()
+
+    asyncio.run(exercise())

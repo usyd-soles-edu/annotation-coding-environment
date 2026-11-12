@@ -2115,11 +2115,12 @@
       });
     }
     async function refreshKeyboardShortcuts(version) {
+      const sidebarGeneration = initGeneration;
       try {
         const response = await fetch("/api/codes/tree", { headers: { Accept: "application/json" } });
         if (!response.ok) throw new Error(`status ${response.status}`);
         const payload = await response.json();
-        if (version !== reorderResolutionVersion || pendingReorders.size) return;
+        if (version !== reorderResolutionVersion || sidebarGeneration !== initGeneration || pendingReorders.size) return;
         refreshedShortcuts = { version, items: payload.items || {} };
         applyShortcutAssignments(refreshedShortcuts.items);
         if (!tree?.getRenamingItem?.()) scheduleRender();
