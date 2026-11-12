@@ -29,6 +29,7 @@ from ace.models.source import (
 )
 from ace.models.source_note import get_note, source_ids_with_notes
 from ace.routes.api_project_import import _clear_folder_import_manifests
+from ace.services.coding_context_cache import CodingContextCache
 
 router = APIRouter()
 
@@ -91,6 +92,8 @@ def _source_annotation_context(
     section_heading_spans: tuple[tuple[int, int], ...],
     *,
     render_sentences: bool,
+    sentence_cache: CodingContextCache | None = None,
+    project_path: str | None = None,
 ) -> dict:
     """Shape the current source's annotations without reading project-wide data."""
     codes_list = [dict(code) for code in list_codes(conn)]
@@ -105,7 +108,13 @@ def _source_annotation_context(
         from ace.services.coding_render import render_sentence_text
         from ace.services.text_splitter import split_into_units
 
-        sentence_units = split_into_units(source_text, section_heading_spans)
+        sentence_units = (
+            sentence_cache.get_sentence_units(
+                project_path, source_id, source_text, section_heading_spans
+            )
+            if sentence_cache is not None and project_path and source_id
+            else split_into_units(source_text, section_heading_spans)
+        )
         sentence_html = render_sentence_text(sentence_units, annotations_list, codes_by_id)
 
     seen_codes: set[str] = set()
@@ -241,6 +250,7 @@ def _coding_context(
     *,
     render_sentences: bool = True,
     global_context: dict | None = None,
+    sentence_cache: CodingContextCache | None = None,
 ) -> dict:
     """Assemble a source's coding view from fresh or cached project data."""
     project_ctx = global_context or _global_coding_context(
@@ -288,6 +298,8 @@ def _coding_context(
         source_text,
         section_heading_spans,
         render_sentences=render_sentences,
+        sentence_cache=sentence_cache,
+        project_path=project_path,
     )
     return {
         **project_ctx,
@@ -352,7 +364,10 @@ async def coding_page(
         if not sources:
             raise HtmxRedirect("/import")
 
-        context = _coding_context(conn, coder_id, index, project_path=project_path)
+        context = _coding_context(
+            conn, coder_id, index, project_path=project_path,
+            sentence_cache=request.app.state.coding_context_cache,
+        )
         context["open_note_drawer"] = bool(note)
         context["codebook_mode"] = "coding"
     finally:
