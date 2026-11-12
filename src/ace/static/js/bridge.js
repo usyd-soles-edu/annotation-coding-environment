@@ -401,18 +401,16 @@
    * 4. Keymap — dynamic keycap assignment per tab
    * ================================================================ */
 
-  let _currentKeyMap = []; // array of code IDs in keycap order
-
   function _keymapRoot() {
     return document.getElementById("ace-headless-tree-mount");
   }
 
   function _updateKeycaps() {
     const tree = _keymapRoot();
-    if (!tree) return;
+    if (!tree) return [];
     const rows = tree.querySelectorAll(".ace-ht-row--code[data-code-id]");
     const menuKeys = "Shift+F10 ContextMenu";
-    _currentKeyMap = [];
+    const keyMap = [];
     if (_codeApplicationDisabled()) {
       rows.forEach(function (row) {
         row.setAttribute("aria-keyshortcuts", menuKeys);
@@ -422,7 +420,7 @@
           keycap.removeAttribute("title");
         }
       });
-      return;
+      return keyMap;
     }
     let labelIdx = 0; // Counter that only increments for non-chord rows
     rows.forEach(function (row) {
@@ -439,7 +437,7 @@
         return;
       }
 
-      _currentKeyMap.push(row.getAttribute("data-code-id"));
+      keyMap.push(row.getAttribute("data-code-id"));
 
       const label = _keylabel(labelIdx);
       const keycap = row.querySelector(".ace-ht-chip:not(.ace-ht-chip--chord)");
@@ -447,6 +445,7 @@
       row.setAttribute("aria-keyshortcuts", label ? label + " " + menuKeys : menuKeys);
       labelIdx++;
     });
+    return keyMap;
   }
 
   // Reserved letters: q (repeat), x (delete), z (undo), n (open note panel),
@@ -858,15 +857,15 @@
     // Guard: only single-character keys (skip ArrowLeft, ArrowRight, etc.)
     if (!shift && key.length === 1) {
       const pos = _keyToPosition(key);
-      if (pos >= 0) _updateKeycaps();
-      if (pos >= 0 && pos < _currentKeyMap.length) {
+      const keyMap = pos >= 0 ? _updateKeycaps() : [];
+      if (pos >= 0 && pos < keyMap.length) {
         e.preventDefault();
-        const codeId = _currentKeyMap[pos];
+        const codeId = keyMap[pos];
         if (!window.__aceLastSelection && window.__aceFocusIndex < 0) {
           _focusSentence(0);
         }
         _applyCode(codeId);
-      } else if (pos >= 0 && _currentKeyMap.length === 0) {
+      } else if (pos >= 0 && keyMap.length === 0) {
         _maybeNoCodeHint();
       }
     }
