@@ -1341,6 +1341,7 @@ def _build_undo_response(
     # bound to a different source than the one currently visible.
     target_index = current_index
     headers: dict = {}
+    same_source = False
 
     if source_id is not None:
         assignments = get_assignments_for_coder(conn, coder_id)
@@ -1357,6 +1358,8 @@ def _build_undo_response(
             headers["HX-Trigger"] = json.dumps(
                 {"ace-navigate": {"index": target_index, "total": len(assignments)}}
             )
+        else:
+            same_source = True
 
     if mode == "audit" and result.get("codebook_changed", True):
         status_html = _oob_status(notification, "ok").body.decode()
@@ -1382,6 +1385,29 @@ def _build_undo_response(
             headers=headers,
         )
 
+    # _oob_status returns an HTMLResponse — extract its body to concat as a string.
+    # It already emits an _oob_announce internally, so no separate announce call here.
+    status_html = _oob_status(notification, "ok").body.decode()
+    flash_html = ""
+    if flash_id is not None:
+        # One-shot inline script that defers to bridge.js after settle. The
+        # OOB swap replaces any previous flash hint on the page so multiple
+        # consecutive undo/redo ops cleanly chain.
+        flash_html = (
+            f'<script id="ace-undo-flash" hx-swap-oob="outerHTML">'
+            f'window.addEventListener("htmx:afterSettle",function(e){{'
+            f'if(window._flashAnnotation)window._flashAnnotation({json.dumps(flash_id)});'
+            f'}},{{once:true}});</script>'
+        )
+
+    if (mode == "coding" and same_source and result.get("operation") in {
+        "annotation_add", "annotation_delete", "annotation_merge_add",
+    }):
+        return _annotation_only_response(
+            request, conn, coder_id, target_index,
+            extra=status_html + flash_html,
+        )
+
     content = _render_full_coding_oob(
         request,
         conn,
@@ -1389,21 +1415,7 @@ def _build_undo_response(
         target_index,
         include_sidebar=result.get("codebook_changed", True),
     )
-    # _oob_status returns an HTMLResponse — extract its body to concat as a string.
-    # It already emits an _oob_announce internally, so no separate announce call here.
-    status_html = _oob_status(notification, "ok").body.decode()
-    content += status_html
-
-    if flash_id is not None:
-        # One-shot inline script that defers to bridge.js after settle. The
-        # OOB swap replaces any previous flash hint on the page so multiple
-        # consecutive undo/redo ops cleanly chain.
-        content += (
-            f'<script id="ace-undo-flash" hx-swap-oob="outerHTML">'
-            f'window.addEventListener("htmx:afterSettle",function(e){{'
-            f'if(window._flashAnnotation)window._flashAnnotation({json.dumps(flash_id)});'
-            f'}},{{once:true}});</script>'
-        )
+    content += status_html + flash_html
 
     return HTMLResponse(content, headers=headers)
 

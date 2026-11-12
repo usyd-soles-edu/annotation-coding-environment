@@ -322,6 +322,7 @@ class UndoManager:
             raise
         prefix = "Undone" if direction == 0 else "Redone"
         return {
+            "operation": entry.op,
             "description": f"{prefix}: {description}",
             "notification": _notification_for(entry.op, direction),
             "source_id": entry.source_id,

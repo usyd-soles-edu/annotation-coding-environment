@@ -483,6 +483,23 @@ def test_undo_endpoint_pops_undo_stack(client_with_codes):
     assert "Undid add code" in resp.text
 
 
+def test_same_source_annotation_undo_redo_leave_text_panel_intact(client_with_codes):
+    client, _coder_id, code_id, _, _db_path = client_with_codes
+    applied = client.post("/api/code/apply", data={
+        "current_index": 0, "code_id": code_id,
+        "start_offset": 0, "end_offset": 5, "selected_text": "First",
+    })
+    assert applied.status_code == 200
+
+    for path in ("/api/undo", "/api/redo"):
+        response = client.post(path, data={"current_index": 0})
+        assert response.status_code == 200
+        assert response.headers.get("HX-Reswap") == "none"
+        assert 'id="text-panel"' not in response.text
+        assert 'id="ace-ann-data"' in response.text
+        assert 'id="ace-sources-data"' in response.text
+
+
 def test_undo_endpoint_empty_stack_returns_status(client_with_codes):
     """POST /api/undo on empty stack returns 'Nothing to undo' AND signals the
     client not to perform a primary swap. Without HX-Reswap=none, HTMX would
