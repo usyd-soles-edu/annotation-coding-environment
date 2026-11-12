@@ -9,7 +9,7 @@
 - **Folder imports** — review the files and import outcomes before confirming a folder import.
 - **Codebook CSV import** — optionally map a colour column to retain code colours, including when reimporting an exported codebook.
 - **Source navigation** — move between coding sources in place without reloading the page.
-- **Spreadsheet imports** — show processed-row progress and allow cancelling a running import without adding sources from that batch.
+- **Spreadsheet imports** — show rows scanned while preparing the preview and processed-row progress during import; allow cancelling either step before adding sources from that batch.
 - **Audit review** — print the currently shown excerpts, including active source and text filters, without the editing controls.
 - **Development checks** — run fast Python, browser-engine, and Rust launcher tests on pull requests.
 

@@ -827,7 +827,9 @@ def read_tabular(path: Path) -> tuple[list[dict], list[str]]:
 
 
 def scan_tabular_preview(
-    path: Path, limit: int = 20
+    path: Path, limit: int = 20, *,
+    on_progress: Callable[[int], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[int, list[dict], list[dict], list[str], list[str]]:
     """Count rows with a fixed inference prefix and bounded random sample."""
     if limit < 1:
@@ -836,10 +838,15 @@ def scan_tabular_preview(
     leading: list[dict] = []
     example_labels: list[str] = []
     seen_labels: set[str] = set()
-    with stream_tabular(path) as (columns, rows):
+    with stream_tabular(path, should_cancel=should_cancel) as (columns, rows):
         row_count = 0
         for row in rows:
             row_count += 1
+            if row_count % 256 == 0:
+                if should_cancel is not None and should_cancel():
+                    raise ImportCancelled
+                if on_progress is not None:
+                    on_progress(row_count)
             if len(leading) < 8:
                 leading.append(row)
             if columns and len(example_labels) < 3:
@@ -854,6 +861,10 @@ def scan_tabular_preview(
                 slot = random.randrange(row_count - 1) + 1
                 if slot < limit:
                     sample[slot] = row
+    if should_cancel is not None and should_cancel():
+        raise ImportCancelled
+    if on_progress is not None:
+        on_progress(row_count)
     return row_count, leading, sample, example_labels, columns
 
 
@@ -868,13 +879,18 @@ def _validate_column_headings(columns: list[str]) -> None:
         seen.add(column)
 
 
-def _csv_encoding(path: Path) -> str:
+def _csv_encoding(
+    path: Path, should_cancel: Callable[[], bool] | None = None
+) -> str:
     """Find an encoding using bounded reads, including late invalid UTF-8."""
     for encoding in _CSV_ENCODINGS:
         try:
             with open(path, newline="", encoding=encoding) as f:
-                while f.read(65536):
-                    pass
+                while True:
+                    if should_cancel is not None and should_cancel():
+                        raise ImportCancelled
+                    if not f.read(65536):
+                        break
             return encoding
         except UnicodeDecodeError:
             continue
@@ -885,7 +901,9 @@ def _csv_encoding(path: Path) -> str:
 
 
 @contextmanager
-def stream_tabular(path: Path):
+def stream_tabular(
+    path: Path, *, should_cancel: Callable[[], bool] | None = None
+):
     """Yield headings and rows without retaining the spreadsheet in memory."""
     if path.suffix.lower() == ".xlsx":
         import openpyxl
@@ -918,7 +936,7 @@ def stream_tabular(path: Path):
             wb.close()
         return
 
-    with open(path, newline="", encoding=_csv_encoding(path)) as f:
+    with open(path, newline="", encoding=_csv_encoding(path, should_cancel)) as f:
         reader = csv.DictReader(f)
         columns = list(reader.fieldnames or [])
         _validate_column_headings(columns)

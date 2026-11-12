@@ -541,15 +541,51 @@ def _native_selection_path(value: str) -> Path:
     return Path(value)
 
 
+class _TabularPreviewJob:
+    """Progress and cancellation for the current spreadsheet preview scan."""
+
+    def __init__(self, token: str, project_path: str | None) -> None:
+        self.token = token
+        self.project_path = project_path
+        self.cancel = threading.Event()
+        self.done = threading.Event()
+        self._lock = threading.Lock()
+        self._scanned = 0
+        self._status = "running"
+
+    def set_scanned(self, scanned: int) -> None:
+        with self._lock:
+            self._scanned = scanned
+
+    def finish(self, status: str) -> None:
+        with self._lock:
+            self._status = status
+        self.done.set()
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            scanned = self._scanned
+            status = self._status
+        if status == "running" and self.cancel.is_set():
+            status = "cancelling"
+        return {"scanned": scanned, "status": status}
+
+
 async def _parse_tabular_for_mapping(
-    request: Request, path: Path, *, cleanup: bool, filename: str
+    request: Request, path: Path, *, cleanup: bool, filename: str,
+    preview_token: str = "",
 ) -> HTMLResponse:
-    from ace.services.importer import scan_tabular_preview
+    from ace.services.importer import ImportCancelled, scan_tabular_preview
 
     app_state = request.app.state
     project_path = getattr(app_state, "project_path", None)
-    request_id = secrets.token_urlsafe(16)
+    request_id = (
+        preview_token if re.fullmatch(r"[0-9a-fA-F-]{36}", preview_token)
+        else secrets.token_urlsafe(16)
+    )
+    job = _TabularPreviewJob(request_id, project_path)
     app_state.import_preview_request_id = request_id
+    app_state.tabular_preview_job = job
 
     def is_current() -> bool:
         return (
@@ -565,14 +601,39 @@ async def _parse_tabular_for_mapping(
             status_code=409,
         )
 
+    def run_scan():
+        try:
+            result = scan_tabular_preview(
+                path, on_progress=job.set_scanned,
+                should_cancel=job.cancel.is_set,
+            )
+            job.finish("complete")
+            return result
+        except ImportCancelled:
+            job.finish("cancelled")
+            raise
+        except BaseException:
+            job.finish("failed")
+            raise
+
+    worker_task = asyncio.create_task(asyncio.to_thread(run_scan))
     try:
-        row_count, leading, sampled, example_labels, columns = await asyncio.to_thread(
-            scan_tabular_preview, path
+        row_count, leading, sampled, example_labels, columns = await asyncio.shield(
+            worker_task
         )
     except asyncio.CancelledError:
+        job.cancel.set()
         if is_current():
             app_state.import_preview_request_id = None
         raise
+    except ImportCancelled:
+        if not is_current():
+            return stale_response()
+        app_state.import_preview_request_id = None
+        return HTMLResponse(
+            '<div data-import-preview-cancelled="true"></div>',
+            headers={"HX-Reswap": "none"},
+        )
     except Exception as e:
         if not is_current():
             return stale_response()
