@@ -31,6 +31,10 @@ import {
   let cutItemId = null;
   let pendingSidebarState = null;
   let initGeneration = 0;
+  let nextReorderRequestId = 0;
+  const pendingReorders = new Map();
+  const reorderScopes = new Map();
+  let reorderFailureVisible = false;
   const RESERVED_SINGLE_KEYS = new Set(["q", "x", "z", "n", "v"]);
   const MODE_POLICIES = Object.freeze({
     coding: Object.freeze({
@@ -337,6 +341,50 @@ import {
     const el = document.querySelector("[data-headless-tree-status]");
     if (el) el.textContent = text;
   }
+
+  function hasOobError(responseText) {
+    if (!responseText?.includes("ace-statusbar-event--err")) return false;
+    const template = document.createElement("template");
+    template.innerHTML = responseText;
+    return !!template.content.querySelector("#ace-statusbar-event.ace-statusbar-event--err");
+  }
+
+  function settleKeyboardReorder(requestId, successful, error) {
+    const request = pendingReorders.get(requestId);
+    if (!request) return;
+    pendingReorders.delete(requestId);
+    const scope = reorderScopes.get(request.parentId);
+    if (!scope) return;
+    scope.pending.delete(requestId);
+    if (successful) {
+      scope.confirmed = request.order;
+      if (!pendingReorders.size) reorderFailureVisible = false;
+    } else {
+      reorderFailureVisible = true;
+      window.__aceHeadlessTreePreviewError = String(error?.message || error || "Save failed");
+    }
+    if (!scope.pending.size) {
+      reorderScopes.delete(request.parentId);
+      if (!successful && items[request.parentId]) {
+        items[request.parentId].children = [...scope.confirmed];
+        tree.rebuildTree();
+        focusItemById(request.itemId);
+        scheduleRender();
+      }
+    }
+    setStatus(reorderFailureVisible ? "Move failed" : pendingReorders.size ? "Saving" : "");
+  }
+
+  document.addEventListener("htmx:afterRequest", function (event) {
+    const detail = event.detail;
+    const requestId = detail?.requestConfig?.parameters?._ace_reorder_request_id;
+    if (!requestId) return;
+    const failedStatus = hasOobError(detail.xhr?.responseText);
+    settleKeyboardReorder(
+      String(requestId), detail.successful && !failedStatus,
+      detail.xhr?.status ? `HTTP ${detail.xhr.status}` : "Request failed"
+    );
+  });
 
   function maybeShowChordHint() {
     if (chordHintShown || !isCodingMode() || !document.getElementById("text-panel")) return;
@@ -1263,21 +1311,28 @@ import {
       const index = order.indexOf(itemId);
       const nextIndex = index + direction;
       if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return;
+      reorderFailureVisible = false;
+      let scope = reorderScopes.get(parentId);
+      if (!scope) {
+        scope = { confirmed: [...order], pending: new Set() };
+        reorderScopes.set(parentId, scope);
+      }
       order.splice(index, 1);
       order.splice(nextIndex, 0, itemId);
       items[parentId].children = order;
       tree.rebuildTree();
       focusItemById(itemId);
+      const requestId = String(++nextReorderRequestId);
+      scope.pending.add(requestId);
+      pendingReorders.set(requestId, { parentId, itemId, order });
       setStatus("Saving");
       htmxSwap("POST", "/api/codes/reorder-in-scope", {
         code_ids: JSON.stringify(order),
         parent_id: formParentId(parentId),
         current_index: currentIndex(),
-      }).then(function () {
-        setStatus("");
+        _ace_reorder_request_id: requestId,
       }).catch(function (error) {
-        setStatus("Move failed");
-        window.__aceHeadlessTreePreviewError = String(error && error.message || error);
+        settleKeyboardReorder(requestId, false, error);
       });
     }
 
@@ -1438,7 +1493,7 @@ import {
       }
       controller.refresh();
       window.__aceHeadlessTreeController = controller;
-      setStatus("");
+      setStatus(reorderFailureVisible ? "Move failed" : pendingReorders.size ? "Saving" : "");
       maybeShowChordHint();
       window.__aceHeadlessTreePreview = {
         get tree() { return tree; },

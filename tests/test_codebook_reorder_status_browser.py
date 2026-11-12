@@ -24,7 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def reorder_server(tmp_path):
     project = tmp_path / "reorder.ace"
     conn = create_project(str(project), "Reorder status")
-    add_source(conn, "S1", "One sentence.", "row")
+    # This is ordinary coding text, not an OOB error fragment.
+    add_source(conn, "S1", "One sentence. ace-statusbar-event--err", "row")
     first = add_code(conn, "First", "#AA0000")
     second = add_code(conn, "Second", "#00AA00")
     conn.close()
@@ -103,8 +104,14 @@ def test_reorder_reports_saved_only_after_success(reorder_server, engine):
                 and response.status == 500
             ):
                 page.keyboard.press("Alt+Shift+ArrowUp")
+            page.wait_for_function(
+                "document.querySelector('[data-headless-tree-status]')?.textContent === 'Move failed'"
+            )
             assert page.locator(".ace-statusbar-event").text_content() != "Saved"
             assert _stored_order(project) == [second, first]
+            assert page.locator("#ace-headless-tree-mount .ace-ht-row[data-code-id]").evaluate_all(
+                "rows => rows.map(row => row.dataset.codeId)"
+            ) == [str(second), str(first)]
         finally:
             browser.close()
 
@@ -144,6 +151,7 @@ def test_reorder_waits_for_pending_server_response(reorder_server, engine):
                 await page.keyboard.press("Alt+Shift+ArrowDown")
                 await asyncio.wait_for(request_started.wait(), timeout=5)
                 assert await page.locator(".ace-statusbar-event").text_content() != "Saved"
+                assert await page.locator("[data-headless-tree-status]").text_content() == "Saving"
                 assert _stored_order(project) == [first, second]
                 release_response.set()
                 await page.wait_for_function(
@@ -152,6 +160,70 @@ def test_reorder_waits_for_pending_server_response(reorder_server, engine):
                 assert _stored_order(project) == [second, first]
             finally:
                 release_response.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
+def test_failed_queued_reorder_restores_last_saved_order(reorder_server):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+        both_responses = asyncio.Event()
+        responses = []
+        async with async_api.async_playwright() as playwright:
+            browser = await playwright.chromium.launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                def track_response(response):
+                    if response.url.endswith("/api/codes/reorder-in-scope"):
+                        responses.append(response.status)
+                        if len(responses) == 2:
+                            both_responses.set()
+
+                page.on("response", track_response)
+                calls = 0
+
+                async def first_succeeds_second_fails(route):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 1:
+                        first_started.set()
+                        await release_first.wait()
+                        await route.fulfill(response=await route.fetch())
+                    else:
+                        await route.fulfill(status=500, body="save failed")
+
+                await page.route("**/api/codes/reorder-in-scope", first_succeeds_second_fails)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(first_started.wait(), timeout=5)
+                await page.keyboard.press("Alt+Shift+ArrowUp")
+                release_first.set()
+                await asyncio.wait_for(both_responses.wait(), timeout=8)
+                await page.wait_for_load_state("networkidle", timeout=10000)
+                diagnostic = await page.evaluate("""() => ({
+                    status: document.querySelector('[data-headless-tree-status]')?.textContent,
+                    order: [...document.querySelectorAll('#ace-headless-tree-mount .ace-ht-row[data-code-id]')]
+                      .map(row => row.dataset.codeId),
+                    error: window.__aceHeadlessTreePreviewError,
+                })""")
+                assert diagnostic["status"] == "Move failed", diagnostic
+                assert diagnostic["order"] == [second, first], diagnostic
+                assert _stored_order(project) == [second, first]
+                assert responses == [200, 500]
+            finally:
+                release_first.set()
                 await browser.close()
 
     asyncio.run(exercise())
