@@ -1795,6 +1795,7 @@
     const reorderScopes = /* @__PURE__ */ new Map();
     const settledReorderOrders = /* @__PURE__ */ new Map();
     let reorderResolutionVersion = 0;
+    let refreshedShortcuts = null;
     const queuedKeyboardReorders = [];
     let activeKeyboardReorderId = null;
     let reorderFailureVisible = false;
@@ -2102,6 +2103,30 @@
         const pendingOrder = latestPendingOrder(scope);
         if (pendingOrder) setScopeOrder(parentId, pendingOrder);
       });
+      if (refreshedShortcuts?.version > fetchStartedVersion) {
+        applyShortcutAssignments(refreshedShortcuts.items);
+      }
+    }
+    function applyShortcutAssignments(serverItems) {
+      Object.entries(items).forEach(function([id, item]) {
+        if (item.kind === "code" && serverItems[id]) {
+          item.chord = serverItems[id].chord || null;
+        }
+      });
+    }
+    async function refreshKeyboardShortcuts(version) {
+      try {
+        const response = await fetch("/api/codes/tree", { headers: { Accept: "application/json" } });
+        if (!response.ok) throw new Error(`status ${response.status}`);
+        const payload = await response.json();
+        if (version !== reorderResolutionVersion || pendingReorders.size) return;
+        refreshedShortcuts = { version, items: payload.items || {} };
+        applyShortcutAssignments(refreshedShortcuts.items);
+        if (!tree?.getRenamingItem?.()) scheduleRender();
+      } catch (error) {
+        setStatus("Shortcut refresh failed");
+        window.__aceHeadlessTreePreviewError = String(error?.message || error);
+      }
     }
     function sendNextKeyboardReorder() {
       if (activeKeyboardReorderId) return;
@@ -2155,6 +2180,7 @@
         activeKeyboardReorderId = null;
         setTimeout(sendNextKeyboardReorder, 0);
       }
+      if (!pendingReorders.size) void refreshKeyboardShortcuts(reorderResolutionVersion);
     }
     document.addEventListener("htmx:afterRequest", function(event) {
       const detail = event.detail;

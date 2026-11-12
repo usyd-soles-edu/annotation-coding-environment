@@ -509,3 +509,89 @@ def test_reorder_reconciles_after_sidebar_rebuild(reorder_server):
                 await browser.close()
 
     asyncio.run(exercise())
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_reorder_refreshes_shortcuts_across_single_key_limit(reorder_server, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    base, project, _first, _second = reorder_server
+    setup = sqlite3.connect(project)
+    try:
+        setup.row_factory = sqlite3.Row
+        for index in range(30):
+            add_code(setup, f"Extra {index:02d}", "#123456")
+    finally:
+        setup.close()
+    order = _stored_order(project)
+    last_single, first_chord = order[30:32]
+
+    with sync_api.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        try:
+            page = browser.new_page()
+            page.goto(base + "/")
+            assert page.request.post(base + "/api/project/open", form={"path": str(project)}).ok
+            page.goto(base + "/code")
+            single_row = page.locator(f'.ace-ht-row[data-code-id="{last_single}"]')
+            chord_row = page.locator(f'.ace-ht-row[data-code-id="{first_chord}"]')
+            assert single_row.get_attribute("data-chord") is None
+            assert chord_row.get_attribute("data-chord")
+            single_row.click()
+            with page.expect_response("**/api/codes/reorder-in-scope"):
+                page.keyboard.press("Alt+Shift+ArrowDown")
+            page.wait_for_function(
+                "document.querySelector('.ace-statusbar-event')?.textContent === 'Saved'"
+            )
+            page.wait_for_function(
+                "([single, chord]) => !!document.querySelector(`[data-code-id=\"${single}\"]`)?.dataset.chord "
+                "&& !document.querySelector(`[data-code-id=\"${chord}\"]`)?.dataset.chord",
+                arg=[last_single, first_chord], timeout=3000,
+            )
+            assert chord_row.locator(".ace-ht-chip").text_content().strip()
+            assert _stored_order(project)[30:32] == [first_chord, last_single]
+        finally:
+            browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_shortcut_refresh_preserves_rename_draft(reorder_server, engine):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, _second = reorder_server
+
+    async def exercise():
+        refresh_started = asyncio.Event()
+        release_refresh = asyncio.Event()
+        async with async_api.async_playwright() as playwright:
+            browser = await getattr(playwright, engine).launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def hold_refresh(route):
+                    response = await route.fetch()
+                    refresh_started.set()
+                    await release_refresh.wait()
+                    await route.fulfill(response=response)
+
+                await page.route("**/api/codes/tree", hold_refresh)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(refresh_started.wait(), timeout=5)
+                await page.keyboard.press("F2")
+                rename_input = page.locator(f'.ace-ht-row[data-code-id="{first}"] input.ace-ht-rename')
+                await rename_input.fill("Unsaved draft")
+                release_refresh.set()
+                await page.wait_for_load_state("networkidle", timeout=5000)
+                assert await rename_input.input_value(timeout=2000) == "Unsaved draft"
+                assert await rename_input.evaluate("el => document.activeElement === el")
+            finally:
+                release_refresh.set()
+                await browser.close()
+
+    asyncio.run(exercise())

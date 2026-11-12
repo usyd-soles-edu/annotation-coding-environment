@@ -36,6 +36,7 @@ import {
   const reorderScopes = new Map();
   const settledReorderOrders = new Map();
   let reorderResolutionVersion = 0;
+  let refreshedShortcuts = null;
   const queuedKeyboardReorders = [];
   let activeKeyboardReorderId = null;
   let reorderFailureVisible = false;
@@ -381,6 +382,33 @@ import {
       const pendingOrder = latestPendingOrder(scope);
       if (pendingOrder) setScopeOrder(parentId, pendingOrder);
     });
+    if (refreshedShortcuts?.version > fetchStartedVersion) {
+      applyShortcutAssignments(refreshedShortcuts.items);
+    }
+  }
+
+  function applyShortcutAssignments(serverItems) {
+    Object.entries(items).forEach(function ([id, item]) {
+      if (item.kind === "code" && serverItems[id]) {
+        item.chord = serverItems[id].chord || null;
+      }
+    });
+  }
+
+  async function refreshKeyboardShortcuts(version) {
+    try {
+      const response = await fetch("/api/codes/tree", { headers: { Accept: "application/json" } });
+      if (!response.ok) throw new Error(`status ${response.status}`);
+      const payload = await response.json();
+      if (version !== reorderResolutionVersion || pendingReorders.size) return;
+      refreshedShortcuts = { version, items: payload.items || {} };
+      applyShortcutAssignments(refreshedShortcuts.items);
+      // Completing or cancelling a rename will render the updated chips.
+      if (!tree?.getRenamingItem?.()) scheduleRender();
+    } catch (error) {
+      setStatus("Shortcut refresh failed");
+      window.__aceHeadlessTreePreviewError = String(error?.message || error);
+    }
   }
 
   function sendNextKeyboardReorder() {
@@ -438,6 +466,7 @@ import {
       // HTMX finishes its request bookkeeping after htmx:afterRequest.
       setTimeout(sendNextKeyboardReorder, 0);
     }
+    if (!pendingReorders.size) void refreshKeyboardShortcuts(reorderResolutionVersion);
   }
 
   document.addEventListener("htmx:afterRequest", function (event) {
