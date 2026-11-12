@@ -1224,60 +1224,10 @@
     });
   })();
 
-  // --- Sidebar resize — shared ace-sidebar-width localStorage with /code ---
-  // Port of bridge.js::_initResize, tailored to this page's container.
-  (function initResize() {
-    const handle = document.getElementById("cv-resize-handle");
-    const container = document.getElementById("code-view");
-    if (!handle || !container) return;
-    let dragging = false;
-    handle.addEventListener("pointerdown", (e) => {
-      dragging = true;
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-      e.preventDefault();
-    });
-    document.addEventListener("pointermove", (e) => {
-      if (!dragging) return;
-      const rect = container.getBoundingClientRect();
-      let x = e.clientX - rect.left;
-      const min = 150;
-      const max = rect.width * 0.4;
-      x = Math.max(min, Math.min(max, x));
-      document.documentElement.style.setProperty("--ace-sidebar-width", `${x}px`);
-    });
-    document.addEventListener("pointerup", () => {
-      if (!dragging) return;
-      dragging = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      const width = parseInt(
-        getComputedStyle(document.documentElement).getPropertyValue("--ace-sidebar-width"),
-        10,
-      );
-      if (width) localStorage.setItem("ace-sidebar-width", width);
-    });
-    handle.addEventListener("dblclick", () => {
-      document.documentElement.style.setProperty("--ace-sidebar-width", "360px");
-      localStorage.setItem("ace-sidebar-width", 360);
-      clampToViewport();
-    });
-
-    // Re-clamp on viewport resize (mirrors the drag's cap) so a width saved on
-    // a large monitor doesn't crush the text here either. Re-derives from the
-    // saved value; runs once to refine the pre-CSS restore.
-    function clampToViewport() {
-      if (dragging) return;
-      const vw = document.documentElement.clientWidth;
-      const splitW = container.getBoundingClientRect().width;
-      if (!vw || !splitW) return;
-      const saved = parseInt(localStorage.getItem("ace-sidebar-width") || "360", 10) || 360;
-      const px = Math.max(150, Math.min(saved, Math.min(vw, splitW) * 0.4));
-      document.documentElement.style.setProperty("--ace-sidebar-width", px + "px");
-    }
-    window.addEventListener("resize", clampToViewport);
-    clampToViewport();
-  })();
+  window.ACE_RESIZE.initSidebar(
+    document.getElementById("cv-resize-handle"),
+    document.getElementById("code-view"),
+  );
 
   renderForData(data);
   if (liveEl) {
@@ -1543,6 +1493,9 @@
   // Registered at capture phase, matching the existing code_view.js convention.
   document.addEventListener("keydown", (evt) => {
     if (evt.target.closest?.(".ace-context-menu, .ace-colour-popover")) return;
+    if (evt.target.closest?.("#cv-resize-handle") &&
+        !evt.altKey && !evt.ctrlKey && !evt.metaKey && !evt.shiftKey &&
+        ["ArrowLeft", "ArrowRight", "Home", "End"].includes(evt.key)) return;
     if (evt.key === "/") {
       if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
       if (isEditableElement(document.activeElement)) return;
