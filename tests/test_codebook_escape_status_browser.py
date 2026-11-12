@@ -20,7 +20,7 @@ def test_codebook_escape_status_steps(tmp_path, engine):
     conn = create_project(str(project), "Escape status")
     coder_id = list_coders(conn)[0]["id"]
     add_source(conn, "S1", "One sentence.", "row")
-    add_code(conn, "Alpha", "#336699")
+    code_id = add_code(conn, "Alpha", "#336699")
     add_code(conn, "Beta", "#993366")
     conn.close()
 
@@ -80,5 +80,12 @@ def test_codebook_escape_status_steps(tmp_path, engine):
                 page.keyboard.press("Escape")
                 assert page.locator(".ace-statusbar-event").text_content() == "Source focused"
                 assert page.locator("#text-panel").evaluate("el => document.activeElement === el")
+
+                page.goto(f"http://127.0.0.1:8080/code/{code_id}/view")
+                audit_search = page.locator("#code-search-input")
+                audit_search.focus()
+                page.keyboard.press("Escape")
+                assert audit_search.evaluate("el => document.activeElement === el")
+                assert page.locator(".ace-statusbar-event").text_content() != "Source focused"
             finally:
                 browser.close()

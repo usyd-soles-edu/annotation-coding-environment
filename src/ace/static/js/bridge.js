@@ -3298,6 +3298,8 @@
       e.preventDefault();
       return;
     }
+    // The audit view has its own Escape handler and no source text panel.
+    if (!document.getElementById("text-panel")) return;
     if (t.id === "code-search-input") {
       if (t.value.trim()) return;
       e.stopPropagation();
@@ -4772,6 +4774,7 @@
 
     // Escape — Cancel pending cut state first; otherwise return to text panel.
     if (key === "Escape" && !alt && !shift) {
+      if (!document.getElementById("text-panel")) return;
       e.preventDefault();
       if (_cutCode) {
         _setCut(null);
