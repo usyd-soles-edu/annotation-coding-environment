@@ -663,3 +663,55 @@ def test_undo_invalidates_delayed_shortcut_refresh(reorder_server, engine):
                 await browser.close()
 
     asyncio.run(exercise())
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_undo_wins_over_delayed_reorder_response(reorder_server, engine):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        reorder_saved = asyncio.Event()
+        release_reorder = asyncio.Event()
+        async with async_api.async_playwright() as playwright:
+            browser = await getattr(playwright, engine).launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def hold_response(route):
+                    response = await route.fetch()
+                    reorder_saved.set()
+                    await release_reorder.wait()
+                    await route.fulfill(response=response)
+
+                await page.route("**/api/codes/reorder-in-scope", hold_response)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(reorder_saved.wait(), timeout=5)
+                assert _stored_order(project) == [second, first]
+                await page.locator(".ace-sentence").first.click()
+                async with page.expect_response("**/api/undo"):
+                    await page.keyboard.press("z")
+                await page.wait_for_function(
+                    "([first, second]) => [...document.querySelectorAll("
+                    "'#ace-headless-tree-mount .ace-ht-row[data-code-id]')]"
+                    ".map(row => row.dataset.codeId).join(',') === [first, second].join(',')",
+                    arg=[first, second], timeout=5000,
+                )
+                assert _stored_order(project) == [first, second]
+                release_reorder.set()
+                await page.wait_for_load_state("networkidle", timeout=5000)
+                assert await page.locator(
+                    "#ace-headless-tree-mount .ace-ht-row[data-code-id]"
+                ).evaluate_all("rows => rows.map(row => row.dataset.codeId)") == [str(first), str(second)]
+            finally:
+                release_reorder.set()
+                await browser.close()
+
+    asyncio.run(exercise())

@@ -31,12 +31,13 @@ import {
   let cutItemId = null;
   let pendingSidebarState = null;
   let initGeneration = 0;
+  let initializedGeneration = 0;
   let nextReorderRequestId = 0;
   const pendingReorders = new Map();
   const reorderScopes = new Map();
-  const settledReorderOrders = new Map();
   let reorderResolutionVersion = 0;
-  let refreshedShortcuts = null;
+  let refreshedTreeData = null;
+  let deferredTreeData = null;
   const queuedKeyboardReorders = [];
   let activeKeyboardReorderId = null;
   let reorderFailureVisible = false;
@@ -375,24 +376,31 @@ import {
   }
 
   function reconcileFetchedReorders(fetchStartedVersion) {
-    settledReorderOrders.forEach(function (settled, parentId) {
-      if (settled.version > fetchStartedVersion) setScopeOrder(parentId, settled.order);
-    });
-    reorderScopes.forEach(function (scope, parentId) {
-      const pendingOrder = latestPendingOrder(scope);
-      if (pendingOrder) setScopeOrder(parentId, pendingOrder);
-    });
-    if (refreshedShortcuts?.version > fetchStartedVersion) {
-      applyShortcutAssignments(refreshedShortcuts.items);
+    if (refreshedTreeData?.version > fetchStartedVersion &&
+        refreshedTreeData.generation === initGeneration) {
+      applyAuthoritativeTreeData(refreshedTreeData.items);
     }
   }
 
-  function applyShortcutAssignments(serverItems) {
+  function applyAuthoritativeTreeData(serverItems) {
+    let changed = false;
     Object.entries(items).forEach(function ([id, item]) {
-      if (item.kind === "code" && serverItems[id]) {
-        item.chord = serverItems[id].chord || null;
+      const saved = serverItems[id];
+      if (!saved) return;
+      if (Array.isArray(item.children) && Array.isArray(saved.children)) {
+        const next = saved.children.filter(function (childId) { return !!items[childId]; });
+        if (next.length !== item.children.length ||
+            next.some(function (childId, index) { return childId !== item.children[index]; })) {
+          item.children = next;
+          changed = true;
+        }
+      }
+      if (item.kind === "code" && item.chord !== (saved.chord || null)) {
+        item.chord = saved.chord || null;
+        changed = true;
       }
     });
+    return changed;
   }
 
   async function refreshKeyboardShortcuts(version) {
@@ -403,10 +411,15 @@ import {
       const payload = await response.json();
       if (version !== reorderResolutionVersion || sidebarGeneration !== initGeneration ||
           pendingReorders.size) return;
-      refreshedShortcuts = { version, items: payload.items || {} };
-      applyShortcutAssignments(refreshedShortcuts.items);
-      // Completing or cancelling a rename will render the updated chips.
-      if (!tree?.getRenamingItem?.()) scheduleRender();
+      refreshedTreeData = { version, generation: sidebarGeneration, items: payload.items || {} };
+      // Completing or cancelling a rename will apply and render this result.
+      if (tree?.getRenamingItem?.()) {
+        deferredTreeData = refreshedTreeData;
+        return;
+      }
+      if (initializedGeneration !== initGeneration) return;
+      if (applyAuthoritativeTreeData(refreshedTreeData.items)) tree.rebuildTree();
+      scheduleRender();
     } catch (error) {
       setStatus("Shortcut refresh failed");
       window.__aceHeadlessTreePreviewError = String(error?.message || error);
@@ -450,11 +463,10 @@ import {
       reorderFailureVisible = true;
       window.__aceHeadlessTreePreviewError = String(error?.message || error || "Save failed");
     }
-    settledReorderOrders.set(request.parentId, {
-      order: [...scope.confirmed], version: ++reorderResolutionVersion,
-    });
+    ++reorderResolutionVersion;
     const displayOrder = latestPendingOrder(scope) || scope.confirmed;
-    if (setScopeOrder(request.parentId, displayOrder) && tree) {
+    if (request.initGeneration === initGeneration &&
+        setScopeOrder(request.parentId, displayOrder) && tree) {
       tree.rebuildTree();
       focusItemById(request.itemId);
       scheduleRender();
@@ -1204,6 +1216,15 @@ import {
   function renderTree() {
     const mount = document.getElementById("ace-headless-tree-mount");
     if (!mount || !tree) return;
+    if (deferredTreeData && !tree.getRenamingItem?.()) {
+      const deferred = deferredTreeData;
+      deferredTreeData = null;
+      if (deferred.version === reorderResolutionVersion &&
+          deferred.generation === initGeneration && !pendingReorders.size &&
+          applyAuthoritativeTreeData(deferred.items)) {
+        tree.rebuildTree();
+      }
+    }
 
     const visibleItems = visibleTreeItems();
     const parents = parentMap();
@@ -1421,7 +1442,7 @@ import {
       focusItemById(itemId);
       const requestId = String(++nextReorderRequestId);
       scope.pending.add(requestId);
-      pendingReorders.set(requestId, { parentId, itemId, order });
+      pendingReorders.set(requestId, { parentId, itemId, order, initGeneration });
       setStatus("Saving");
       queuedKeyboardReorders.push(requestId);
       sendNextKeyboardReorder();
@@ -1579,6 +1600,7 @@ import {
       mount.addEventListener("keydown", announceKeyboardDragCancel, true);
       tree.setMounted(true);
       tree.rebuildTree();
+      initializedGeneration = generation;
       renderTree();
       if (restore) {
         mount.scrollTop = restore.scrollTop;
