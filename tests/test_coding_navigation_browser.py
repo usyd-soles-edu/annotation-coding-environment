@@ -93,6 +93,18 @@ def test_source_navigation_keeps_page_and_note_drawer(tmp_path, browser_name):
                 assert page.locator("#note-textarea").evaluate("el => el.readOnly")
                 page.locator("#note-textarea").press("x")
                 assert page.locator("#note-textarea").input_value() == "First source note"
+                page.locator("#text-panel").focus()
+                page.keyboard.press("1")
+                search = page.locator("#code-search-input")
+                search.fill("Blocked folder")
+                search.press("Shift+Enter")
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT COUNT(*) FROM annotation WHERE deleted_at IS NULL"
+                    ).fetchone()[0] == 0
+                    assert stored.execute(
+                        "SELECT COUNT(*) FROM codebook_code WHERE kind = 'folder' AND deleted_at IS NULL"
+                    ).fetchone()[0] == 0
                 page.evaluate("window.__releaseNavigation(); delete window.__releaseNavigation")
                 page.wait_for_function("window.__aceCurrentIndex === 1")
                 assert "Second source for navigation." in page.locator("#text-panel").inner_text()
@@ -112,6 +124,10 @@ def test_source_navigation_keeps_page_and_note_drawer(tmp_path, browser_name):
                         "SELECT note_text FROM source_note WHERE source_id = ?", (second_id,)
                     ).fetchone()[0] == "Second source note"
 
+                search.fill("")
+                page.wait_for_function(
+                    "document.querySelector('.ace-ht-row--code .ace-ht-chip:not(.ace-ht-chip--chord)')?.textContent.trim() === '1'"
+                )
                 page.locator(".ace-sentence").first.click()
                 with page.expect_response("**/api/code/apply-sentence", timeout=5000):
                     page.keyboard.press("1")
@@ -121,8 +137,18 @@ def test_source_navigation_keeps_page_and_note_drawer(tmp_path, browser_name):
                         (second_id,),
                     ).fetchone()[0] == "Second source for navigation."
 
+                with page.expect_response("**/api/code/delete-sentence", timeout=5000):
+                    page.keyboard.press("x")
+                page.locator(".ace-statusbar-undo[data-ace-undo-affordance]").first.wait_for()
+
                 page.evaluate("window.__holdNextNavigation = true; window.aceNavigateNext()")
                 page.wait_for_function("typeof window.__releaseNavigation === 'function'")
+                page.evaluate("document.querySelector('.ace-statusbar-undo[data-ace-undo-affordance]').click()")
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT COUNT(*) FROM annotation WHERE source_id = ? AND deleted_at IS NULL",
+                        (second_id,),
+                    ).fetchone()[0] == 0
                 page.go_back()
                 page.evaluate("window.__releaseNavigation(); delete window.__releaseNavigation")
                 page.wait_for_function("window.__aceCurrentIndex === 0")
@@ -159,5 +185,80 @@ def test_source_navigation_keeps_page_and_note_drawer(tmp_path, browser_name):
                 assert page.url.endswith("/code?index=2")
                 assert "Third source for navigation." in page.locator("#text-panel").inner_text()
                 page.unroute("**/api/navigation", fail_navigation)
+
+                # A code request can still be in HTMX's body queue when
+                # navigation is issued. Navigation must wait for its own
+                # response and settle rather than the queue's early promise.
+                page.goto("http://127.0.0.1:8080/code?index=0")
+                page.locator(".ace-sentence").first.click()
+                page.evaluate("""() => {
+                    const codeId = document.querySelector('.ace-ht-row--code').dataset.codeId;
+                    document.dispatchEvent(new CustomEvent('ace:apply-code', {
+                        detail: {codeId}
+                    }));
+                    window.aceNavigateNext();
+                }""")
+                page.wait_for_function(
+                    "window.__aceCurrentIndex === 1 && !document.body.dataset.aceNavigating"
+                )
+                assert "Second source for navigation." in page.locator("#text-panel").inner_text()
+                assert "Source navigation failed" not in page.locator(
+                    ".ace-statusbar-event"
+                ).inner_text()
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT COUNT(*) FROM annotation WHERE source_id = ? AND deleted_at IS NULL",
+                        (first_id,),
+                    ).fetchone()[0] == 1
+
+                # A queued navigation must also unlock the UI if its XHR
+                # fails before responseURL is available.
+                page.route("**/api/navigation", lambda route: route.abort())
+                page.locator(".ace-sentence").first.click()
+                page.evaluate("""() => {
+                    const codeId = document.querySelector('.ace-ht-row--code').dataset.codeId;
+                    document.dispatchEvent(new CustomEvent('ace:apply-code', {
+                        detail: {codeId}
+                    }));
+                    window.aceNavigateNext();
+                }""")
+                page.wait_for_function("!document.body.dataset.aceNavigating", timeout=5000)
+                assert page.evaluate("window.__aceCurrentIndex") == 1
+                assert "Source navigation failed" in page.locator(
+                    ".ace-statusbar-event"
+                ).inner_text()
+                assert not page.locator("#note-textarea").evaluate("el => el.readOnly")
+                page.unroute("**/api/navigation")
+
+                # A picker opened before navigation must recheck the editing
+                # guard when its swatch is selected.
+                code_row = page.locator(".ace-ht-row--code").first
+                code_id = code_row.get_attribute("data-code-id")
+                code_row.click(button="right")
+                page.get_by_role("menuitem", name="Change colour…").click()
+                palette = page.get_by_role("group", name="Change code colour")
+                palette.wait_for()
+                page.evaluate("""() => {
+                    const original = window.htmx.ajax.bind(window.htmx);
+                    window.htmx.ajax = (method, url, options) => {
+                        if (url === '/api/navigation' && window.__holdNextNavigation) {
+                            window.__holdNextNavigation = false;
+                            return new Promise(resolve => {
+                                window.__releaseNavigation = () => resolve(original(method, url, options));
+                            });
+                        }
+                        return original(method, url, options);
+                    };
+                    window.__holdNextNavigation = true;
+                    window.aceNavigateNext();
+                }""")
+                page.wait_for_function("typeof window.__releaseNavigation === 'function'")
+                palette.get_by_role("button", name="Set code colour to #0B4F8A").click()
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT colour FROM codebook_code WHERE id = ?", (code_id,)
+                    ).fetchone()[0] == "#336699"
+                page.evaluate("window.__releaseNavigation(); delete window.__releaseNavigation")
+                page.wait_for_function("window.__aceCurrentIndex === 2 && !document.body.dataset.aceNavigating")
             finally:
                 browser.close()

@@ -48,11 +48,11 @@
   }
 
   function _codebookEditingDisabled() {
-    return document.querySelector("#ace-headless-tree-mount[data-codebook-readonly='1']") !== null;
+    return _navigationInFlight || document.querySelector("#ace-headless-tree-mount[data-codebook-readonly='1']") !== null;
   }
 
   function _codeApplicationDisabled() {
-    return !!document.getElementById("code-view") || !document.getElementById("text-panel");
+    return _navigationInFlight || !!document.getElementById("code-view") || !document.getElementById("text-panel");
   }
 
   function _codebookMutationSwapOptions() {
@@ -93,7 +93,10 @@
   function _denyCodebookEditing() {
     if (!_codebookEditingDisabled()) return false;
     if (typeof window._setStatus === "function") {
-      window._setStatus("Back to source to edit the codebook", "ok");
+      window._setStatus(
+        _navigationInFlight ? "Wait for source navigation to finish" : "Back to source to edit the codebook",
+        "ok"
+      );
     }
     return true;
   }
@@ -332,6 +335,7 @@
   let _pendingFlagAnnounce = false;
   document.addEventListener("click", function (e) {
     if (e.target.closest("#nav-flag-btn")) {
+      if (_navigationInFlight) return;
       _updateCurrentIndex();
       _pendingFlagAnnounce = true;
       const triggerFlag = document.getElementById("trigger-flag");
@@ -601,6 +605,7 @@
   }
 
   function _deleteSentenceAnnotation() {
+    if (_navigationInFlight) return;
     if (window.__aceFocusIndex < 0) return;
 
     htmx.ajax("POST", "/api/code/delete-sentence", {
@@ -614,6 +619,7 @@
   }
 
   function _deleteAppliedAnnotation(annotationId) {
+    if (_navigationInFlight) return;
     if (!annotationId) return;
 
     htmx.ajax("POST", "/api/code/delete-annotation", {
@@ -692,6 +698,7 @@
     // redo over undo.
     if (key === "z" || key === "Z") {
       e.preventDefault();
+      if (_navigationInFlight) return;
       if (shift) {
         htmx.ajax("POST", "/api/redo", {
           target: "#text-panel",
@@ -746,6 +753,7 @@
     // F — Flag (Shift+F)
     if (key === "F" && shift) {
       e.preventDefault();
+      if (_navigationInFlight) return;
       _updateCurrentIndex();
       const flagBtn = document.getElementById("trigger-flag");
       if (flagBtn) htmx.trigger(flagBtn, "click");
@@ -839,21 +847,40 @@
 
   async function _requestNavigation(values) {
     let responseStatus = null;
+    let settled = false;
+    let resolveCompletion;
+    let rejectCompletion;
+    const completion = new Promise(function (resolve, reject) {
+      resolveCompletion = resolve;
+      rejectCompletion = reject;
+    });
+    const isNavigationResponse = function (event) {
+      const path = event.detail?.requestConfig?.path;
+      return !!path && new URL(path, window.location.origin).pathname === "/api/navigation";
+    };
     const onAfterRequest = function (event) {
-      const xhr = event.detail?.xhr;
-      if (!xhr?.responseURL) return;
-      if (new URL(xhr.responseURL).pathname === "/api/navigation") {
-        responseStatus = xhr.status;
-      }
+      if (!isNavigationResponse(event)) return;
+      responseStatus = event.detail.xhr.status;
+      if (responseStatus !== 200) rejectCompletion(new Error("Navigation request failed"));
+      else if (settled) resolveCompletion();
+    };
+    const onAfterSettle = function (event) {
+      if (event.detail?.target?.id !== "text-panel" || !isNavigationResponse(event)) return;
+      settled = true;
+      if (responseStatus === 200) resolveCompletion();
     };
     document.addEventListener("htmx:afterRequest", onAfterRequest);
+    document.addEventListener("htmx:afterSettle", onAfterSettle);
     try {
-      await htmx.ajax("POST", "/api/navigation", {
-        target: "#text-panel", swap: "outerHTML", values,
-      });
-      if (responseStatus !== 200) throw new Error("Navigation request failed");
+      await Promise.all([
+        htmx.ajax("POST", "/api/navigation", {
+          target: "#text-panel", swap: "outerHTML", values,
+        }),
+        completion,
+      ]);
     } finally {
       document.removeEventListener("htmx:afterRequest", onAfterRequest);
+      document.removeEventListener("htmx:afterSettle", onAfterSettle);
     }
   }
 
@@ -2278,6 +2305,10 @@
       swatch.style.background = hex;
       swatch.setAttribute("aria-label", "Set code colour to " + hex);
       swatch.addEventListener("click", function () {
+        if (_denyCodebookEditing()) {
+          _closeAllPopovers();
+          return;
+        }
         _closeAllPopovers();
         htmx.ajax("PUT", `/api/codes/${codeId}`, {
           ..._codebookMutationSwapOptions(),
@@ -3886,6 +3917,7 @@
       btn.addEventListener("focusout", _undoResume);
       btn.addEventListener("click", function (e) {
         e.preventDefault();
+        if (_navigationInFlight) return;
         document.querySelectorAll(".ace-statusbar-undo-keycap").forEach(function (k) {
           k.classList.add("ace-statusbar-undo-keycap--pressed");
         });
