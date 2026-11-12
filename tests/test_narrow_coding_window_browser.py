@@ -73,6 +73,9 @@ def test_narrow_window_can_reach_applied_codes_and_codebook(tmp_path, browser_na
                 page.evaluate("window.aceCloseNote()")
                 page.set_viewport_size({"width": 320, "height": 700})
                 page.evaluate("window.scrollTo(0, 0)")
+                page.wait_for_function(
+                    "scrollX === 0 && document.querySelector('#ace-narrow-pan')?.getAttribute('aria-label') === 'Show applied codes panel'"
+                )
                 pan_box = page.locator("#ace-narrow-pan").bounding_box()
                 sidebar_box = page.locator("#code-sidebar").bounding_box()
                 assert pan_box["x"] >= sidebar_box["x"] + sidebar_box["width"]
