@@ -3,6 +3,7 @@ import os
 from unittest.mock import patch
 from urllib.parse import quote
 
+import pytest
 from fastapi.testclient import TestClient
 
 from ace.app import create_app
@@ -142,10 +143,11 @@ def test_quit_uses_shutdown_callback_for_launch_authenticated_session():
     assert resp.status_code == 200
     assert called == [True]
 
-def test_lifespan_removes_runtime_file_for_current_process(tmp_path):
+@pytest.mark.parametrize("runtime_pid", [os.getpid(), 987654321])
+def test_lifespan_removes_runtime_file_for_current_token(tmp_path, runtime_pid):
     runtime_file = tmp_path / "runtime.json"
     runtime_file.write_text(
-        json.dumps({"pid": os.getpid(), "port": 18080, "token": "test-token"}),
+        json.dumps({"pid": runtime_pid, "port": 18080, "token": "test-token"}),
         encoding="utf-8",
     )
     env = {
@@ -161,6 +163,24 @@ def test_lifespan_removes_runtime_file_for_current_process(tmp_path):
 
     assert resp.status_code == 200
     assert not runtime_file.exists()
+
+
+def test_lifespan_keeps_newer_runtime_file_with_different_token(tmp_path):
+    runtime_file = tmp_path / "runtime.json"
+    metadata = {"pid": 987654321, "port": 18081, "token": "newer-token"}
+    runtime_file.write_text(json.dumps(metadata), encoding="utf-8")
+    env = {
+        "ACE_LAUNCHER_TOKEN": "old-token",
+        "ACE_RUNTIME_FILE": str(runtime_file),
+        "ACE_IDLE_TIMEOUT_SECONDS": "300",
+    }
+
+    with patch.dict(os.environ, env, clear=False):
+        client, _app = _launcher_client()
+        with client:
+            assert client.get("/api/runtime/status").status_code == 200
+
+    assert json.loads(runtime_file.read_text(encoding="utf-8")) == metadata
 
 
 def test_two_runtimes_keep_independent_browser_sessions():
