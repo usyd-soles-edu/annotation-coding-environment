@@ -2211,18 +2211,19 @@
     const target = (evt.detail || {}).target;
     if (!target) return;
 
-    if (target.id === "text-panel" || target.id === "coding-workspace") {
+    const codingTarget = target.id === "text-panel" || target.id === "coding-workspace";
+    const sidebarTarget = target.id === "code-sidebar" || target.id === "coding-workspace";
+    if (codingTarget) {
       _syncCodingTextControls();
       _restoreFocus();
       _paintSvg();
+    }
 
-      // Annotation-only responses leave the sidebar's DOM intact — patch
-      // the per-row counts in place. Codebook-mutation responses replace
-      // the aside via OOB, so element identity changes and we need the
-      // full re-bind (Sortable, collapse state, keycaps, ghost class);
-      // the new sidebar already carries fresh server-rendered counts.
+    if (codingTarget || sidebarTarget) {
+      // Annotation-only responses leave the sidebar intact, so patch its
+      // counts. A replaced sidebar needs its interaction wiring restored.
       const sidebarEl = document.getElementById("code-sidebar");
-      if (sidebarEl && sidebarEl !== _lastSidebarEl) {
+      if (sidebarTarget || (sidebarEl && sidebarEl !== _lastSidebarEl)) {
         _lastSidebarEl = sidebarEl;
         _syncSidebarAfterSwap({ sortable: true, gridResize: true });
         const cutId = _getCutCode();
@@ -2235,31 +2236,11 @@
             window._setStatus("Cut cleared (item removed)", "ok");
           }
         }
-      } else {
+      } else if (codingTarget) {
         _syncCodeCounts();
       }
+      if (sidebarTarget) _initCodingTextControls();
       _rerenderSourceGridIfPresent();
-
-    }
-
-    if (target.id === "code-sidebar" || target.id === "coding-workspace") {
-      _lastSidebarEl = document.getElementById("code-sidebar");
-      _syncSidebarAfterSwap({ sortable: true, gridResize: true });
-      _initCodingTextControls();
-      // Re-apply ghost class if a cut is staged and the row still exists.
-      // If the row vanished (deleted by another action), clear the cut state.
-      const cutId = _getCutCode();
-      if (cutId) {
-        const r = _findCodebookItemRow(cutId);
-        if (r) {
-          r.classList.add("ace-code-row--ghost");
-        } else {
-          _setCut(null);
-          window._setStatus("Cut cleared (item removed)", "ok");
-        }
-      }
-      _rerenderSourceGridIfPresent();
-
     }
 
     // Auto-open dialogs
