@@ -874,7 +874,10 @@
     try {
       await Promise.all([
         htmx.ajax("POST", "/api/navigation", {
-          target: "#text-panel", swap: "outerHTML", values,
+          // Keep the request target mounted while another HTMX response may
+          // replace the text panel. The server retargets to the live panel
+          // when this response arrives.
+          target: "body", swap: "outerHTML", values,
         }),
         completion,
       ]);

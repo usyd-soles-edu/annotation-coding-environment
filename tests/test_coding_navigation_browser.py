@@ -267,7 +267,10 @@ def test_source_navigation_keeps_page_and_note_drawer(tmp_path, browser_name):
 
 @pytest.mark.slow
 @pytest.mark.parametrize("browser_name", ["chromium", "firefox", "webkit"])
-def test_late_flag_response_cannot_replace_navigated_source(tmp_path, browser_name):
+@pytest.mark.parametrize("flag_response_first", [False, True])
+def test_flag_and_navigation_responses_keep_source_consistent(
+    tmp_path, browser_name, flag_response_first
+):
     async_api = pytest.importorskip("playwright.async_api")
     project = tmp_path / "late-flag.ace"
     conn = create_project(str(project), "Late flag")
@@ -284,6 +287,8 @@ def test_late_flag_response_cannot_replace_navigated_source(tmp_path, browser_na
         async def exercise():
             flag_started = asyncio.Event()
             release_flag = asyncio.Event()
+            navigation_started = asyncio.Event()
+            release_navigation = asyncio.Event()
             async with async_api.async_playwright() as playwright:
                 browser = await getattr(playwright, browser_name).launch()
                 try:
@@ -303,6 +308,9 @@ def test_late_flag_response_cannot_replace_navigated_source(tmp_path, browser_na
                         if url.path == "/api/code/flag":
                             flag_started.set()
                             await release_flag.wait()
+                        if url.path == "/api/navigation" and flag_response_first:
+                            navigation_started.set()
+                            await release_navigation.wait()
                         await route.fulfill(
                             status=response.status_code,
                             headers=dict(response.headers),
@@ -322,6 +330,12 @@ def test_late_flag_response_cannot_replace_navigated_source(tmp_path, browser_na
                         window.aceNavigateNext();
                     }""")
                     await asyncio.wait_for(flag_started.wait(), timeout=5)
+                    if flag_response_first:
+                        await asyncio.wait_for(navigation_started.wait(), timeout=5)
+                        release_flag.set()
+                        await page.wait_for_function("window.__flagDone", timeout=5000)
+                        assert "First source text." in await page.locator("#text-panel").inner_text()
+                        release_navigation.set()
                     await page.wait_for_function(
                         "window.__aceCurrentIndex === 1 && !document.body.dataset.aceNavigating",
                         timeout=5000,
@@ -353,6 +367,7 @@ def test_late_flag_response_cannot_replace_navigated_source(tmp_path, browser_na
                         ).fetchone()[0] == "B note pending"
                 finally:
                     release_flag.set()
+                    release_navigation.set()
                     await browser.close()
 
         asyncio.run(exercise())

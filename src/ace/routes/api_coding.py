@@ -263,7 +263,10 @@ async def navigation_route(
                 "history": history_mode,
                 "from_index": from_index,
             }}
-            return HTMLResponse(content, headers={"HX-Trigger": json.dumps(trigger)})
+            return HTMLResponse(content, headers={
+                "HX-Trigger": json.dumps(trigger),
+                "HX-Retarget": "#text-panel",
+            })
 
     return Response(status_code=204)
 
