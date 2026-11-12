@@ -1154,7 +1154,10 @@ def _annotation_only_response(
 
     templates = request.app.state.templates
     project_path = request.app.state.project_path
-    ctx = _coding_context(conn, coder_id, target_index, project_path=project_path)
+    ctx = _coding_context(
+        conn, coder_id, target_index, project_path=project_path,
+        render_sentences=False,
+    )
     ctx["request"] = request
 
     applied_html = render_block(templates.env, "coding.html", "applied_codes_panel", ctx)
@@ -1508,6 +1511,7 @@ def _render_codebook_import_mapping_preview(ledger: dict, limit: int = 5) -> str
         name = row["name"] or "(blank)"
         folder = row.get("group_name") or "No folder/group"
         definition = row.get("definition") or "No definition"
+        colour = row.get("colour") or "No colour"
         reason = row.get("reason") or (
             f'will add code in {folder}' if row["status"] == "new" else row["status"]
         )
@@ -1518,6 +1522,7 @@ def _render_codebook_import_mapping_preview(ledger: dict, limit: int = 5) -> str
             f'<span><b>Code name</b> {html.escape(name)}</span>'
             f'<span><b>Folder/group</b> {html.escape(folder)}</span>'
             f'<span><b>Definition</b> {html.escape(definition)}</span>'
+            f'<span><b>Colour</b> {html.escape(colour)}</span>'
             f'<em>{html.escape(reason)}</em>'
             '</span></div>'
         )
@@ -1583,6 +1588,7 @@ def _codebook_import_payload(
     name_column: str | None,
     group_column: str | None,
     definition_column: str | None,
+    colour_column: str | None,
 ) -> dict:
     from ace.models.codebook import preview_codebook_csv_ledger
 
@@ -1616,6 +1622,7 @@ def _codebook_import_payload(
         name_column=name_column,
         group_column=group_column,
         definition_column=definition_column,
+        colour_column=colour_column,
     )
     codes_for_import = ledger["importable"]
     new_count = ledger["counts"]["new"]
