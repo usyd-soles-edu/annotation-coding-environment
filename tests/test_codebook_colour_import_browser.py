@@ -55,6 +55,8 @@ def test_import_dialog_maps_colour_column(tmp_path, engine):
 
                 page.route("http://127.0.0.1:8080/**", serve_from_test_client)
                 page.goto("http://127.0.0.1:8080/code")
+                page.locator("#codebook-menu-btn").click()
+                assert page.get_by_text("Names only or mapped columns.").is_visible()
                 page.evaluate("""html => {
                     const host = document.getElementById('modal-container');
                     host.innerHTML = html;
@@ -63,6 +65,8 @@ def test_import_dialog_maps_colour_column(tmp_path, engine):
                     window._aceInitCodebookImportDialog(dialog);
                 }""", dialog_html)
                 colour = page.locator("#codebook-map-colour")
+                assert page.get_by_text("Folder/group organises codes into folders.").is_visible()
+                assert page.get_by_text("Definition appears in the code hover popup.").is_visible()
                 assert colour.is_visible()
                 assert colour.input_value() == ""
                 with page.expect_response("**/api/codes/import/preview-map"):
