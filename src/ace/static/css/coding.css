@@ -2084,6 +2084,13 @@ body[data-platform="other"] .ace-hint-meta::before { content: "Ctrl"; }
 
 .ace-codebook-dropdown-item:hover { background: var(--ace-bg-muted); }
 
+.ace-codebook-dropdown-item--shortcuts {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ace-space-2);
+}
+
 .ace-codebook-dropdown-item--check {
   display: grid;
   grid-template-columns: 16px 1fr;
