@@ -90,6 +90,55 @@
     return params.toString();
   }
 
+  // Warn while another codebook page is open in this browser origin. A
+  // per-document ID avoids sessionStorage IDs copied by Duplicate Tab.
+  let _codebookTabChannel = null;
+  const _codebookTabPeers = new Set();
+  const _codebookTabId = typeof window.crypto?.randomUUID === "function"
+    ? window.crypto.randomUUID() : String(Date.now()) + "-" + Math.random();
+
+  function _showCodebookTabWarning() {
+    if (_codebookTabPeers.size) {
+      document.body.dataset.aceOtherCodebookTab = "1";
+    } else {
+      delete document.body.dataset.aceOtherCodebookTab;
+    }
+  }
+
+  function _startCodebookTabPresence() {
+    if (_codebookTabChannel || !document.getElementById("code-sidebar") ||
+        typeof BroadcastChannel !== "function") return;
+    _codebookTabChannel = new BroadcastChannel("ace-codebook-open-tabs");
+    _codebookTabChannel.addEventListener("message", function (event) {
+      const message = event.data;
+      if (!message || typeof message !== "object" ||
+          typeof message.id !== "string" || message.id === _codebookTabId) return;
+      if (message.type === "hello" || message.type === "present") {
+        _codebookTabPeers.add(message.id);
+        _showCodebookTabWarning();
+        if (message.type === "hello" && _codebookTabChannel) {
+          _codebookTabChannel.postMessage({ type: "present", id: _codebookTabId });
+        }
+      } else if (message.type === "bye") {
+        _codebookTabPeers.delete(message.id);
+        _showCodebookTabWarning();
+      }
+    });
+    _codebookTabChannel.postMessage({ type: "hello", id: _codebookTabId });
+  }
+
+  _startCodebookTabPresence();
+  window.addEventListener("pageshow", _startCodebookTabPresence);
+  function _stopCodebookTabPresence() {
+    if (!_codebookTabChannel) return;
+    _codebookTabChannel.postMessage({ type: "bye", id: _codebookTabId });
+    _codebookTabChannel.close();
+    _codebookTabChannel = null;
+    _codebookTabPeers.clear();
+    _showCodebookTabWarning();
+  }
+  window.addEventListener("pagehide", _stopCodebookTabPresence);
+
   function _denyCodebookEditing() {
     if (!_codebookEditingDisabled()) return false;
     if (typeof window._setStatus === "function") {

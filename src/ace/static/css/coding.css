@@ -47,6 +47,20 @@
   background: var(--ace-bg);
 }
 
+.ace-codebook-tab-warning {
+  display: none;
+  flex-shrink: 0;
+  padding: var(--ace-space-2) var(--ace-space-3);
+  border-bottom: 1px solid var(--ace-border-light);
+  background: var(--ace-bg-muted);
+  font-size: var(--ace-font-size-2xs);
+  line-height: 1.4;
+}
+
+body[data-ace-other-codebook-tab="1"] .ace-codebook-tab-warning {
+  display: block;
+}
+
 .ace-sidebar-strip-mark {
   font-family: var(--ace-font-mono);
   font-weight: 700;

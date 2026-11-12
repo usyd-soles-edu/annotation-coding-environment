@@ -40,6 +40,10 @@ Put common codes near the top. ACE assigns quick keyboard positions from the vis
 
 If a code is hard to reach, move it higher.
 
+## Editing in more than one tab
+
+Keep one ACE tab open for codebook editing. When ACE detects another tab, it shows a warning above the codebook. Edits made in different tabs can overwrite one another. Close the other tab, then reload to recheck.
+
 ## Import a codebook
 
 Use codebook import when your codebook already exists in a CSV file.
