@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 from ace.routes.api import router
+from ace.routes.api_support import check_native_picker_runtime
 
 # Build a minimal FastAPI app around the router for testing.
 from fastapi import FastAPI
@@ -124,3 +126,44 @@ def test_non_darwin_uses_tkinter_files(mock_tk, mock_platform):
     r = client.post("/api/native/pick-files", data={"accept": ".csv"})
     assert r.json() == {"paths": ["/tmp/a.csv", "/tmp/b.csv"]}
     mock_tk.assert_called_once()
+
+
+@patch("ace.routes.api_support.platform.system", return_value="Darwin")
+@patch("ace.routes.api_support._run_osascript")
+def test_packaged_picker_preflight_checks_applescript(mock_osascript, _platform):
+    mock_osascript.return_value = _mock_result(0, "1\n")
+
+    check_native_picker_runtime()
+
+    mock_osascript.assert_called_once_with("return 1", timeout=10)
+
+
+@patch("ace.routes.api_support.platform.system", return_value="Darwin")
+@patch("ace.routes.api_support._run_osascript")
+def test_packaged_picker_preflight_rejects_failed_applescript(mock_osascript, _platform):
+    mock_osascript.return_value = _mock_result(1, "", "osascript failed")
+
+    with pytest.raises(RuntimeError, match="AppleScript picker runtime"):
+        check_native_picker_runtime()
+
+
+@patch("ace.routes.api_support.platform.system", return_value="Windows")
+@patch("ace.routes.api_support._tk_root")
+def test_packaged_picker_preflight_loads_and_closes_tk(mock_root, _platform):
+    check_native_picker_runtime()
+
+    mock_root.assert_called_once_with()
+    mock_root.return_value.destroy.assert_called_once_with()
+
+
+def test_picker_preflight_cli_exits_without_starting_server(monkeypatch):
+    from ace.__main__ import main
+
+    monkeypatch.setattr(sys, "argv", ["ace", "--check-native-picker"])
+    with (
+        patch("ace.routes.api_support.check_native_picker_runtime") as check,
+        patch("ace.__main__.run") as run,
+    ):
+        main()
+    check.assert_called_once_with()
+    run.assert_not_called()
