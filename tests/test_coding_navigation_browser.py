@@ -279,9 +279,11 @@ def test_source_navigation_keeps_page_and_note_drawer(tmp_path, browser_name):
 
 @pytest.mark.slow
 @pytest.mark.parametrize("browser_name", ["chromium", "firefox", "webkit"])
-@pytest.mark.parametrize("flag_response_first", [False, True])
+@pytest.mark.parametrize("flag_response_first,flag_clicks", [
+    (False, 1), (True, 1), (False, 2),
+])
 def test_flag_and_navigation_responses_keep_source_consistent(
-    tmp_path, browser_name, flag_response_first
+    tmp_path, browser_name, flag_response_first, flag_clicks
 ):
     async_api = pytest.importorskip("playwright.async_api")
     project = tmp_path / "late-flag.ace"
@@ -331,21 +333,23 @@ def test_flag_and_navigation_responses_keep_source_consistent(
 
                     await page.route("http://127.0.0.1:8080/**", serve_from_test_client)
                     await page.goto("http://127.0.0.1:8080/code?index=0")
-                    await page.evaluate("""() => {
-                        window.__flagDone = false;
+                    await page.evaluate("""clicks => {
+                        window.__flagCount = 0;
                         document.addEventListener('htmx:afterRequest', event => {
                             if (event.detail?.requestConfig?.path === '/api/code/flag') {
-                                window.__flagDone = true;
+                                window.__flagCount++;
                             }
                         });
-                        htmx.trigger(document.getElementById('trigger-flag'), 'click');
+                        for (let i = 0; i < clicks; i++) {
+                            document.getElementById('nav-flag-btn').click();
+                        }
                         window.aceNavigateNext();
-                    }""")
+                    }""", flag_clicks)
                     await asyncio.wait_for(flag_started.wait(), timeout=5)
                     if flag_response_first:
                         await asyncio.wait_for(navigation_started.wait(), timeout=5)
                         release_flag.set()
-                        await page.wait_for_function("window.__flagDone", timeout=5000)
+                        await page.wait_for_function("window.__flagCount === 1", timeout=5000)
                         assert "First source text." in await page.locator("#text-panel").inner_text()
                         release_navigation.set()
                     await page.wait_for_function(
@@ -356,9 +360,19 @@ def test_flag_and_navigation_responses_keep_source_consistent(
                     await page.evaluate("window.aceOpenNoteRead(); window.aceEnterEditMode()")
                     await page.locator("#note-textarea").fill("B note pending")
                     release_flag.set()
-                    await page.wait_for_function("window.__flagDone", timeout=5000)
+                    await page.wait_for_function(
+                        "clicks => window.__flagCount === clicks",
+                        arg=flag_clicks, timeout=5000,
+                    )
                     assert "Second source text." in await page.locator("#text-panel").inner_text()
                     assert await page.locator("#nav-flag-btn").get_attribute("aria-pressed") == "false"
+                    assert await page.evaluate("""() => {
+                        const sources = JSON.parse(document.getElementById('ace-sources-data').textContent);
+                        return sources[0].flagged;
+                    }""") == bool(flag_clicks % 2)
+                    assert ("flagged" in (
+                        await page.locator('.ace-grid-tile[data-source-index="0"]').get_attribute("class")
+                    ).split()) == bool(flag_clicks % 2)
                     assert await page.locator("#note-textarea").input_value() == "B note pending"
                     await page.wait_for_function(
                         "document.getElementById('note-status')?.textContent.includes('Saved')",
@@ -368,7 +382,7 @@ def test_flag_and_navigation_responses_keep_source_consistent(
                         assert stored.execute(
                             "SELECT flagged FROM assignment WHERE source_id = ? AND coder_id = ?",
                             (first_id, coder_id),
-                        ).fetchone()[0] == 1
+                        ).fetchone()[0] == flag_clicks % 2
                         assert stored.execute(
                             "SELECT flagged FROM assignment WHERE source_id = ? AND coder_id = ?",
                             (second_id, coder_id),

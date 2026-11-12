@@ -336,7 +336,9 @@ async def flag_route(
         content = _render_full_coding_oob(
             request, conn, coder_id, source_index, include_sidebar=False,
         ) + _oob_announce(msg)
-        return HTMLResponse(content)
+        return HTMLResponse(content, headers={
+            "X-ACE-Flagged": "1" if new_flagged else "0",
+        })
 
 
 @router.get("/source-note/{source_id}")

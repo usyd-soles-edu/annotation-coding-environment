@@ -339,7 +339,9 @@
       _updateCurrentIndex();
       _pendingFlagAnnounce = true;
       const triggerFlag = document.getElementById("trigger-flag");
-      if (triggerFlag) htmx.trigger(triggerFlag, "click");
+      if (triggerFlag) {
+        htmx.trigger(triggerFlag, "click", { sourceIndex: window.__aceCurrentIndex });
+      }
     }
   });
 
@@ -756,7 +758,9 @@
       if (_navigationInFlight) return;
       _updateCurrentIndex();
       const flagBtn = document.getElementById("trigger-flag");
-      if (flagBtn) htmx.trigger(flagBtn, "click");
+      if (flagBtn) {
+        htmx.trigger(flagBtn, "click", { sourceIndex: window.__aceCurrentIndex });
+      }
       return;
     }
 
@@ -1656,6 +1660,18 @@
     _aceAnnounceCurrentSource();
   };
 
+  function _aceSetSourceFlag(sourceIndex, flagged) {
+    const blob = document.getElementById("ace-sources-data");
+    if (!blob) return;
+    let sources;
+    try { sources = JSON.parse(blob.textContent || "[]"); } catch (_) { return; }
+    const source = sources[sourceIndex];
+    if (!source || source.index !== sourceIndex) return;
+    source.flagged = flagged;
+    blob.textContent = JSON.stringify(sources);
+    window._aceRenderSourceGrid();
+  }
+
   /* ================================================================
    * 11. Dialog close cleanup
    * ================================================================ */
@@ -1918,6 +1934,10 @@
     if (e.detail?.requestConfig?.path !== "/api/code/flag") return;
     const sourceIndex = Number(e.detail.requestConfig.parameters?.source_index);
     if (sourceIndex === window.__aceCurrentIndex) return;
+    const flagged = e.detail.xhr?.getResponseHeader("X-ACE-Flagged");
+    if (Number.isInteger(sourceIndex) && (flagged === "1" || flagged === "0")) {
+      _aceSetSourceFlag(sourceIndex, flagged === "1");
+    }
     e.preventDefault();
     _pendingFlagAnnounce = false;
   });
@@ -2164,8 +2184,12 @@
     if (!elt || !elt.id) return;
 
     if (elt.id === "trigger-flag") {
-      e.detail.parameters.current_index = window.__aceCurrentIndex;
-      e.detail.parameters.source_index = window.__aceCurrentIndex;
+      // HTMX may dispatch a queued flag request after navigation. Keep the
+      // source captured by the triggering action, not the source visible now.
+      const origin = e.detail.triggeringEvent?.detail?.sourceIndex;
+      const sourceIndex = Number.isInteger(origin) ? origin : window.__aceCurrentIndex;
+      e.detail.parameters.current_index = sourceIndex;
+      e.detail.parameters.source_index = sourceIndex;
     }
   });
 
