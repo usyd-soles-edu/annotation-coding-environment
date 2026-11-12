@@ -183,7 +183,7 @@ rect.ace-flash-{{ code["id"] }} {
                       aria-label="Toggle flag (Shift+F)" aria-pressed="{{ 'true' if is_flagged else 'false' }}"
                       aria-keyshortcuts="Shift+F"
                       id="nav-flag-btn">
-                <span class="ace-flag-chip{% if is_flagged %} ace-flag-chip--active{% endif %}">&#9873; {{ 'Flagged' if is_flagged else 'Flag' }}<span class="ace-hint ace-hint--hover" aria-hidden="true">&#8679;F</span></span>
+                <span class="ace-flag-chip{% if is_flagged %} ace-flag-chip--active{% endif %}"><span data-flag-label>&#9873; {{ 'Flagged' if is_flagged else 'Flag' }}</span><span class="ace-hint ace-hint--hover" aria-hidden="true">&#8679;F</span></span>
               </button>
               <button type="button"
                       id="note-pill"

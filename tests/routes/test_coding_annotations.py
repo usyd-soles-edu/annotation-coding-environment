@@ -306,6 +306,20 @@ def test_annotation_only_response_does_not_resplit_text(client_with_codes, monke
     assert 'id="ace-applied-codes-panel"' in resp.text
 
 
+def test_flag_response_does_not_resplit_text(client_with_codes, monkeypatch):
+    client, _, _, _, _ = client_with_codes
+
+    def unexpected_split(*_args, **_kwargs):
+        raise AssertionError("Flag response re-segmented source text")
+
+    monkeypatch.setattr("ace.services.text_splitter.split_into_units", unexpected_split)
+    resp = client.post("/api/code/flag", data={"source_index": "0"})
+    assert resp.status_code == 200
+    assert resp.headers["HX-Reswap"] == "none"
+    assert resp.headers["X-ACE-Flagged"] == "1"
+    assert 'id="text-panel"' not in resp.text
+
+
 def test_annotate_reports_retryable_write_contention(
     client_with_codes, monkeypatch
 ):
