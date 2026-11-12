@@ -84,6 +84,9 @@ rect.ace-flash-{{ code["id"] }} {
 {% block content %}
 <div id="coding-workspace" hx-sync="this:queue all">
 
+  <button id="ace-narrow-pan" class="ace-narrow-pan" type="button"
+          aria-label="Show applied codes panel">Applied codes &rarr;</button>
+
   {# Hidden state #}
   <input type="hidden" id="current-index" name="current_index" value="{{ current_index }}">
 
