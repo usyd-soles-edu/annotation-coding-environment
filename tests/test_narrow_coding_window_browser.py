@@ -52,8 +52,14 @@ def test_narrow_window_can_reach_applied_codes_and_codebook(tmp_path, browser_na
 
                 pan = page.get_by_role("button", name="Show applied codes panel")
                 assert pan.is_visible()
-                pan.focus()
-                pan.press("Enter")
+                assert page.evaluate("document.activeElement?.id") == "text-panel"
+                page.keyboard.press("Tab")
+                assert pan.evaluate("el => document.activeElement === el")
+                page.keyboard.press("Tab")
+                assert page.evaluate("document.activeElement?.id") == "code-search-input"
+                page.keyboard.press("Shift+Tab")
+                assert pan.evaluate("el => document.activeElement === el")
+                page.keyboard.press("Enter")
                 page.wait_for_function(
                     "document.querySelector('.ace-right-inspector').getBoundingClientRect().right <= innerWidth"
                 )
@@ -89,5 +95,8 @@ def test_narrow_window_can_reach_applied_codes_and_codebook(tmp_path, browser_na
 
                 page.set_viewport_size({"width": 1280, "height": 700})
                 assert not page.locator("#ace-narrow-pan").is_visible()
+                page.locator("#text-panel").focus()
+                page.keyboard.press("Tab")
+                assert page.evaluate("document.activeElement?.id") == "code-search-input"
             finally:
                 browser.close()

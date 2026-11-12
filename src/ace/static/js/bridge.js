@@ -4109,11 +4109,17 @@
     return true;
   }
 
-  /** Determine which zone currently has focus: "text", "search", "tree", or null. */
+  function _visibleNarrowPan() {
+    const button = document.getElementById("ace-narrow-pan");
+    return button && button.getClientRects().length ? button : null;
+  }
+
+  /** Determine which zone currently has focus: "text", "pan", "search", "tree", or null. */
   function _activeZone() {
     let el = document.activeElement;
     if (!el) return null;
     if (el.id === "text-panel" || el.closest("#text-panel")) return "text";
+    if (el.id === "ace-narrow-pan") return "pan";
     if (el.closest("#ace-right-inspector")) return "applied";
     if (el.id === "code-search-input") return "search";
     if (el.closest("#ace-code-create-actions")) return "create";
@@ -4131,7 +4137,14 @@
     if (!zone) return;
 
     if (!e.shiftKey) {
-      if (zone === "text") { e.preventDefault(); _focusSearchBar(); return; }
+      if (zone === "text") {
+        e.preventDefault();
+        const pan = _visibleNarrowPan();
+        if (pan) pan.focus();
+        else _focusSearchBar();
+        return;
+      }
+      if (zone === "pan") { e.preventDefault(); _focusSearchBar(); return; }
       if (zone === "search") {
         e.preventDefault();
         if (!_focusCreateAction(0)) _focusCodeTree();
@@ -4152,7 +4165,14 @@
         if (!_focusCreateAction(_visibleCreateActions().length - 1)) _focusCodeTree();
         return;
       }
-      if (zone === "search") { e.preventDefault(); _focusTextPanel(); return; }
+      if (zone === "search") {
+        e.preventDefault();
+        const pan = _visibleNarrowPan();
+        if (pan) pan.focus();
+        else _focusTextPanel();
+        return;
+      }
+      if (zone === "pan") { e.preventDefault(); _focusTextPanel(); return; }
       if (zone === "create") {
         const actions = _visibleCreateActions();
         const idx = actions.indexOf(document.activeElement);
