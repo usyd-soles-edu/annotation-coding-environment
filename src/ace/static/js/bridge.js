@@ -2055,46 +2055,29 @@
       }
       return;
     }
-    const annPayload = dataEl.dataset.annotations || "[]";
     const countPayload = dataEl.dataset.codeCounts || "";
-    const payloadKey = `${annPayload}\n${countPayload}`;
-    if (payloadKey === _lastCodeCountPayload) return;
-    _lastCodeCountPayload = payloadKey;
-    const counts = new Map();
-    let usedGlobalCounts = false;
-    if (countPayload) {
-      try {
-        const parsedCounts = JSON.parse(countPayload);
-        if (
-          parsedCounts &&
-          typeof parsedCounts === "object" &&
-          !Array.isArray(parsedCounts)
-        ) {
-          Object.entries(parsedCounts).forEach(function ([codeId, value]) {
-            const n = Number(value);
-            counts.set(String(codeId), Number.isFinite(n) ? n : 0);
-          });
-          usedGlobalCounts = true;
-        }
-      } catch (_) {
-        usedGlobalCounts = false;
-      }
+    if (!countPayload || countPayload === _lastCodeCountPayload) return;
+    let parsedCounts;
+    try {
+      parsedCounts = JSON.parse(countPayload);
+    } catch (_) {
+      return;
     }
-    if (!usedGlobalCounts) {
-      let annotations;
-      try {
-        annotations = JSON.parse(annPayload);
-      } catch (_) {
-        return;
-      }
-      for (const a of annotations) {
-        counts.set(a.code_id, (counts.get(a.code_id) || 0) + 1);
-      }
-    }
+    if (!parsedCounts || typeof parsedCounts !== "object" ||
+        Array.isArray(parsedCounts)) return;
+
     const controller = _getSidebarTreeController();
-    if (controller && typeof controller.setCodeCounts === "function") {
-      controller.setCodeCounts(counts);
-    }
+    if (!controller || typeof controller.setCodeCounts !== "function") return;
+
+    // The server's global snapshot includes all sources. The annotations in
+    // this element are only the current source's highlight data.
+    const counts = new Map();
+    Object.entries(parsedCounts).forEach(function ([codeId, value]) {
+      const n = Number(value);
+      counts.set(String(codeId), Number.isFinite(n) ? n : 0);
+    });
+    controller.setCodeCounts(counts);
+    _lastCodeCountPayload = countPayload;
   }
 
   // Re-bind sidebar event wiring after an HTMX swap replaces sidebar DOM.
@@ -2236,18 +2219,19 @@
     const target = (evt.detail || {}).target;
     if (!target) return;
 
-    if (target.id === "text-panel" || target.id === "coding-workspace") {
+    const codingTarget = target.id === "text-panel" || target.id === "coding-workspace";
+    const sidebarTarget = target.id === "code-sidebar" || target.id === "coding-workspace";
+    if (codingTarget) {
       _syncCodingTextControls();
       _restoreFocus();
       _paintSvg();
+    }
 
-      // Annotation-only responses leave the sidebar's DOM intact — patch
-      // the per-row counts in place. Codebook-mutation responses replace
-      // the aside via OOB, so element identity changes and we need the
-      // full re-bind (Sortable, collapse state, keycaps, ghost class);
-      // the new sidebar already carries fresh server-rendered counts.
+    if (codingTarget || sidebarTarget) {
+      // Annotation-only responses leave the sidebar intact, so patch its
+      // counts. A replaced sidebar needs its interaction wiring restored.
       const sidebarEl = document.getElementById("code-sidebar");
-      if (sidebarEl && sidebarEl !== _lastSidebarEl) {
+      if (sidebarTarget || (sidebarEl && sidebarEl !== _lastSidebarEl)) {
         _lastSidebarEl = sidebarEl;
         _syncSidebarAfterSwap({ sortable: true, gridResize: true });
         const cutId = _getCutCode();
@@ -2260,31 +2244,11 @@
             window._setStatus("Cut cleared (item removed)", "ok");
           }
         }
-      } else {
+      } else if (codingTarget) {
         _syncCodeCounts();
       }
+      if (sidebarTarget) _initCodingTextControls();
       _rerenderSourceGridIfPresent();
-
-    }
-
-    if (target.id === "code-sidebar" || target.id === "coding-workspace") {
-      _lastSidebarEl = document.getElementById("code-sidebar");
-      _syncSidebarAfterSwap({ sortable: true, gridResize: true });
-      _initCodingTextControls();
-      // Re-apply ghost class if a cut is staged and the row still exists.
-      // If the row vanished (deleted by another action), clear the cut state.
-      const cutId = _getCutCode();
-      if (cutId) {
-        const r = _findCodebookItemRow(cutId);
-        if (r) {
-          r.classList.add("ace-code-row--ghost");
-        } else {
-          _setCut(null);
-          window._setStatus("Cut cleared (item removed)", "ok");
-        }
-      }
-      _rerenderSourceGridIfPresent();
-
     }
 
     // Auto-open dialogs
@@ -2581,42 +2545,6 @@
       ..._codebookMutationSwapOptions(),
     });
   }
-
-  function _moveCode(codeId, direction) {
-    if (_denyCodebookEditing()) return;
-    const controller = _getSidebarTreeController();
-    if (controller && typeof controller.moveItemInDirection === "function") {
-      const row = _findCodebookItemRow(codeId);
-      if (row && controller.rootElement && controller.rootElement()?.contains(row)) {
-        controller.moveItemInDirection(codeId, direction);
-        return;
-      }
-    }
-    const row = document.querySelector(`.ace-code-row[data-code-id="${codeId}"]`);
-    const container = row ? row.parentElement : null;
-    if (!row || !container) return;
-
-    function isSiblingItem(el) {
-      return el && el.classList && el.classList.contains("ace-code-row");
-    }
-
-    if (direction === -1) {
-      let prev = row.previousElementSibling;
-      while (prev && !isSiblingItem(prev)) prev = prev.previousElementSibling;
-      if (!prev) return;
-      container.insertBefore(row, prev);
-    } else {
-      let next = row.nextElementSibling;
-      while (next && !isSiblingItem(next)) next = next.nextElementSibling;
-      if (!next) return;
-      container.insertBefore(row, next.nextElementSibling);
-    }
-    _persistScopeOrder(container);
-  }
-
-  // _moveToGroup was removed: PUT /api/codes/{id} no longer accepts
-  // `group_name` (v7 dropped that column in favour of parent_id). Code/folder
-  // re-parenting will be wired in Task 9 against PUT /api/codes/{id}/parent.
 
   let _isDragging = false;
 
@@ -4344,30 +4272,19 @@
     const alt = e.altKey;
     const shift = e.shiftKey;
 
-    // Alt+Shift+↑ — Move code up (or folder up if focused on a folder row)
-    if (key === "ArrowUp" && alt && shift) {
+    // Alt+Shift+↑/↓ — Reorder the focused code or folder.
+    if ((key === "ArrowUp" || key === "ArrowDown") && alt && shift) {
       e.preventDefault();
       if (_denyCodebookEditing()) return;
-      if (!_isFolderRow(active)) {
+      const codeRow = !_isFolderRow(active);
+      if (codeRow) {
         active.classList.add("ace-code-row--reordering");
-        _moveCode(_itemIdFromTreeElement(active), -1);
-        setTimeout(function () { active.classList.remove("ace-code-row--reordering"); }, 300);
-      } else {
-        controller.moveItemInDirection(controller.itemIdFromTreeElement(active), -1);
       }
-      return;
-    }
-
-    // Alt+Shift+↓ — Move code down (or folder down if focused on a folder row)
-    if (key === "ArrowDown" && alt && shift) {
-      e.preventDefault();
-      if (_denyCodebookEditing()) return;
-      if (!_isFolderRow(active)) {
-        active.classList.add("ace-code-row--reordering");
-        _moveCode(_itemIdFromTreeElement(active), 1);
+      controller.moveItemInDirection(
+        controller.itemIdFromTreeElement(active), key === "ArrowUp" ? -1 : 1
+      );
+      if (codeRow) {
         setTimeout(function () { active.classList.remove("ace-code-row--reordering"); }, 300);
-      } else {
-        controller.moveItemInDirection(controller.itemIdFromTreeElement(active), 1);
       }
       return;
     }

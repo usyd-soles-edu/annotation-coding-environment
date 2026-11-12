@@ -6,6 +6,7 @@ import asyncio
 import html
 import json
 import logging
+import platform
 import re
 import secrets
 import sqlite3
@@ -143,6 +144,17 @@ def _tk_pick_files(filetypes: list[tuple[str, str]] | None = None) -> list[str]:
     paths = filedialog.askopenfilenames(filetypes=filetypes or [])
     root.destroy()
     return list(paths)
+
+
+def check_native_picker_runtime() -> None:
+    """Confirm the packaged process can load its platform's picker runtime."""
+    if platform.system() == "Darwin":
+        result = _run_osascript("return 1", timeout=10)
+        if result.returncode != 0 or result.stdout.strip() != "1":
+            raise RuntimeError("AppleScript picker runtime is unavailable")
+    else:
+        root = _tk_root()
+        root.destroy()
 
 
 def _import_done_actions(*, include_back: bool = False) -> str:
