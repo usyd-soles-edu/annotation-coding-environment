@@ -1,6 +1,7 @@
 """Tests for the coding page route."""
 
 import json
+import re
 import sqlite3
 
 import pytest
@@ -39,6 +40,19 @@ def client_with_sources(tmp_path):
         app.state.project_path = str(db_path)
         app.state.coder_id = coder_id
         yield client, coder_id
+
+
+def test_coding_shortcuts_dialog_and_shared_codebook_help(client_with_sources):
+    client, _ = client_with_sources
+    body = client.get("/code").text
+    dialog = re.search(r'<dialog[^>]*id="ace-cheat-sheet".*?</dialog>', body, re.DOTALL)
+    assert dialog is not None
+    assert 'aria-labelledby="ace-cheatsheet-title"' in dialog.group(0)
+    assert "1–9, 0, a–y" in dialog.group(0)
+    assert "q, v, x, z and n are reserved" in dialog.group(0)
+    assert "<dt>/</dt><dd>Focus codebook search</dd>" in dialog.group(0)
+    assert "<dt>V</dt><dd>View coded text</dd>" in dialog.group(0)
+    assert "Codebook editing (on the coding page)" in dialog.group(0)
 
 
 @pytest.fixture()

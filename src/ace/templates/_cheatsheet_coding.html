@@ -1,0 +1,50 @@
+<dialog id="ace-cheat-sheet" class="ace-cheatsheet-dialog"
+        aria-labelledby="ace-cheatsheet-title">
+  <header class="ace-cheatsheet-header">
+    <h2 id="ace-cheatsheet-title">Keyboard shortcuts</h2>
+    <button type="button" class="ace-cheatsheet-close"
+            id="ace-cheat-sheet-close-btn" aria-label="Close">×</button>
+  </header>
+  <div class="ace-cheatsheet-body">
+    <section>
+      <h3>Coding</h3>
+      <dl>
+        <dt>←</dt><dd>Move from source to codebook</dd>
+        <dt>↑ / ↓</dt><dd>Navigate sentences</dd>
+        <dt>→</dt><dd>Move from source to applied codes</dd>
+        <dt>Shift + ← / →</dt><dd>Previous / next source</dd>
+        <dt>1–9, 0, a–y</dt><dd>Apply code without advancing; q, v, x, z and n are reserved</dd>
+        <dt>; then two letters</dt><dd>Apply a two-key code shortcut</dd>
+        <dt>Q</dt><dd>Repeat last code</dd>
+        <dt>Delete / ⌫</dt><dd>Delete focused sentence code or choose one</dd>
+        <dt>X</dt><dd>Remove code from sentence</dd>
+        <dt>Z or Ctrl/⌘ + Z</dt><dd>Undo</dd>
+        <dt>Ctrl/⌘ + Shift + Z</dt><dd>Redo</dd>
+        <dt>Shift + F</dt><dd>Flag/unflag source</dd>
+        <dt>N</dt><dd>Open note; press N again to edit; Esc to close</dd>
+        <dt>V</dt><dd>View coded text</dd>
+      </dl>
+    </section>
+    <section>
+      <h3>Applied codes</h3>
+      <dl>
+        <dt>↑ / ↓</dt><dd>Move through applied codes</dd>
+        <dt>← / Esc</dt><dd>Return to source</dd>
+        <dt>]</dt><dd>Open / collapse applied codes</dd>
+        <dt>Delete</dt><dd>Delete the focused annotation</dd>
+      </dl>
+    </section>
+    <section>
+      <h3>Codebook</h3>
+      <dl>
+        <dt>Tab</dt><dd>Cycle source → search → tree → source</dd>
+        <dt>/</dt><dd>Focus codebook search</dd>
+      </dl>
+    </section>
+    {% include "_cheatsheet_codebook_editing.html" %}
+    <section>
+      <h3>Other</h3>
+      <dl><dt>?</dt><dd>Open this cheat sheet</dd></dl>
+    </section>
+  </div>
+</dialog>
