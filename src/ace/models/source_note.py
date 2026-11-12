@@ -80,6 +80,14 @@ def source_ids_with_notes(
     return {row["source_id"] for row in rows}
 
 
+def count_notes_for_export(conn: sqlite3.Connection, coder_id: str) -> int:
+    """Return the number of source notes available to this coder's export."""
+    row = conn.execute(
+        "SELECT COUNT(*) FROM source_note WHERE coder_id = ?", (coder_id,)
+    ).fetchone()
+    return int(row[0])
+
+
 def list_notes_for_export(
     conn: sqlite3.Connection,
     coder_id: str,

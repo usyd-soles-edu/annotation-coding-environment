@@ -384,6 +384,17 @@ async def put_source_note(
         return JSONResponse({"ok": True, "has_note": bool(note_text.strip()), "promoted": False})
 
 
+@router.head("/export/notes")
+async def export_notes_count_route(request: Request):
+    """Report the current coder's note count without starting a download."""
+    from ace.models.source_note import count_notes_for_export
+
+    coder_id = _require_coder(request)
+    with _project_db(request) as conn:
+        count = count_notes_for_export(conn, coder_id)
+    return Response(headers={"X-ACE-Notes-Count": str(count)})
+
+
 @router.get("/export/notes")
 async def export_notes_route(request: Request):
     """Export all source notes for the current coder as a CSV download."""

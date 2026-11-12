@@ -178,9 +178,9 @@ function _scheduleNoteSave() {
 function _doSaveNote() {
   _noteSaveTimer = null;
   const { textarea } = _noteEls();
-  if (!textarea) return Promise.resolve();
+  if (!textarea) return Promise.resolve(true);
   const sourceId = textarea.getAttribute("data-source-id");
-  if (!sourceId) return Promise.resolve();
+  if (!sourceId) return Promise.resolve(true);
   const text = textarea.value;
   const generation = (_noteSaveGenerations.get(sourceId) || 0) + 1;
   _noteSaveGenerations.set(sourceId, generation);
@@ -196,7 +196,7 @@ function _doSaveNote() {
     if (ct.indexOf("application/json") !== -1) return resp.json();
     return { has_note: !!text.trim() };
   }).then(function (data) {
-    if (_noteSaveGenerations.get(sourceId) !== generation) return;
+    if (_noteSaveGenerations.get(sourceId) !== generation) return true;
     if (typeof window._aceSetSourceNote === "function") {
       window._aceSetSourceNote(sourceId, data.has_note);
     }
@@ -213,8 +213,9 @@ function _doSaveNote() {
         _setNoteStatus("Saved", false);
       }
     }
-  }).catch(function (err) {
-    if (err.name === "AbortError") return;
+    return true;
+  }).catch(function () {
+    return false;
   });
   _noteInFlight = promise;
   return promise;
@@ -229,7 +230,7 @@ function aceFlushNoteIfDirty() {
     return _doSaveNote();
   }
   if (_noteInFlight) return _noteInFlight;
-  return Promise.resolve();
+  return Promise.resolve(true);
 }
 window.aceFlushNoteIfDirty = aceFlushNoteIfDirty;
 
