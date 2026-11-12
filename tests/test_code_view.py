@@ -328,6 +328,7 @@ def test_code_view_has_cheatsheet_dialog(client_with_annotations):
     assert "Move between columns" in dialog
     assert "Move cursor" in dialog
     assert "pin / unpin" in dialog.lower()
+    assert "Codebook editing (on the coding page)" in dialog
 
 
 class TestViewDataJsonEndpoint:

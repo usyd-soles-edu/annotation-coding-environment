@@ -262,7 +262,6 @@ document.addEventListener("keydown", function (e) {
   if (typeof window.aceIsChordAwaiting === "function" && window.aceIsChordAwaiting()) return;
   if (e.key !== "Escape") return;
   if (!_isDrawerOpen()) return;
-  if (document.getElementById("ace-cheat-sheet")) return;
   if (document.querySelector("dialog[open]")) return;
   e.preventDefault();
   if (_isEditing()) {

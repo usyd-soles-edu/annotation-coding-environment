@@ -487,6 +487,12 @@
     _setStatus("No code for ;" + chord, "err");
   }
 
+  // Keep coding shortcuts behind the modal. Native Tab, Enter and Escape still
+  // perform their dialog defaults because propagation is stopped, not default.
+  document.addEventListener("keydown", function (evt) {
+    if (document.getElementById("ace-cheat-sheet")?.open) evt.stopImmediatePropagation();
+  }, true);
+
   document.addEventListener("keydown", function (evt) {
     if (!document.getElementById("text-panel")) return;
     if (evt.target.matches("input, textarea, select, [contenteditable='true']")) return;
@@ -766,9 +772,6 @@
 
     // Escape cascade
     if (key === "Escape") {
-      const cheatSheet = document.getElementById("ace-cheat-sheet");
-      if (cheatSheet) { cheatSheet.remove(); return; }
-
       const dialog = document.querySelector("dialog[open]");
       if (dialog) { dialog.close(); return; }
 
@@ -876,63 +879,23 @@
    * ================================================================ */
 
   function _toggleCheatSheet() {
-    const existing = document.getElementById("ace-cheat-sheet");
-    if (existing) { existing.remove(); return; }
-
-    const overlay = document.createElement("div");
-    overlay.id = "ace-cheat-sheet";
-    overlay.style.cssText = "position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);";
-
-    const card = document.createElement("div");
-    card.style.cssText = "background:var(--ace-bg,#fff);border:1px solid var(--ace-border,#bdbdbd);padding:24px 32px;max-width:520px;width:90%;max-height:80vh;overflow-y:auto;font-size:13px;line-height:1.6;";
-
-    card.innerHTML =
-      '<h3 style="margin:0 0 12px;font-size:15px;font-weight:600;">Keyboard shortcuts</h3>' +
-      '<table style="width:100%;border-collapse:collapse;">' +
-      _shortcutRow("←", "Move from source to codebook") +
-      _shortcutRow("↑ / ↓", "Navigate sentences") +
-      _shortcutRow("→", "Move from source to applied codes") +
-      _shortcutRow("Shift + ← / →", "Previous / next source") +
-      _shortcutRow("1 – 9, 0, a–y (not q v x z n)", "Apply code") +
-      _shortcutRow("; then two letters", "Apply a two-key shortcut") +
-      _shortcutRow("Q", "Repeat last code") +
-      _shortcutRow("Delete / ⌫", "Delete focused sentence code or choose one") +
-      _shortcutRow("X", "Remove code from sentence") +
-      _shortcutRow("Z", "Undo") +
-      _shortcutRow("Ctrl/⌘ + Z", "Undo") +
-      _shortcutRow("Ctrl/⌘ + Shift + Z", "Redo") +
-      _shortcutRow("Shift + F", "Flag/unflag source") +
-      _shortcutRow("N", "Open note · press N again to edit · Esc to close") +
-      _shortcutRow("V", "View coded text") +
-      _shortcutRow("Applied ↑ / ↓", "Move through applied codes") +
-      _shortcutRow("Applied ← / Esc", "Return to source") +
-      _shortcutRow("]", "Open / collapse applied codes") +
-      _shortcutRow("Applied Delete", "Delete the focused annotation") +
-      _shortcutRow("Tab", "Cycle source → search → tree → source") +
-      _shortcutRow("/", "Focus codebook search") +
-      _shortcutRow("⌥ + →", "Move item into the folder above") +
-      _shortcutRow("⌥ + ⇧ + →", "Wrap two sibling codes into a new folder") +
-      _shortcutRow("⌥ + ←", "Move item out one folder level") +
-      _shortcutRow("⌘/Ctrl + X", "Cut focused item") +
-      _shortcutRow("⌘/Ctrl + V", "Paste cut item into focused folder/row") +
-      _shortcutRow("Shift + F10 / Menu", "Open codebook item actions") +
-      _shortcutRow("Shift + Enter (in filter)", "Create new folder at root") +
-      _shortcutRow("F2", "Rename code or folder (in sidebar)") +
-      _shortcutRow("Codebook Delete / ⌫", "Delete code or folder (Z to undo)") +
-      _shortcutRow("?", "Toggle this cheat sheet") +
-      _shortcutRow("Esc", "Codebook → source · cancel cut · clear filter") +
-      "</table>";
-
-    overlay.appendChild(card);
-    document.body.appendChild(overlay);
-    overlay.addEventListener("click", function (e) {
-      if (e.target === overlay) overlay.remove();
-    });
+    const dialog = document.getElementById("ace-cheat-sheet");
+    if (!dialog || dialog.open) return;
+    const opener = document.activeElement;
+    dialog.__opener = opener;
+    dialog.showModal();
   }
 
-  function _shortcutRow(key, desc) {
-    return `<tr style="border-bottom:1px solid var(--ace-border-light,#e0e0e0);"><td style="padding:4px 12px 4px 0;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:12px;white-space:nowrap;color:var(--ace-text-muted,#777);">${key}</td><td style="padding:4px 0;">${desc}</td></tr>`;
-  }
+  document.addEventListener("click", function (event) {
+    if (event.target.closest("#ace-cheat-sheet-close-btn")) {
+      document.getElementById("ace-cheat-sheet")?.close();
+    }
+  });
+  document.getElementById("ace-cheat-sheet")?.addEventListener("close", function () {
+    const opener = this.__opener;
+    if (opener?.isConnected && !opener.closest("[hidden]")) opener.focus();
+    this.__opener = null;
+  });
 
   /* ================================================================
    * 9. Resize handle
@@ -4944,6 +4907,7 @@
     // Keyboard shortcuts (absorbed from the old `?` button)
     if (e.target.closest("#codebook-menu-shortcuts-btn")) {
       _setCodebookMenuOpen(false);
+      document.getElementById("codebook-menu-btn")?.focus();
       _toggleCheatSheet();
       return;
     }
