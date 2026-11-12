@@ -2538,42 +2538,6 @@
     });
   }
 
-  function _moveCode(codeId, direction) {
-    if (_denyCodebookEditing()) return;
-    const controller = _getSidebarTreeController();
-    if (controller && typeof controller.moveItemInDirection === "function") {
-      const row = _findCodebookItemRow(codeId);
-      if (row && controller.rootElement && controller.rootElement()?.contains(row)) {
-        controller.moveItemInDirection(codeId, direction);
-        return;
-      }
-    }
-    const row = document.querySelector(`.ace-code-row[data-code-id="${codeId}"]`);
-    const container = row ? row.parentElement : null;
-    if (!row || !container) return;
-
-    function isSiblingItem(el) {
-      return el && el.classList && el.classList.contains("ace-code-row");
-    }
-
-    if (direction === -1) {
-      let prev = row.previousElementSibling;
-      while (prev && !isSiblingItem(prev)) prev = prev.previousElementSibling;
-      if (!prev) return;
-      container.insertBefore(row, prev);
-    } else {
-      let next = row.nextElementSibling;
-      while (next && !isSiblingItem(next)) next = next.nextElementSibling;
-      if (!next) return;
-      container.insertBefore(row, next.nextElementSibling);
-    }
-    _persistScopeOrder(container);
-  }
-
-  // _moveToGroup was removed: PUT /api/codes/{id} no longer accepts
-  // `group_name` (v7 dropped that column in favour of parent_id). Code/folder
-  // re-parenting will be wired in Task 9 against PUT /api/codes/{id}/parent.
-
   let _isDragging = false;
 
   function _initSortable() {
@@ -4300,30 +4264,19 @@
     const alt = e.altKey;
     const shift = e.shiftKey;
 
-    // Alt+Shift+↑ — Move code up (or folder up if focused on a folder row)
-    if (key === "ArrowUp" && alt && shift) {
+    // Alt+Shift+↑/↓ — Reorder the focused code or folder.
+    if ((key === "ArrowUp" || key === "ArrowDown") && alt && shift) {
       e.preventDefault();
       if (_denyCodebookEditing()) return;
-      if (!_isFolderRow(active)) {
+      const codeRow = !_isFolderRow(active);
+      if (codeRow) {
         active.classList.add("ace-code-row--reordering");
-        _moveCode(_itemIdFromTreeElement(active), -1);
-        setTimeout(function () { active.classList.remove("ace-code-row--reordering"); }, 300);
-      } else {
-        controller.moveItemInDirection(controller.itemIdFromTreeElement(active), -1);
       }
-      return;
-    }
-
-    // Alt+Shift+↓ — Move code down (or folder down if focused on a folder row)
-    if (key === "ArrowDown" && alt && shift) {
-      e.preventDefault();
-      if (_denyCodebookEditing()) return;
-      if (!_isFolderRow(active)) {
-        active.classList.add("ace-code-row--reordering");
-        _moveCode(_itemIdFromTreeElement(active), 1);
+      controller.moveItemInDirection(
+        controller.itemIdFromTreeElement(active), key === "ArrowUp" ? -1 : 1
+      );
+      if (codeRow) {
         setTimeout(function () { active.classList.remove("ace-code-row--reordering"); }, 300);
-      } else {
-        controller.moveItemInDirection(controller.itemIdFromTreeElement(active), 1);
       }
       return;
     }
