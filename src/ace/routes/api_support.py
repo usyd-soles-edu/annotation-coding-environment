@@ -1058,6 +1058,7 @@ def _render_full_coding_oob(
     include_sidebar: bool = True,
     open_note_drawer: bool = False,
     client_source_snapshot: str | None = None,
+    global_context: dict | None = None,
 ) -> str:
     """Render all coding swap zones with text-panel as the primary target.
 
@@ -1071,7 +1072,10 @@ def _render_full_coding_oob(
 
     templates = request.app.state.templates
     project_path = request.app.state.project_path
-    ctx = _coding_context(conn, coder_id, target_index, project_path=project_path)
+    ctx = _coding_context(
+        conn, coder_id, target_index, project_path=project_path,
+        global_context=global_context,
+    )
     ctx["request"] = request
     ctx["open_note_drawer"] = open_note_drawer
     refresh_version = request.headers.get("x-ace-counts-dirty", "")

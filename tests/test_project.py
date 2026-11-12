@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from ace.app import create_app
 from ace.db.connection import create_project, open_project
 from ace.db.schema import SCHEMA_VERSION
+from ace.models.project import list_coders
+from ace.models.source import add_source
 
 
 @pytest.fixture()
@@ -229,6 +231,51 @@ def test_create_project_overwrite_confirmed(client, app, tmp_project, tmp_path):
     assert not wal_path.exists()
     assert not shm_path.exists()
     assert _replacement_sidecar_backups(tmp_project) == []
+
+
+def test_overwrite_closes_navigation_observer_before_replacing_project(
+    client, app, tmp_project, monkeypatch
+):
+    conn = open_project(tmp_project)
+    coder_id = list_coders(conn)[0]["id"]
+    add_source(conn, "S1", "One source.", "row")
+    conn.close()
+    app.state.project_path = str(tmp_project)
+    app.state.coder_id = coder_id
+    navigation = client.post(
+        "/api/navigation",
+        data={"from_index": 0, "to_index": 0},
+        headers={"HX-Request": "true"},
+    )
+    assert navigation.status_code == 200
+    assert app.state.coding_context_cache._observer is not None
+
+    from ace.routes import api_project_import
+
+    real_quarantine = api_project_import._quarantine_sqlite_sidecars
+
+    def checked_quarantine(path):
+        assert app.state.coding_context_cache._observer is None
+        return real_quarantine(path)
+
+    monkeypatch.setattr(
+        "ace.routes.api_project_import._quarantine_sqlite_sidecars",
+        checked_quarantine,
+    )
+    real_replace = os.replace
+
+    def checked_replace(source, target):
+        if Path(target) == tmp_project:
+            assert app.state.coding_context_cache._observer is None
+        real_replace(source, target)
+
+    monkeypatch.setattr("ace.routes.api_project_import.os.replace", checked_replace)
+    replacement = client.post(
+        "/api/project/create",
+        data={"name": "Replacement", "path": str(tmp_project), "overwrite": "true"},
+    )
+    assert replacement.status_code == 200
+    assert app.state.coding_context_cache._observer is None
 
 
 def test_create_project_overwrite_preserves_original_when_creation_fails(

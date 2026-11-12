@@ -30,7 +30,7 @@
 - **Audit review** — keep rapid code navigation on the latest selection and make shortcut help visible in the header.
 - **Audit layout** — resize the codebook with the keyboard, using the same divider behaviour and saved width as the coding screen.
 - **Coding controls** — keep source actions visible while scrolling, show flag and note state on the source map, and avoid redrawing every sentence after annotation-only actions or same-source annotation undo and redo.
-- **Large coding projects** — update only the affected source and code counts after annotation changes, then refresh all counts when another tab has changed the project.
+- **Large coding projects** — update only affected source and code counts after annotation changes, and reuse project-wide navigation data until the project changes in this or another runtime.
 - **Long highlights** — keep highlight painting responsive across sources with many text lines.
 - **Codebook actions** — make context menus keyboard accessible, show the create-code shortcut, warn before turning a code into a folder, keep the codebook visible during chord shortcuts, and keep the colour picker within the window.
 - **Shortcut help** — explain two-letter code shortcuts, unify help dialogs, and clarify that applying a code stays on the current sentence.
