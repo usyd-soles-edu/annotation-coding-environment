@@ -1946,6 +1946,8 @@ def test_reorder_in_scope_returns_text_panel_and_sidebar(client_with_codes):
     assert 'id="text-panel"' in r.text
     assert 'id="code-sidebar"' in r.text
     assert 'hx-swap-oob' in r.text
+    assert 'class="ace-statusbar-event ace-statusbar-event--ok"' in r.text
+    assert '>Saved</span>' in r.text
 
 
 def test_audit_mode_reorder_in_scope_returns_audit_sidebar_only(client_with_codes):
@@ -2100,6 +2102,7 @@ def test_reorder_in_scope_invalid_json_returns_oob_status(client_with_codes):
     )
     assert r.status_code == 200
     assert "Invalid code_ids format" in r.text
+    assert '>Saved</span>' not in r.text
 
 
 def test_create_code_palette_unaffected_by_folder_count(client_with_codes):
