@@ -2931,6 +2931,21 @@
           row.classList.toggle("ace-code-row--ghost", row.dataset.itemId === cutItemId);
         });
       }
+      function pasteCutItem(targetId) {
+        const sourceId = cutItemId;
+        if (!sourceId || targetId === sourceId || codebookEditingDisabled()) return;
+        return htmxSwap("POST", "/api/codes/cut-paste", {
+          code_id: sourceId,
+          target_id: targetId || "",
+          current_index: currentIndex()
+        });
+      }
+      document.addEventListener("htmx:afterRequest", function(event) {
+        const detail = event.detail;
+        if (!detail?.successful || detail.requestConfig?.path !== "/api/codes/cut-paste" || detail.requestConfig.parameters?.code_id !== cutItemId) return;
+        setCutItemId(null);
+        window._setStatus?.("", "ok");
+      });
       function setCodeCounts(counts) {
         Object.entries(items).forEach(function([id, data]) {
           if (data.kind !== "code") return;
@@ -2997,6 +3012,7 @@
           return cutItemId;
         },
         setCutItemId,
+        pasteCutItem,
         setCodeCounts,
         patchCodeCount,
         mutationContext: codebookMutationContext,
