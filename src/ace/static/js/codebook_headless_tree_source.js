@@ -26,7 +26,7 @@ import {
   let suppressNextRefocus = false;
   let searchRaw = "";
   let searchText = "";
-  let chordFilterActive = false;
+  let chordHighlightActive = false;
   let chordHintShown = false;
   let cutItemId = null;
   const RESERVED_SINGLE_KEYS = new Set(["q", "x", "z", "n", "v"]);
@@ -129,21 +129,11 @@ import {
     return childrenOf(id).some(itemMatchesSearch);
   }
 
-  function itemMatchesChordFilter(id) {
-    if (!chordFilterActive) return true;
-    const item = itemData(id);
-    if (!item) return false;
-    if (item.kind === "code") return !!item.chord;
-    return childrenOf(id).some(itemMatchesChordFilter);
-  }
-
   function visibleTreeItems() {
     const current = tree.getItems();
-    if (!searchText && !chordFilterActive) return current;
+    if (!searchText || chordHighlightActive) return current;
     return current.filter(function (item) {
-      const id = item.getId();
-      if (chordFilterActive) return itemMatchesChordFilter(id);
-      return itemMatchesSearch(id);
+      return itemMatchesSearch(item.getId());
     });
   }
 
@@ -708,7 +698,7 @@ import {
 
   function availableCreateActions() {
     const name = searchRaw.trim();
-    if (!name || chordFilterActive || codebookEditingDisabled() || firstVisibleCodeItem()) return [];
+    if (!name || chordHighlightActive || codebookEditingDisabled() || firstVisibleCodeItem()) return [];
 
     const actions = [];
     if (!findDuplicateName("code", name)) {
@@ -1307,11 +1297,12 @@ import {
       return active?.getAttribute("data-kind") === "code" ? active : null;
     }
 
-    function setChordFilter(active) {
+    function setChordHighlight(active) {
       const next = !!active;
-      if (chordFilterActive === next) return;
-      chordFilterActive = next;
-      scheduleRender();
+      if (chordHighlightActive === next) return;
+      chordHighlightActive = next;
+      if (searchText) scheduleRender();
+      else renderCreateActions();
     }
 
     function setCutItemId(id) {
@@ -1366,7 +1357,7 @@ import {
       startRenaming,
       firstCodeItem,
       activeCodeItem,
-      setChordFilter,
+      setChordHighlight,
       setCutItemId,
       setCodeCounts,
     };
