@@ -84,11 +84,12 @@ def test_export_notes_feedback_matches_download(tmp_path, engine):
                         window.__aceExportStatuses.push(status.textContent);
                     }).observe(status, {childList: true, characterData: true, subtree: true});
                 }""")
-                with page.expect_response(
+                with page.expect_download() as download_info, page.expect_response(
                     lambda response: response.url.endswith("/api/export/notes")
                     and response.request.method == "GET"
                 ) as info:
                     page.locator("#export-notes-btn").click()
+                assert download_info.value.suggested_filename.endswith(".csv")
                 assert info.value.ok
                 assert "attachment" in info.value.headers["content-disposition"]
                 assert ".csv" in info.value.headers["content-disposition"]
