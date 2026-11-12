@@ -25,7 +25,7 @@ let _previouslyFocused = null;
 // #13: a dirty note edit captured before an inspector OOB swap so it can be
 // restored after — see the beforeSwap/afterSettle pair below.
 let _pendingNoteRestore = null;
-const LONG_NOTE_WARNING = "Long note (over 5,000 characters)";
+const LONG_NOTE_WARNING = "Long note (over 5,000 characters). Shorter notes are easier to scan.";
 
 function _noteEls() {
   return {
