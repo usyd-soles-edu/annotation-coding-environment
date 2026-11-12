@@ -5,6 +5,7 @@ import json
 import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -94,6 +95,127 @@ def test_import_file_path_shows_three_column_mapping(client_with_project):
     assert "feedback" in resp.text
     assert 'aria-label="Show another random source"' in resp.text
     assert "&#x21BB;" in resp.text
+
+
+def test_slow_preview_scan_does_not_block_other_requests(client_with_project, monkeypatch):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "large.csv"
+    csv_path.write_text("id,text\nA,First\n", encoding="utf-8")
+    started = threading.Event()
+    release = threading.Event()
+    original_scan = importer.scan_tabular_preview
+
+    def held_scan(path):
+        started.set()
+        assert release.wait(5), "preview scan was not released"
+        return original_scan(path)
+
+    monkeypatch.setattr(importer, "scan_tabular_preview", held_scan)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        preview = pool.submit(client.post, "/api/import/file", data={"path": str(csv_path)})
+        assert started.wait(2)
+        other_request = pool.submit(client.get, "/import")
+        try:
+            assert other_request.result(timeout=1).status_code == 200
+        except FutureTimeout:
+            pytest.fail("a preview scan blocked the app's request loop")
+        finally:
+            release.set()
+        assert preview.result(timeout=5).status_code == 200
+
+
+def test_late_preview_cannot_replace_a_newer_file(client_with_project, monkeypatch):
+    client, tmp_path = client_with_project
+    first_path = tmp_path / "first.csv"
+    second_path = tmp_path / "second.csv"
+    first_path.write_text("id,text\nA,First\n", encoding="utf-8")
+    second_path.write_text("id,text\nB,Second\n", encoding="utf-8")
+    started = threading.Event()
+    release = threading.Event()
+    original_scan = importer.scan_tabular_preview
+
+    def held_first_scan(path):
+        if path == first_path:
+            started.set()
+            assert release.wait(5), "first preview scan was not released"
+        return original_scan(path)
+
+    monkeypatch.setattr(importer, "scan_tabular_preview", held_first_scan)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(client.post, "/api/import/file", data={"path": str(first_path)})
+        assert started.wait(2)
+        second = pool.submit(client.post, "/api/import/file", data={"path": str(second_path)})
+        try:
+            second_response = second.result(timeout=2)
+            assert second_response.status_code == 200
+            token = client.app.state.import_stage_token
+        finally:
+            release.set()
+        assert first.result(timeout=5).status_code == 409
+    assert client.app.state.import_tmp_path == str(second_path)
+    assert client.app.state.import_stage_token == token
+
+
+def test_project_switch_invalidates_inflight_preview(client_with_project, monkeypatch):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "first.csv"
+    csv_path.write_text("id,text\nA,First\n", encoding="utf-8")
+    other_project = tmp_path / "other.ace"
+    create_project(str(other_project), "Other project").close()
+    started = threading.Event()
+    release = threading.Event()
+    original_scan = importer.scan_tabular_preview
+
+    def held_scan(path):
+        started.set()
+        assert release.wait(5), "preview scan was not released"
+        return original_scan(path)
+
+    monkeypatch.setattr(importer, "scan_tabular_preview", held_scan)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        preview = pool.submit(client.post, "/api/import/file", data={"path": str(csv_path)})
+        assert started.wait(2)
+        switched = pool.submit(client.post, "/api/project/open", data={"path": str(other_project)})
+        try:
+            assert switched.result(timeout=2).status_code == 200
+        finally:
+            release.set()
+        assert preview.result(timeout=5).status_code == 409
+    assert client.app.state.project_path == str(other_project)
+    assert client.app.state.import_stage_token is None
+
+
+def test_folder_selection_invalidates_inflight_spreadsheet_preview(
+    client_with_project, monkeypatch
+):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "responses.csv"
+    csv_path.write_text("id,text\nA,First\n", encoding="utf-8")
+    folder = tmp_path / "responses"
+    folder.mkdir()
+    (folder / "one.txt").write_text("Folder source", encoding="utf-8")
+    started = threading.Event()
+    release = threading.Event()
+    original_scan = importer.scan_tabular_preview
+
+    def held_scan(path):
+        started.set()
+        assert release.wait(5), "spreadsheet preview was not released"
+        return original_scan(path)
+
+    monkeypatch.setattr(importer, "scan_tabular_preview", held_scan)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        spreadsheet = pool.submit(client.post, "/api/import/file", data={"path": str(csv_path)})
+        assert started.wait(2)
+        folder_preview = pool.submit(client.post, "/api/import/folder", data={"path": str(folder)})
+        try:
+            response = folder_preview.result(timeout=2)
+            assert response.status_code == 200
+            assert "ace-folder-preview-workspace" in response.text
+        finally:
+            release.set()
+        assert spreadsheet.result(timeout=5).status_code == 409
+    assert client.app.state.import_stage_token is None
 
 
 def test_single_column_import_explains_how_to_enable_import(client_with_project):
