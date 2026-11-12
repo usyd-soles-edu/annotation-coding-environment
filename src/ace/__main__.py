@@ -20,7 +20,17 @@ def main():
         action="store_true",
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--check-native-picker",
+        action="store_true",
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args()
+    if args.check_native_picker:
+        from ace.routes.api_support import check_native_picker_runtime
+
+        check_native_picker_runtime()
+        return
     run(
         port=args.port,
         parent_pid=args.parent_pid,

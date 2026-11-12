@@ -101,6 +101,20 @@ def smoke() -> None:
             "ACE_TEST_IDLE_TIMEOUT": "60",
         })
 
+        picker_check = subprocess.run(
+            [str(sidecar), "--check-native-picker"],
+            cwd=temp,
+            env=child_env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if picker_check.returncode != 0:
+            raise RuntimeError(
+                "Packaged server cannot load native picker runtime: "
+                f"{picker_check.stderr.strip()}"
+            )
+
         port: int | None = None
         pid: int | None = None
         opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
