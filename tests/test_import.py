@@ -88,6 +88,19 @@ def test_import_file_path_shows_three_column_mapping(client_with_project):
     assert "&#x21BB;" in resp.text
 
 
+def test_single_column_import_explains_how_to_enable_import(client_with_project):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "one-column.csv"
+    csv_path.write_text("response\nFirst answer\nSecond answer\n", encoding="utf-8")
+
+    resp = client.post("/api/import/file", data={"path": str(csv_path)})
+
+    assert resp.status_code == 200
+    assert "Tick this column below to use it as coding text too." in resp.text
+    assert 'id="import-submit" disabled' in resp.text
+    assert 'data-import-text-col value="response"' in resp.text
+
+
 def test_import_commit(client_with_project):
     """Import with selected columns creates sources."""
     client, tmp_path = client_with_project

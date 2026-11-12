@@ -685,6 +685,10 @@ def _build_import_mapping_fragment(
     )
 
     import_label = f"Import {n_rows:,} source{'s' if n_rows != 1 else ''}"
+    text_step_hint = (
+        "Tick this column below to use it as coding text too."
+        if n_cols == 1 else "Choose text columns."
+    )
 
     return f"""
     <h1 class="ace-wizard-title" tabindex="-1">Choose source labels and coding text</h1>
@@ -713,7 +717,7 @@ def _build_import_mapping_fragment(
         <section class="ace-import-card ace-import-card--text">
           <div class="ace-import-card-head">
             <strong>2. Text to code</strong>
-            <span>Choose text columns.</span>
+            <span>{text_step_hint}</span>
           </div>
           <div class="ace-import-toolbar">
             <input class="ace-import-search" value="" placeholder="Filter columns" aria-label="Filter columns">
