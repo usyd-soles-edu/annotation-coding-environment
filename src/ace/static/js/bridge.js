@@ -1066,100 +1066,10 @@
    * ================================================================ */
 
   function _initResize() {
-    const handle = document.getElementById("resize-handle");
-    if (!handle) return;
-    const split = handle.closest(".ace-three-col");
-    if (!split) return;
-
-    let dragging = false;
-    const DEFAULT_PX = 360;
-    const MIN_PX = 150;
-    const KEY_STEP_PX = 24;
-
-    function _maxPx() {
-      const vw = document.documentElement.clientWidth;
-      const splitW = split.getBoundingClientRect().width;
-      const base = Math.min(vw || splitW, splitW || vw);
-      return Math.max(MIN_PX, Math.floor((base || DEFAULT_PX) * 0.4));
-    }
-
-    function _clampPx(px) {
-      return Math.max(MIN_PX, Math.min(_maxPx(), px));
-    }
-
-    function _currentPx() {
-      return parseInt(
-        getComputedStyle(document.documentElement).getPropertyValue("--ace-sidebar-width"),
-        10,
-      ) || DEFAULT_PX;
-    }
-
-    function _syncAria(px) {
-      handle.setAttribute("aria-valuemin", String(MIN_PX));
-      handle.setAttribute("aria-valuemax", String(_maxPx()));
-      handle.setAttribute("aria-valuenow", String(Math.round(px)));
-      handle.setAttribute("aria-valuetext", Math.round(px) + " pixels");
-    }
-
-    function _setWidth(px, persist) {
-      const clamped = _clampPx(px);
-      document.documentElement.style.setProperty("--ace-sidebar-width", clamped + "px");
-      _syncAria(clamped);
-      if (persist) localStorage.setItem("ace-sidebar-width", String(Math.round(clamped)));
-      return clamped;
-    }
-
-    handle.addEventListener("pointerdown", function (e) {
-      e.preventDefault();
-      handle.setPointerCapture(e.pointerId);
-      dragging = true;
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    });
-
-    document.addEventListener("pointermove", function (e) {
-      if (!dragging) return;
-      const rect = split.getBoundingClientRect();
-      _setWidth(e.clientX - rect.left, false);
-    });
-
-    document.addEventListener("pointerup", function () {
-      if (!dragging) return;
-      dragging = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      _setWidth(_currentPx(), true);
-    });
-
-    function _resetWidth() {
-      try { localStorage.removeItem("ace-sidebar-width"); } catch (_) {}
-      _setWidth(DEFAULT_PX, false);
-    }
-    handle.addEventListener("dblclick", _resetWidth);
-    document.addEventListener("click", function (e) {
-      if (e.target.closest("#ace-layout-reset-btn")) _resetWidth();
-    });
-
-    handle.addEventListener("keydown", function (e) {
-      if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-      const delta = e.key === "ArrowRight" ? KEY_STEP_PX : -KEY_STEP_PX;
-      _setWidth(_currentPx() + delta, true);
-      e.preventDefault();
-    });
-
-    // Re-clamp on viewport resize (mirrors the drag's 40% cap above) so
-    // shrinking the window never re-crushes the text — a width saved on a
-    // large monitor is clamped down here, and grows back if the window
-    // widens. Re-derives from the saved value each time; skipped during a
-    // drag. Runs once now to refine the pre-CSS restore (which used
-    // innerWidth as an approximation).
-    function clampToViewport() {
-      if (dragging) return;
-      const saved = parseInt(localStorage.getItem("ace-sidebar-width") || "360", 10) || 360;
-      _setWidth(saved, false);
-    }
-    window.addEventListener("resize", clampToViewport);
-    clampToViewport();
+    window.ACE_RESIZE.initSidebar(
+      document.getElementById("resize-handle"),
+      document.getElementById("three-col"),
+    );
   }
 
   function _initGridResize() {

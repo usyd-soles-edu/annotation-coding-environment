@@ -28,6 +28,7 @@
 - **Codebook editing** — warn when another ACE tab is open so edits in separate tabs do not silently overwrite one another.
 - **Agreement results** — sort columns and expand guidance with the keyboard, with sort direction announced to assistive technology.
 - **Audit review** — keep rapid code navigation on the latest selection and make shortcut help visible in the header.
+- **Audit layout** — resize the codebook with the keyboard, using the same divider behaviour and saved width as the coding screen.
 - **Coding controls** — keep source actions visible while scrolling, show flag and note state on the source map, and avoid redrawing every sentence after annotation-only actions or same-source annotation undo and redo.
 - **Large coding projects** — update only the affected source and code counts after annotation changes, then refresh all counts when another tab has changed the project.
 - **Long highlights** — keep highlight painting responsive across sources with many text lines.

@@ -36,9 +36,11 @@
   </aside>
   {% endblock %}
 
-  <div class="cv-resize-handle" id="cv-resize-handle"
+  <div class="ace-resize-handle cv-resize-handle" id="cv-resize-handle"
        role="separator" aria-orientation="vertical"
-       aria-label="Resize codebook sidebar (double-click to reset)"></div>
+       aria-label="Resize codebook sidebar" aria-controls="code-sidebar"
+       aria-valuemin="150" aria-valuemax="640" aria-valuenow="360"
+       aria-valuetext="360 pixels" tabindex="0"></div>
 
   <main class="cv-main">
     <header class="cv-header">

@@ -26,6 +26,8 @@ The view has three areas:
 - source tracks in the middle
 - excerpts on the right
 
+To resize the codebook, drag the divider or focus it and press `Left` or `Right`. `Home` and `End` move it to its minimum and maximum widths; double-click the divider to reset it.
+
 The header shows how many excerpts use the selected code and how many sources contain it.
 
 Select **? Shortcuts** in the header to open the audit view's keyboard guide. Press `?` to open the same guide from the keyboard.

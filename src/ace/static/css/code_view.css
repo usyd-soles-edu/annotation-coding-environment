@@ -50,27 +50,8 @@
   background: var(--ace-bg);
 }
 
-/* Resize handle — same behaviour as coding.css .ace-resize-handle */
 .cv-resize-handle {
-  width: 8px;
-  margin-left: -4px;
-  margin-right: -3px;
-  cursor: col-resize;
-  position: relative;
   z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.cv-resize-handle::after {
-  content: '';
-  width: 1px;
-  height: 100%;
-  background: var(--ace-border);
-}
-.cv-resize-handle:hover::after {
-  width: 3px;
-  background: var(--ace-focus);
 }
 /* Sidebar itself is styled by coding.css. The viewed code row opts into the
    shared headless codebook state via .ace-ht-row--current. */
