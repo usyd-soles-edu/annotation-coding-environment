@@ -177,6 +177,7 @@ def _clear_folder_import_manifests(request: Request) -> None:
 
 def _clear_tabular_import_stage(request: Request) -> None:
     """Invalidate a file preview and remove only app-owned temporary uploads."""
+    request.app.state.import_preview_request_id = None
     job = getattr(request.app.state, "tabular_import_job", None)
     defer_upload_cleanup = (
         job is not None
@@ -456,7 +457,11 @@ async def import_file_path(request: Request, path: str = Form(...)):
     file_path = _native_selection_path(path)
     if not file_path.exists() or file_path.suffix.lower() not in {".csv", ".xlsx"}:
         return _oob_status("Choose a CSV or Excel file.")
-    return _parse_tabular_for_mapping(
+    active_job = getattr(request.app.state, "tabular_import_job", None)
+    if active_job is not None and not active_job.done.is_set():
+        return _oob_status("An import is already running. Wait or cancel it first.")
+    _clear_tabular_import_stage(request)
+    return await _parse_tabular_for_mapping(
         request, file_path, cleanup=False, filename=file_path.name
     )
 
