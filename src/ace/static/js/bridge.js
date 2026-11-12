@@ -2410,16 +2410,7 @@
   }
 
   function _setCut(codeId) {
-    const previousId = _getCutCode();
-    if (previousId) {
-      const old = _findCodebookItemRow(previousId);
-      if (old) old.classList.remove("ace-code-row--ghost");
-    }
     _cutStateController()?.setCutItemId?.(codeId);
-    if (codeId) {
-      const row = _findCodebookItemRow(codeId);
-      if (row) row.classList.add("ace-code-row--ghost");
-    }
   }
 
   let _activeColourPopover = null;
@@ -2772,40 +2763,12 @@
     });
   }
 
-  /** Paste the cut item onto a code row (target_id is a code id). */
-  function _pasteCodeInto(targetId) {
+  /** Paste the cut item onto a code, folder, or the root scope. */
+  function _pasteCutInto(targetId) {
     if (_denyCodebookEditing()) return;
     const cutId = _getCutCode();
-    if (!cutId || !targetId || targetId === cutId) return;
-    htmx.ajax("POST", "/api/codes/cut-paste", {
-      ..._codebookMutationSwapOptions(),
-      values: _codebookMutationValues({
-        code_id: cutId,
-        target_id: targetId,
-        current_index: window.__aceCurrentIndex || 0,
-      }),
-    }).then(function () {
-      _setCut(null);
-      window._setStatus("", "ok");
-    });
-  }
-
-  /** Paste the cut item into a folder (target_id is a folder id; "" = root). */
-  function _pasteCodeIntoFolder(folderId) {
-    if (_denyCodebookEditing()) return;
-    const cutId = _getCutCode();
-    if (!cutId) return;
-    htmx.ajax("POST", "/api/codes/cut-paste", {
-      ..._codebookMutationSwapOptions(),
-      values: _codebookMutationValues({
-        code_id: cutId,
-        target_id: folderId || "",
-        current_index: window.__aceCurrentIndex || 0,
-      }),
-    }).then(function () {
-      _setCut(null);
-      window._setStatus("", "ok");
-    });
+    if (!cutId || targetId === cutId) return;
+    _cutStateController()?.pasteCutItem?.(targetId);
   }
 
   function _convertCodeToFolder(codeId) {
@@ -2915,7 +2878,7 @@
       label: "Paste here",
       shortcut: "\u2318V",
       disabled: !_getCutCode() || _getCutCode() === codeId,
-      handler: function () { _pasteCodeInto(codeId); },
+      handler: function () { _pasteCutInto(codeId); },
     });
     items.push({ sep: true });
     items.push({
@@ -2966,7 +2929,7 @@
         label: "Paste here",
         shortcut: "\u2318V",
         disabled: !_getCutCode() || _getCutCode() === folderId,
-        handler: function () { _pasteCodeIntoFolder(folderId); },
+        handler: function () { _pasteCutInto(folderId); },
       },
       { sep: true },
       {
@@ -2989,7 +2952,7 @@
         label: "Paste here",
         shortcut: "\u2318V",
         disabled: !_getCutCode(),
-        handler: function () { _pasteCodeIntoFolder(""); },
+        handler: function () { _pasteCutInto(""); },
       },
     ];
   }
@@ -3334,17 +3297,7 @@
       _announce("Already there — press Esc to clear cut.");
       return;
     }
-    htmx.ajax("POST", "/api/codes/cut-paste", {
-      ..._codebookMutationSwapOptions(),
-      values: _codebookMutationValues({
-        code_id: cutId,
-        target_id: targetId,
-        current_index: window.__aceCurrentIndex,
-      }),
-    }).then(function () {
-      _setCut(null);
-      window._setStatus("", "ok");
-    });
+    _pasteCutInto(targetId);
   });
 
   function _persistScopeOrder(container, orderedIds) {

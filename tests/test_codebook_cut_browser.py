@@ -1,6 +1,7 @@
-"""Browser regression for cut state surviving headless tree renders."""
+"""Cut state survives tree renders and rejected pastes."""
 
 import os
+import sqlite3
 import socket
 import subprocess
 import sys
@@ -89,14 +90,135 @@ def test_cut_ghost_survives_code_and_folder_focus_changes(tmp_path, engine):
                 assert "ace-code-row--ghost" in cut_row.get_attribute("class")
                 assert cut_row.evaluate("el => getComputedStyle(el).opacity") == "0.4"
 
+                # The target can disappear in another tab while its row is
+                # still visible here. A rejected paste must keep the cut item.
+                target_id = codes.nth(1).get_attribute("data-item-id")
+                db = sqlite3.connect(project)
+                try:
+                    db.execute(
+                        "UPDATE codebook_code SET deleted_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (target_id,),
+                    )
+                    db.commit()
+                finally:
+                    db.close()
+                page.keyboard.press("Meta+v")
+                page.wait_for_function("""() =>
+                    document.getElementById('ace-statusbar-event')?.textContent.includes('target_id not found')
+                """)
+                assert page.evaluate(
+                    "window.AceHeadlessTreePreview.getController().getCutItemId()"
+                ) == cut_id
+                assert "ace-code-row--ghost" in cut_row.get_attribute("class")
+                db = sqlite3.connect(project)
+                try:
+                    db.execute(
+                        "UPDATE codebook_code SET deleted_at = NULL WHERE id = ?",
+                        (target_id,),
+                    )
+                    db.commit()
+                finally:
+                    db.close()
+
                 page.keyboard.press("Escape")
                 assert page.evaluate(
                     "window.AceHeadlessTreePreview.getController().getCutItemId()"
                 ) is None
                 assert "ace-code-row--ghost" not in cut_row.get_attribute("class")
+                cut_row.click()
+                page.keyboard.press("Meta+x")
+                folder = page.locator('.ace-ht-row[data-kind="folder"]').first
+                folder_id = folder.get_attribute("data-item-id")
+                folder.click()
+                page.keyboard.press("Meta+v")
+                page.wait_for_function("""() =>
+                    window.AceHeadlessTreePreview.getController().getCutItemId() === null
+                """)
+                db = sqlite3.connect(project)
+                try:
+                    assert db.execute(
+                        "SELECT parent_id FROM codebook_code WHERE id = ?", (cut_id,)
+                    ).fetchone()[0] == folder_id
+                finally:
+                    db.close()
+
+                # The empty-area menu uses an empty target ID to paste at root.
+                cut_row.click()
+                page.keyboard.press("Meta+x")
+                page.locator("#ace-headless-tree-mount").evaluate("""el =>
+                    el.dispatchEvent(new MouseEvent('contextmenu', {
+                        bubbles: true, button: 2, clientX: 12, clientY: 12
+                    }))
+                """)
+                page.get_by_role("menu", name="Codebook actions").get_by_role(
+                    "menuitem", name="Paste here"
+                ).click()
+                page.wait_for_function("""() =>
+                    window.AceHeadlessTreePreview.getController().getCutItemId() === null
+                """)
+                db = sqlite3.connect(project)
+                try:
+                    assert db.execute(
+                        "SELECT parent_id FROM codebook_code WHERE id = ?", (cut_id,)
+                    ).fetchone()[0] is None
+                finally:
+                    db.close()
+
+                # HTMX resolves a queued ajax() promise before it sends the
+                # request. The cut state must clear when the actual response
+                # arrives, even if another request was already in flight.
+                cut_row.click()
+                page.keyboard.press("Meta+x")
                 folder = page.locator('.ace-ht-row[data-kind="folder"]').first
                 folder.click()
-                folder_id = folder.get_attribute("data-item-id")
+                page.evaluate("""() => {
+                    const open = XMLHttpRequest.prototype.open;
+                    const send = XMLHttpRequest.prototype.send;
+                    window.__restoreXHR = () => {
+                        XMLHttpRequest.prototype.open = open;
+                        XMLHttpRequest.prototype.send = send;
+                    };
+                    XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                        this.__holdCodebookRequest = url.includes('/api/codes/reorder');
+                        return open.call(this, method, url, ...rest);
+                    };
+                    XMLHttpRequest.prototype.send = function(body) {
+                        if (this.__holdCodebookRequest) {
+                            window.__releaseCodebookRequest = () => send.call(this, body);
+                            return;
+                        }
+                        return send.call(this, body);
+                    };
+                    window.__pasteRequestsStarted = 0;
+                    document.addEventListener('htmx:beforeRequest', event => {
+                        if (event.detail?.requestConfig?.path === '/api/codes/cut-paste') {
+                            window.__pasteRequestsStarted += 1;
+                        }
+                    });
+                    htmx.ajax('POST', '/api/codes/reorder', {
+                        target: '#code-sidebar', swap: 'outerHTML',
+                        values: {code_ids: '[]', current_index: 0}
+                    });
+                }""")
+                page.wait_for_function("window.__releaseCodebookRequest !== undefined")
+                page.keyboard.press("Meta+v")
+                assert page.evaluate("window.__pasteRequestsStarted") == 0
+                page.evaluate("window.__releaseCodebookRequest()")
+                page.wait_for_function("""() =>
+                    window.AceHeadlessTreePreview.getController().getCutItemId() === null
+                """, timeout=5000)
+                assert page.evaluate("window.__pasteRequestsStarted") == 1
+                page.evaluate("window.__restoreXHR()")
+                db = sqlite3.connect(project)
+                try:
+                    assert db.execute(
+                        "SELECT parent_id FROM codebook_code WHERE id = ?", (cut_id,)
+                    ).fetchone()[0] == folder_id
+                finally:
+                    db.close()
+
+                folder = page.locator('.ace-ht-row[data-kind="folder"]').first
+                folder.click()
                 page.keyboard.press("Meta+x")
                 assert page.evaluate(
                     "window.AceHeadlessTreePreview.getController().getCutItemId()"

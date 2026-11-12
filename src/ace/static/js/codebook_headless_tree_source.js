@@ -1315,6 +1315,28 @@ import {
       });
     }
 
+    function pasteCutItem(targetId) {
+      const sourceId = cutItemId;
+      if (!sourceId || targetId === sourceId || codebookEditingDisabled()) return;
+      return htmxSwap("POST", "/api/codes/cut-paste", {
+        code_id: sourceId,
+        target_id: targetId || "",
+        current_index: currentIndex(),
+      });
+    }
+
+    // HTMX resolves ajax() immediately when a request is queued. The actual
+    // response event is the only reliable point to clear a successfully
+    // pasted item; a rejected or dropped request leaves it available to retry.
+    document.addEventListener("htmx:afterRequest", function (event) {
+      const detail = event.detail;
+      if (!detail?.successful ||
+          detail.requestConfig?.path !== "/api/codes/cut-paste" ||
+          detail.requestConfig.parameters?.code_id !== cutItemId) return;
+      setCutItemId(null);
+      window._setStatus?.("", "ok");
+    });
+
     function setCodeCounts(counts) {
       Object.entries(items).forEach(function ([id, data]) {
         if (data.kind !== "code") return;
@@ -1374,6 +1396,7 @@ import {
       setChordHighlight,
       getCutItemId: function () { return cutItemId; },
       setCutItemId,
+      pasteCutItem,
       setCodeCounts,
       patchCodeCount,
       mutationContext: codebookMutationContext,
