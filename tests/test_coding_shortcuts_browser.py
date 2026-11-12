@@ -66,6 +66,7 @@ def test_coding_shortcuts_are_modal_and_restore_focus(tmp_path, browser_name):
                 assert dialog.is_visible()
                 assert dialog.evaluate("el => el.matches(':modal')")
                 assert "Focus codebook search" in dialog.inner_text()
+                assert "/" in dialog.locator("section").first.locator("dt").all_text_contents()
                 assert "View coded text" in dialog.inner_text()
                 page.keyboard.press("v")
                 assert page.url.endswith("/code")
@@ -85,7 +86,12 @@ def test_coding_shortcuts_are_modal_and_restore_focus(tmp_path, browser_name):
 
                 menu = page.locator("#codebook-menu-btn")
                 menu.click()
-                page.locator("#codebook-menu-shortcuts-btn").click()
+                shortcuts_item = page.locator("#codebook-menu-shortcuts-btn")
+                assert shortcuts_item.locator("span").first.inner_text() == "Shortcuts"
+                assert shortcuts_item.get_attribute("aria-label") == "Keyboard shortcuts"
+                assert shortcuts_item.locator(".ace-hint").inner_text() == "?"
+                assert shortcuts_item.get_attribute("aria-keyshortcuts") == "?"
+                shortcuts_item.click()
                 assert dialog.is_visible()
                 dialog.get_by_role("button", name="Close").click()
                 assert not dialog.is_visible()
