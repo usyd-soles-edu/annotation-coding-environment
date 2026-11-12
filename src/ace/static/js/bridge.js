@@ -2030,46 +2030,29 @@
       }
       return;
     }
-    const annPayload = dataEl.dataset.annotations || "[]";
     const countPayload = dataEl.dataset.codeCounts || "";
-    const payloadKey = `${annPayload}\n${countPayload}`;
-    if (payloadKey === _lastCodeCountPayload) return;
-    _lastCodeCountPayload = payloadKey;
-    const counts = new Map();
-    let usedGlobalCounts = false;
-    if (countPayload) {
-      try {
-        const parsedCounts = JSON.parse(countPayload);
-        if (
-          parsedCounts &&
-          typeof parsedCounts === "object" &&
-          !Array.isArray(parsedCounts)
-        ) {
-          Object.entries(parsedCounts).forEach(function ([codeId, value]) {
-            const n = Number(value);
-            counts.set(String(codeId), Number.isFinite(n) ? n : 0);
-          });
-          usedGlobalCounts = true;
-        }
-      } catch (_) {
-        usedGlobalCounts = false;
-      }
+    if (!countPayload || countPayload === _lastCodeCountPayload) return;
+    let parsedCounts;
+    try {
+      parsedCounts = JSON.parse(countPayload);
+    } catch (_) {
+      return;
     }
-    if (!usedGlobalCounts) {
-      let annotations;
-      try {
-        annotations = JSON.parse(annPayload);
-      } catch (_) {
-        return;
-      }
-      for (const a of annotations) {
-        counts.set(a.code_id, (counts.get(a.code_id) || 0) + 1);
-      }
-    }
+    if (!parsedCounts || typeof parsedCounts !== "object" ||
+        Array.isArray(parsedCounts)) return;
+
     const controller = _getSidebarTreeController();
-    if (controller && typeof controller.setCodeCounts === "function") {
-      controller.setCodeCounts(counts);
-    }
+    if (!controller || typeof controller.setCodeCounts !== "function") return;
+
+    // The server's global snapshot includes all sources. The annotations in
+    // this element are only the current source's highlight data.
+    const counts = new Map();
+    Object.entries(parsedCounts).forEach(function ([codeId, value]) {
+      const n = Number(value);
+      counts.set(String(codeId), Number.isFinite(n) ? n : 0);
+    });
+    controller.setCodeCounts(counts);
+    _lastCodeCountPayload = countPayload;
   }
 
   // Re-bind sidebar event wiring after an HTMX swap replaces sidebar DOM.
