@@ -102,6 +102,21 @@ def test_coding_shortcuts_are_modal_and_restore_focus(tmp_path, browser_name):
                 page.keyboard.press("Escape")
                 assert not page.evaluate("window.aceIsNoteDrawerOpen()")
 
+                source.click()
+                page.keyboard.press("n")
+                assert page.evaluate("window.aceIsNoteDrawerOpen()")
+                page.keyboard.press("n")
+                page.wait_for_function(
+                    "document.activeElement?.id === 'note-textarea'"
+                )
+                page.keyboard.press("Escape")
+                assert page.evaluate("window.aceIsNoteDrawerOpen()")
+                assert not page.locator("#note-textarea").evaluate(
+                    "el => document.activeElement === el"
+                )
+                page.keyboard.press("Escape")
+                assert not page.evaluate("window.aceIsNoteDrawerOpen()")
+
                 apply_hint = page.locator(".ace-legend-action", has_text="apply (no advance)")
                 for viewport_width in (1500, 1400, 1200, 1100, 1000, 900, 800, 700):
                     page.set_viewport_size({"width": viewport_width, "height": 900})
