@@ -27,7 +27,7 @@
 
 <!-- Warnings -->
 {% if warnings %}
-<details class="ace-agreement-warnings">
+<details class="ace-agreement-warnings"{% if n_sources < total_sources or n_codes < total_codes %} open{% endif %}>
   <summary>{{ warnings|length }} warning{{ 's' if warnings|length > 1 else '' }}</summary>
   <ul>{% for w in warnings %}<li>{{ w }}</li>{% endfor %}</ul>
 </details>
@@ -111,7 +111,7 @@
               data-sort-agree="{{ m.percent_agreement }}"
               tabindex="0" aria-expanded="false">
             <td class="col-idx">{{ item.index }}</td>
-            <td class="col-code">{{ item.name }}</td>
+            <td class="col-code"><span class="ace-expand-caret" aria-hidden="true">›</span>{{ item.name }}</td>
             <td class="col-status">
               <span class="ace-status ace-status-{{ v.colour }}">
                 <span class="ace-status-dot"></span>
@@ -176,7 +176,7 @@
     <tbody>
       {% for label, pm, pv in pairwise_sorted %}
       <tr class="ace-code-row ace-row-{{ pv.colour }}" tabindex="0" aria-expanded="false">
-        <td>{{ label }}</td>
+        <td><span class="ace-expand-caret" aria-hidden="true">›</span>{{ label }}</td>
         <td class="col-status">
           <span class="ace-status ace-status-{{ pv.colour }}">
             <span class="ace-status-dot"></span>{{ pv.status|capitalize }}

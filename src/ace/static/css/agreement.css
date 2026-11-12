@@ -311,6 +311,17 @@ th.col-num .ace-sort-button { justify-content: flex-end; }
 }
 .ace-code-row:hover { background: #f8f8f8; }
 
+.ace-expand-caret {
+  display: inline-block;
+  width: 16px;
+  font-size: 18px;
+  line-height: 1;
+  transition: transform var(--ace-transition);
+}
+.ace-code-row[aria-expanded="true"] .ace-expand-caret {
+  transform: rotate(90deg);
+}
+
 .ace-row-red { background: #fff5f5; }
 .ace-row-red:hover { background: #ffebee; }
 
