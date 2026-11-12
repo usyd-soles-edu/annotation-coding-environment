@@ -165,7 +165,7 @@ async def undo_route(
         no_swap = {"HX-Reswap": "none"}
 
         if not mgr.can_undo():
-            return _with_headers(_oob_status("Nothing to undo", "ok"), no_swap)
+            return _with_headers(_oob_status("Nothing to undo", "ok-sticky"), no_swap)
 
         try:
             result = mgr.undo(conn)
@@ -200,7 +200,7 @@ async def redo_route(
         no_swap = {"HX-Reswap": "none"}
 
         if not mgr.can_redo():
-            return _with_headers(_oob_status("Nothing to redo", "ok"), no_swap)
+            return _with_headers(_oob_status("Nothing to redo", "ok-sticky"), no_swap)
 
         try:
             result = mgr.redo(conn)

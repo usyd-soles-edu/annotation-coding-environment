@@ -478,11 +478,15 @@ def test_undo_endpoint_empty_stack_returns_status(client_with_codes):
     resp = client.post("/api/undo", data={"current_index": 0})
     assert resp.status_code == 200
     assert "Nothing to undo" in resp.text
+    assert "ace-statusbar-event--ok-sticky" in resp.text
+    assert "ace-notification-receipt--ok-sticky" in resp.text
     assert resp.headers.get("HX-Reswap") == "none"
 
     resp = client.post("/api/redo", data={"current_index": 0})
     assert resp.status_code == 200
     assert "Nothing to redo" in resp.text
+    assert "ace-statusbar-event--ok-sticky" in resp.text
+    assert "ace-notification-receipt--ok-sticky" in resp.text
     assert resp.headers.get("HX-Reswap") == "none"
 
 
