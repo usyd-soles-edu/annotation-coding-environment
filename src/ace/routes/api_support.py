@@ -6,7 +6,6 @@ import asyncio
 import html
 import json
 import logging
-import random
 import re
 import secrets
 import sqlite3
@@ -545,10 +544,10 @@ def _native_selection_path(value: str) -> Path:
 def _parse_tabular_for_mapping(
     request: Request, path: Path, *, cleanup: bool, filename: str
 ) -> HTMLResponse:
-    from ace.services.importer import read_tabular
+    from ace.services.importer import scan_tabular_preview
 
     try:
-        rows, columns = read_tabular(path)
+        row_count, leading, sampled, example_labels, columns = scan_tabular_preview(path)
     except Exception as e:
         if cleanup:
             path.unlink(missing_ok=True)
@@ -563,7 +562,9 @@ def _parse_tabular_for_mapping(
     stage_token = secrets.token_urlsafe(24)
     request.app.state.import_stage_token = stage_token
     return HTMLResponse(
-        _build_import_mapping_fragment(filename, rows, columns, stage_token)
+        _build_import_mapping_fragment(
+            filename, leading, sampled, example_labels, columns, stage_token, row_count
+        )
     )
 
 
@@ -611,31 +612,30 @@ def _row_value(row: dict, col: str) -> str:
     return "" if value is None else str(value)
 
 
-def _sample_import_preview_rows(rows: list[dict], limit: int = 20) -> list[dict]:
-    if len(rows) <= limit:
-        return rows
-    return [rows[0], *random.sample(rows[1:], limit - 1)]
-
-
 def _build_import_mapping_fragment(
-    filename: str, rows: list[dict], columns: list[str], stage_token: str
+    filename: str,
+    leading_rows: list[dict],
+    sampled_rows: list[dict],
+    example_labels: list[str],
+    columns: list[str],
+    stage_token: str,
+    row_count: int,
 ) -> str:
     safe_filename = html.escape(filename)
-    n_rows = len(rows)
+    n_rows = row_count
     n_cols = len(columns)
-    id_col, text_cols = _default_import_columns(rows, columns)
-    first_row = rows[0] if rows else {}
+    id_col, text_cols = _default_import_columns(leading_rows, columns)
+    first_row = leading_rows[0] if leading_rows else {}
     source_label = _row_value(first_row, id_col) if id_col else ""
     if not source_label:
-        source_label = "Row 1" if rows else "No rows"
+        source_label = "Row 1" if leading_rows else "No rows"
 
-    preview_rows = _sample_import_preview_rows(rows)
     preview_payload = [
         {
             "label": _row_value(row, id_col) if id_col else f"Row {i + 1}",
             "values": {col: _row_value(row, col) for col in columns},
         }
-        for i, row in enumerate(preview_rows)
+        for i, row in enumerate(sampled_rows)
     ]
     preview_data = html.escape(json.dumps(preview_payload), quote=True)
     selected_text_value = json.dumps(text_cols)
@@ -646,24 +646,15 @@ def _build_import_mapping_fragment(
         selected = " selected" if col == id_col else ""
         id_options.append(f'<option value="{esc_col}"{selected}>{esc_col}</option>')
 
-    examples = []
-    seen = set()
-    for row in rows:
-        label = _row_value(row, id_col) if id_col else ""
-        if not label or label in seen:
-            continue
-        seen.add(label)
-        examples.append(f"<code>{html.escape(label)}</code>")
-        if len(examples) == 3:
-            break
+    examples = [f"<code>{html.escape(label)}</code>" for label in example_labels]
     examples_html = "".join(examples) or "<code>No labels yet</code>"
 
     column_rows = []
     selected_text_set = set(text_cols)
     for col in columns:
         esc_col = html.escape(str(col))
-        col_type = _infer_import_column_type(rows, col)
-        sample = html.escape(_sample_values(rows, col))
+        col_type = _infer_import_column_type(leading_rows, col)
+        sample = html.escape(_sample_values(leading_rows, col))
         checked = " checked" if col in selected_text_set else ""
         selected_class = " is-selected" if checked else ""
         column_rows.append(

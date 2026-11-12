@@ -259,7 +259,7 @@ def test_import_commit_reports_missing_text_column_plainly(client_with_project):
     assert "0 sources" not in resp.text
 
 
-def test_import_commit_reuses_parsed_tabular_data(client_with_project, monkeypatch):
+def test_import_commit_streams_rows_without_loading_a_list(client_with_project, monkeypatch):
     client, tmp_path = client_with_project
 
     csv_path = tmp_path / "data.csv"
@@ -268,15 +268,10 @@ def test_import_commit_reuses_parsed_tabular_data(client_with_project, monkeypat
 
     from ace.services import importer
 
-    calls = 0
-    original_read_tabular = importer.read_tabular
+    def reject_full_read(path):
+        pytest.fail("Commit must stream tabular rows")
 
-    def counted_read_tabular(path):
-        nonlocal calls
-        calls += 1
-        return original_read_tabular(path)
-
-    monkeypatch.setattr(importer, "read_tabular", counted_read_tabular)
+    monkeypatch.setattr(importer, "read_tabular", reject_full_read)
 
     resp = _commit_import(
         client,
@@ -285,7 +280,55 @@ def test_import_commit_reuses_parsed_tabular_data(client_with_project, monkeypat
 
     assert resp.status_code == 200
     assert "1 source" in resp.text
-    assert calls == 1
+
+
+def test_large_csv_preview_keeps_bounded_sample_and_imports_all_rows(client_with_project):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "many.csv"
+    csv_path.write_text(
+        "id,text\n" + "".join(f"S{i},Text {i}\n" for i in range(200)),
+        encoding="utf-8",
+    )
+
+    preview = client.post("/api/import/file", data={"path": str(csv_path)})
+    assert preview.status_code == 200
+    assert "Import 200 sources" in preview.text
+    encoded = re.search(r'data-preview-rows="([^"]+)"', preview.text)
+    assert encoded is not None
+    sampled = json.loads(html.unescape(encoded.group(1)))
+    assert len(sampled) == 20
+    assert sampled[0]["label"] == "S0"
+
+    result = _commit_import(
+        client, {"id_column": "id", "text_columns": '["text"]'}
+    )
+    assert result.status_code == 200
+    assert "200 sources" in result.text
+    conn = open_project(str(tmp_path / "test.ace"))
+    try:
+        assert len(list_sources(conn)) == 200
+    finally:
+        conn.close()
+
+
+def test_large_csv_preview_defaults_use_leading_rows(client_with_project, monkeypatch):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "mixed.csv"
+    csv_path.write_text(
+        "id,number_or_text,coding_text\n"
+        "S0,,First words\n"
+        + "".join(f"S{i},42,Words {i}\n" for i in range(1, 8))
+        + "".join(f"S{i},later words,Words {i}\n" for i in range(8, 40)),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(importer.random, "randrange", lambda upper: 0)
+
+    preview = client.post("/api/import/file", data={"path": str(csv_path)})
+
+    assert preview.status_code == 200
+    assert 'data-import-text-col value="coding_text" checked' in preview.text
+    assert 'data-import-text-col value="number_or_text" checked' not in preview.text
+    assert "<code>S0</code><code>S1</code><code>S2</code>" in preview.text
 
 
 def test_import_commit_multiple_text_columns_creates_one_source_per_row(client_with_project):
