@@ -261,6 +261,18 @@ def test_source_navigation_keeps_page_and_note_drawer(tmp_path, browser_name):
                     ).fetchone()[0] == "#336699"
                 page.evaluate("window.__releaseNavigation(); delete window.__releaseNavigation")
                 page.wait_for_function("window.__aceCurrentIndex === 2 && !document.body.dataset.aceNavigating")
+
+                # Mouse navigation should keep a note opened in READ mode
+                # bound to the newly selected source too.
+                page.goto("http://127.0.0.1:8080/code?index=0")
+                page.locator("#note-pill").click()
+                assert page.locator("#note-drawer").get_attribute("aria-hidden") == "false"
+                page.locator("#btn-next").click()
+                page.wait_for_function("window.__aceCurrentIndex === 1")
+                assert page.locator("#note-drawer").get_attribute("aria-hidden") == "false"
+                page.locator('.ace-grid-tile[data-source-index="2"]').click()
+                page.wait_for_function("window.__aceCurrentIndex === 2")
+                assert page.locator("#note-drawer").get_attribute("aria-hidden") == "false"
             finally:
                 browser.close()
 
