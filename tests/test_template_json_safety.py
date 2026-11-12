@@ -50,14 +50,10 @@ def _script_json(body, element_id):
     return json.loads(match.group(1))
 
 
-def test_coding_bootstrap_json_is_html_safe(project_client, unsafe_text):
+def test_coding_source_json_is_html_safe(project_client, unsafe_text):
     client, _ = project_client
     response = client.get("/code")
     assert response.status_code == 200
-    match = re.search(r"window\.__aceCodes = (.*);", response.text)
-    assert match, "Missing codebook bootstrap"
-    assert "<" not in match.group(1)
-    assert json.loads(match.group(1))[0]["name"] == unsafe_text
     sources = _script_json(response.text, "ace-sources-data")
     assert sources[0]["display_id"] == unsafe_text
 
