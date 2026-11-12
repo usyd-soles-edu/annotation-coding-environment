@@ -3441,21 +3441,54 @@
    */
   function _mergeRectsByLine(rects, paraBreakRects) {
     const PARA_SLOP = 1;
-    const validInitial = Array.from(rects).filter(function (r) {
+    const sorted = Array.from(rects).filter(function (r) {
       return r.width >= 1 && r.height >= 1;
+    }).sort(function (a, b) {
+      return a.top - b.top || a.left - b.left;
     });
-    const valid = (paraBreakRects && paraBreakRects.length)
-      ? validInitial.filter(function (r) {
-          return !paraBreakRects.some(function (br) {
-            return r.top >= br.top - PARA_SLOP && r.bottom <= br.bottom + PARA_SLOP;
-          });
-        })
-      : validInitial;
+    // The break check only needs the greatest bottom among breaks that start
+    // above this rect. Binary search avoids a scan for every paragraph line.
+    const breaks = (paraBreakRects || []).slice().sort(function (a, b) {
+      return a.top - b.top;
+    });
+    const breakBottoms = [];
+    for (const br of breaks) {
+      breakBottoms.push(Math.max(br.bottom, breakBottoms.at(-1) ?? -Infinity));
+    }
+    function firstTopAfter(items, top) {
+      let low = 0;
+      let high = items.length;
+      while (low < high) {
+        const mid = (low + high) >> 1;
+        if (items[mid].top <= top) low = mid + 1;
+        else high = mid;
+      }
+      return low;
+    }
+    function firstTopAtOrAfter(items, top) {
+      let low = 0;
+      let high = items.length;
+      while (low < high) {
+        const mid = (low + high) >> 1;
+        if (items[mid].top < top) low = mid + 1;
+        else high = mid;
+      }
+      return low;
+    }
 
-    // Step 1: drop any rect that strictly contains another
+    const valid = sorted.filter(function (r) {
+      const lastBreak = firstTopAfter(breaks, r.top + PARA_SLOP) - 1;
+      return lastBreak < 0 || breakBottoms[lastBreak] < r.bottom - PARA_SLOP;
+    });
+
+    // Only rects starting before r ends can fit inside r. A long range may
+    // span thousands of distinct lines, but each line inspects only its own
+    // vertically overlapping neighbours.
     const nonContaining = valid.filter(function (r, i) {
-      return !valid.some(function (other, j) {
-        if (i === j) return false;
+      const first = firstTopAtOrAfter(valid, r.top - CONTAIN_SLOP);
+      for (let j = first; j < valid.length && valid[j].top <= r.bottom + CONTAIN_SLOP; j++) {
+        if (i === j) continue;
+        const other = valid[j];
         const contains =
           r.left <= other.left + CONTAIN_SLOP &&
           r.top <= other.top + CONTAIN_SLOP &&
@@ -3466,18 +3499,19 @@
           Math.abs(r.top - other.top) <= CONTAIN_SLOP &&
           Math.abs(r.right - other.right) <= CONTAIN_SLOP &&
           Math.abs(r.bottom - other.bottom) <= CONTAIN_SLOP;
-        return contains && !sameRect;
-      });
+        if (contains && !sameRect) return false;
+      }
+      return true;
     });
 
-    // Step 2: per-line union via Y-overlap
-    const sorted = nonContaining.sort(function (a, b) {
-      return a.top - b.top || a.left - b.left;
-    });
+    // Keep only lines that can still overlap the next sorted rect. Completed
+    // lines remain in their original order without being searched again.
     const lines = [];
-    for (const r of sorted) {
+    let active = [];
+    for (const r of nonContaining) {
+      active = active.filter(function (line) { return line.bottom >= r.top; });
       let line = null;
-      for (const ln of lines) {
+      for (const ln of active) {
         const overlap = Math.min(ln.bottom, r.bottom) - Math.max(ln.top, r.top);
         const minH = Math.min(ln.bottom - ln.top, r.bottom - r.top);
         if (overlap >= minH * LINE_OVERLAP_RATIO) {
@@ -3491,7 +3525,9 @@
         line.top = Math.min(line.top, r.top);
         line.bottom = Math.max(line.bottom, r.bottom);
       } else {
-        lines.push({ top: r.top, bottom: r.bottom, left: r.left, right: r.right });
+        line = { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+        lines.push(line);
+        active.push(line);
       }
     }
     return lines;
