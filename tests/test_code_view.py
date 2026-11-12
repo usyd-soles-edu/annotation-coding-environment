@@ -3,14 +3,15 @@
 import json
 import re
 from html.parser import HTMLParser
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
 from ace.app import create_app
-from ace.db.connection import create_project
+from ace.db.connection import create_project, open_project
 from ace.models.annotation import add_annotation
-from ace.models.codebook import add_code, add_folder
+from ace.models.codebook import add_code, add_folder, delete_code
 from ace.models.project import list_coders
 from ace.models.source import add_source
 
@@ -172,6 +173,50 @@ def test_view_redirects_when_unknown_code(client_with_annotations):
     resp = client.get("/code/does-not-exist/view", follow_redirects=False)
     assert resp.status_code == 302
     assert resp.headers.get("location") == "/code"
+
+
+def test_view_explains_when_code_was_deleted(client_with_annotations):
+    client, _, code_id, db_path = client_with_annotations
+    conn = open_project(db_path)
+    try:
+        delete_code(conn, code_id)
+    finally:
+        conn.close()
+
+    resp = client.get(f"/code/{code_id}/view", follow_redirects=False)
+    assert resp.status_code == 410
+    assert "This code no longer exists" in resp.text
+    assert 'href="/code"' in resp.text
+    assert 'id="ace-codeview-data"' not in resp.text
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_deleted_code_page_is_visible_and_focuses_message(client_with_annotations, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    client, _, code_id, db_path = client_with_annotations
+    conn = open_project(db_path)
+    try:
+        delete_code(conn, code_id)
+    finally:
+        conn.close()
+    response = client.get(f"/code/{code_id}/view", follow_redirects=False)
+    assert response.status_code == 410
+
+    with sync_api.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        try:
+            page = browser.new_page()
+            page.set_content(response.text)
+            page.add_style_tag(
+                path=str(Path(__file__).resolve().parents[1] / "src/ace/static/css/ace.css")
+            )
+            heading = page.get_by_role("heading", name="This code no longer exists")
+            assert heading.is_visible()
+            assert heading.evaluate("el => document.activeElement === el")
+            assert page.get_by_role("link", name="Back to coding").is_visible()
+        finally:
+            browser.close()
 
 
 def test_view_page_shares_sidebar_strip_with_code_page(client_with_annotations):
