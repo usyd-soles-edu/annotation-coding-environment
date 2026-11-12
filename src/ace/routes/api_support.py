@@ -1045,6 +1045,7 @@ def _render_sources_data_oob(ctx: dict) -> str:
     )
     return (
         '<script id="ace-sources-data" type="application/json" '
+        f'data-snapshot-version="{ctx["sources_snapshot_version"]}" '
         f'hx-swap-oob="outerHTML">{payload}</script>'
     )
 
@@ -1056,6 +1057,7 @@ def _render_full_coding_oob(
     target_index: int,
     include_sidebar: bool = True,
     open_note_drawer: bool = False,
+    client_source_snapshot: str | None = None,
 ) -> str:
     """Render all coding swap zones with text-panel as the primary target.
 
@@ -1072,6 +1074,9 @@ def _render_full_coding_oob(
     ctx = _coding_context(conn, coder_id, target_index, project_path=project_path)
     ctx["request"] = request
     ctx["open_note_drawer"] = open_note_drawer
+    refresh_version = request.headers.get("x-ace-counts-dirty", "")
+    if re.fullmatch(r"[1-9][0-9]{0,11}", refresh_version):
+        ctx["count_refresh_version"] = refresh_version
 
     parts = [render_block(templates.env, "coding.html", "text_panel", ctx)]
     inspector_html = render_block(templates.env, "coding.html", "right_inspector", ctx)
@@ -1081,7 +1086,8 @@ def _render_full_coding_oob(
         parts.append(_inject_oob(block_html, "code-sidebar"))
     parts.append(_render_colour_style_oob(ctx["codes"]))
     parts.append(_render_ann_data_oob(ctx))
-    parts.append(_render_sources_data_oob(ctx))
+    if client_source_snapshot != ctx["sources_snapshot_version"]:
+        parts.append(_render_sources_data_oob(ctx))
     return "".join(parts)
 
 

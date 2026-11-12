@@ -882,6 +882,10 @@
           // replace the text panel. The server retargets to the live panel
           // when this response arrives.
           target: "body", swap: "outerHTML", values,
+          headers: {
+            "X-Ace-Sources-Snapshot": document.getElementById("ace-sources-data")
+              ?.dataset.snapshotVersion || "",
+          },
         }),
         completion,
       ]);
@@ -1709,6 +1713,8 @@
     }
     if (!source) return;
     source.count = Math.max(0, Number(count) || 0);
+    const blob = document.getElementById("ace-sources-data");
+    if (blob) delete blob.dataset.snapshotVersion;
     const tile = document.querySelector(
       `#ace-grid-tiles .ace-grid-tile[data-source-index="${source.index}"]`
     );
@@ -1732,6 +1738,7 @@
     const source = sources[sourceIndex];
     if (!source || source.index !== sourceIndex) return;
     source.flagged = flagged;
+    delete blob.dataset.snapshotVersion;
     blob.textContent = JSON.stringify(sources);
     window._aceRenderSourceGrid();
   }
@@ -1743,6 +1750,7 @@
     const source = sources.find(s => s.source_id === sourceId);
     if (!source) return;
     source.note = hasNote;
+    delete blob.dataset.snapshotVersion;
     blob.textContent = JSON.stringify(sources);
     window._aceRenderSourceGrid();
   };

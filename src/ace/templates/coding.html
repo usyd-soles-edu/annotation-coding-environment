@@ -138,7 +138,8 @@ rect.ace-flash-{{ code["id"] }} {
                aria-label="Source grid"></div>
           <div id="ace-grid-inspector" class="ace-grid-inspector"
                aria-live="polite" aria-atomic="true"></div>
-          <script id="ace-sources-data" type="application/json">{{ sources_json | tojson }}</script>
+          <script id="ace-sources-data" type="application/json"
+                  data-snapshot-version="{{ sources_snapshot_version }}">{{ sources_json | tojson }}</script>
           <div id="ace-grid-live" class="ace-sr-only" aria-live="polite"></div>
         </div>
       </section>

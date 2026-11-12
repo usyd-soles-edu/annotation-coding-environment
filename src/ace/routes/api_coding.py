@@ -257,6 +257,7 @@ async def navigation_route(
                 request, conn, coder_id, to_index,
                 include_sidebar=False,
                 open_note_drawer=note_open,
+                client_source_snapshot=request.headers.get("x-ace-sources-snapshot"),
             )
             trigger = {"ace-navigate": {
                 "index": to_index,
