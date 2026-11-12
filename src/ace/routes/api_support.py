@@ -518,8 +518,8 @@ def _oob_status(message: str, kind: str = "err") -> HTMLResponse:
          aria-hidden / role=status, so screen-reader users would otherwise
          miss errors).
 
-    kind is "err" for sticky errors, "ok" for 2-second ephemeral success
-    (client-side timer in _setStatus clears ok pills).
+    kind is "err" for sticky errors, "ok" for 2-second ephemeral success,
+    or "ok-sticky" for neutral feedback that stays until another message.
     """
     escaped = html.escape(message)
     status_fragment = (
