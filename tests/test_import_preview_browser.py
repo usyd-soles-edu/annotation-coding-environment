@@ -32,6 +32,7 @@ def test_stale_preview_does_not_hide_new_selection(tmp_path, engine, replacement
 
         async def exercise():
             pick_count = 0
+            second_picked = asyncio.Event()
             first_started = asyncio.Event()
             second_started = asyncio.Event()
             release_first = asyncio.Event()
@@ -49,6 +50,8 @@ def test_stale_preview_does_not_hide_new_selection(tmp_path, engine, replacement
                         if url.path == "/api/native/pick-file":
                             selected = first_file if pick_count == 0 else second_file
                             pick_count += 1
+                            if pick_count == 2:
+                                second_picked.set()
                             await route.fulfill(
                                 status=200,
                                 content_type="application/json",
@@ -94,7 +97,9 @@ def test_stale_preview_does_not_hide_new_selection(tmp_path, engine, replacement
                     await asyncio.wait_for(first_started.wait(), timeout=5)
                     if replacement == "spreadsheet":
                         await button.click()
+                        await asyncio.wait_for(second_picked.wait(), timeout=5)
                         assert pick_count == 2
+                        await page.wait_for_function("window.importPreviewSequence === 2")
                     else:
                         await page.locator("#import-folder-button").click()
                         await page.locator("[data-folder-import-preview]").wait_for(state="visible")
