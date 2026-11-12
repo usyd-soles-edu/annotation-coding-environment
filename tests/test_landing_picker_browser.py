@@ -51,6 +51,18 @@ def test_open_project_picker_failure_and_cancel(engine):
             try:
                 page = browser.new_page()
                 page.goto(base + "/")
+                for selector in (
+                    ".ace-home-description",
+                    ".ace-home-action-hint",
+                    ".ace-home-tool-hint",
+                ):
+                    assert page.locator(selector).is_visible()
+                page.set_viewport_size({"width": 320, "height": 568})
+                assert page.evaluate(
+                    "document.documentElement.scrollWidth <= window.innerWidth"
+                )
+                assert page.locator("#new-project-link").is_visible()
+                assert page.locator("#open-existing-btn").is_visible()
                 picker = "**/api/native/pick-file"
                 page.route(picker, lambda route: route.fulfill(status=503, json={"path": ""}))
                 page.locator("#open-existing-btn").click()

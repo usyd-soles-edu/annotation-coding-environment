@@ -86,6 +86,14 @@ def test_landing_project_actions_are_keyboard_named(client):
     assert "Cloud-synced folders" not in resp.text
 
 
+def test_landing_explains_first_project_and_agreement_requirements(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "Create a project, import source text, then mark passages with codes." in resp.text
+    assert "New to ACE? Choose New project and import your source text." in resp.text
+    assert "Compare coding in two or more coded .ace projects." in resp.text
+
+
 def test_new_project_page_is_minimal_and_keyboard_named(client):
     resp = client.get("/new-project")
     assert resp.status_code == 200

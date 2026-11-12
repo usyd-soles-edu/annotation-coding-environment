@@ -315,6 +315,12 @@ body {
   letter-spacing: 0;
   line-height: 1.2;
 }
+.ace-home-description {
+  max-width: 360px;
+  margin: 0;
+  font-size: var(--ace-font-size-sm);
+  line-height: 1.4;
+}
 .ace-home-section {
   width: 100%;
   display: grid;
@@ -392,6 +398,13 @@ body {
   padding-block: 18px;
   border-block: 1px solid var(--ace-border-light);
   margin-bottom: 18px;
+}
+.ace-home-action-hint,
+.ace-home-tool-hint {
+  max-width: 340px;
+  margin: var(--ace-space-2) 0 0;
+  font-size: var(--ace-font-size-2xs);
+  line-height: 1.4;
 }
 .ace-home-resume-close {
   position: absolute;
@@ -510,6 +523,9 @@ body {
 }
 .ace-home-tool-link {
   font-size: var(--ace-font-size-md);
+}
+.ace-home-tool-hint {
+  margin: 0 0 var(--ace-space-2);
 }
 
 /* Minimal task pages */
