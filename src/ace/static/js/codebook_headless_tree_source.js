@@ -29,6 +29,8 @@ import {
   let chordHighlightActive = false;
   let chordHintShown = false;
   let cutItemId = null;
+  let pendingSidebarState = null;
+  let initGeneration = 0;
   const RESERVED_SINGLE_KEYS = new Set(["q", "x", "z", "n", "v"]);
   const MODE_POLICIES = Object.freeze({
     coding: Object.freeze({
@@ -1128,12 +1130,13 @@ import {
     updateDndAnnouncement();
   }
 
-  function buildTree() {
+  function buildTree(focusedItemId) {
     tree = createTree({
       rootItemId: ROOT_ID,
       initialState: {
         expandedItems: folderIds(),
-        focusedItem: childrenOf(ROOT_ID)[0],
+        focusedItem: focusedItemId && items[focusedItemId]
+          ? focusedItemId : childrenOf(ROOT_ID)[0],
       },
       getItemName: function (item) { return item.getItemData().name; },
       isItemFolder: function (item) { return item.getItemData().kind === "folder"; },
@@ -1383,20 +1386,36 @@ import {
     const mount = document.getElementById("ace-headless-tree-mount");
     if (!mount) return;
     if (mount === mountedElement && tree) return;
+    const generation = ++initGeneration;
+    const restore = pendingSidebarState;
     mountedElement = mount;
     dropLog = [];
+    const search = document.getElementById("code-search-input");
+    if (restore && search) {
+      search.value = restore.searchText;
+      if (restore.zone === "search") search.focus({ preventScroll: true });
+    }
     try {
       setStatus("Loading");
       const response = await fetch("/api/codes/tree", { headers: { Accept: "application/json" } });
       if (!response.ok) throw new Error(`status ${response.status}`);
       const payload = await response.json();
+      if (generation !== initGeneration || mount !== document.getElementById("ace-headless-tree-mount")) {
+        return;
+      }
       items = payload.items || {};
-      buildTree();
+      searchRaw = search?.value.trim() || "";
+      searchText = searchRaw.toLowerCase();
+      buildTree(restore?.zone === "tree" ? restore.itemId : null);
       applyProps(mount, tree.getContainerProps("Codebook tree"));
       mount.addEventListener("keydown", announceKeyboardDragCancel, true);
       tree.setMounted(true);
       tree.rebuildTree();
       renderTree();
+      if (restore) {
+        mount.scrollTop = restore.scrollTop;
+        if (pendingSidebarState === restore) pendingSidebarState = null;
+      }
       controller.refresh();
       window.__aceHeadlessTreeController = controller;
       setStatus("");
@@ -1426,7 +1445,23 @@ import {
   window.AceHeadlessTreePreview = {
     init,
     getController: function () { return controller.refresh(); },
+    isSidebarFocusPending: function () {
+      return pendingSidebarState?.zone === "tree" || pendingSidebarState?.zone === "search";
+    },
   };
+
+  document.addEventListener("htmx:beforeSwap", function () {
+    if (!mountedElement?.isConnected) return;
+    const active = document.activeElement;
+    const search = document.getElementById("code-search-input");
+    pendingSidebarState = {
+      zone: active === search ? "search"
+        : mountedElement.contains(active) ? "tree" : null,
+      itemId: active?.closest?.(".ace-ht-row")?.dataset.itemId || null,
+      searchText: search?.value || "",
+      scrollTop: mountedElement.scrollTop,
+    };
+  });
 
   function initIfHeadlessTarget(target) {
     if (
