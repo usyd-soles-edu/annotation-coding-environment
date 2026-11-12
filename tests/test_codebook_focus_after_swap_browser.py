@@ -75,12 +75,25 @@ def test_codebook_focus_survives_sidebar_swap(tmp_path, engine):
                     arg=beta_id,
                     timeout=3000,
                 )
+                page.evaluate("() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))")
+                page.evaluate("window.aceFocusSentence(0)")
+                page.evaluate("""() => {
+                    window.__aceOldTextPanel = document.getElementById('text-panel');
+                    window.__aceTextSettle = 0;
+                    document.addEventListener('htmx:afterSettle', event => {
+                        if (event.detail?.target?.id === 'text-panel') window.__aceTextSettle++;
+                    });
+                }""")
                 page.evaluate("""async id => {
                     await htmx.ajax('PUT', `/api/codes/${id}`, {
                         target: '#text-panel', swap: 'outerHTML',
                         values: {colour: '#884466', current_index: 0}
                     });
                 }""", beta_id)
+                page.wait_for_function(
+                    "document.getElementById('text-panel') !== window.__aceOldTextPanel"
+                )
+                page.wait_for_function("window.__aceTextSettle >= 1")
                 page.wait_for_function("""id => {
                     const row = document.querySelector(`.ace-ht-row[data-item-id="${id}"]`);
                     return row?.style.getPropertyValue('--row-colour') === '#884466';
@@ -90,6 +103,8 @@ def test_codebook_focus_survives_sidebar_swap(tmp_path, engine):
                     arg=beta_id,
                     timeout=3000,
                 )
+                page.evaluate("() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))")
+                assert page.locator(".ace-sentence--focused").count() == 1
                 search = page.locator("#code-search-input")
                 search.fill("Beta")
                 search.focus()

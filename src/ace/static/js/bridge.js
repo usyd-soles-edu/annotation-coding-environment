@@ -227,10 +227,11 @@
       // Keep focus on controls outside the replaced text panel. The sidebar
       // may still be loading its tree after an OOB replacement.
       const active = document.activeElement;
-      if (active?.id === "note-textarea" || active?.closest?.("#code-sidebar") ||
-          window.AceHeadlessTreePreview?.isSidebarFocusPending?.()) return;
+      if (active?.id === "note-textarea") return;
       const idx = window.__aceFocusIndex;
       if (idx >= 0) _focusSentence(idx);
+      if (active?.closest?.("#code-sidebar") ||
+          window.AceHeadlessTreePreview?.isSidebarFocusPending?.()) return;
       _focusTextPanel();
     });
   }
