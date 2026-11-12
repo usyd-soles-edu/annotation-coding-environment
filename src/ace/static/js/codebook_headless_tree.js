@@ -2998,7 +2998,9 @@
         },
         setCutItemId,
         setCodeCounts,
-        patchCodeCount
+        patchCodeCount,
+        mutationContext: codebookMutationContext,
+        mutationValues: codebookMutationValues
       };
       return api;
     }

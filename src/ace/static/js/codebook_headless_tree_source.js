@@ -1376,6 +1376,8 @@ import {
       setCutItemId,
       setCodeCounts,
       patchCodeCount,
+      mutationContext: codebookMutationContext,
+      mutationValues: codebookMutationValues,
     };
 
     return api;
