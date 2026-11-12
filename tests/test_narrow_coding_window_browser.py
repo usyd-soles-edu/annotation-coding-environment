@@ -70,6 +70,20 @@ def test_narrow_window_can_reach_applied_codes_and_codebook(tmp_path, browser_na
                     "document.querySelector('#note-drawer').getBoundingClientRect().right <= innerWidth"
                 )
 
+                page.evaluate("window.aceCloseNote()")
+                page.set_viewport_size({"width": 320, "height": 700})
+                page.evaluate("window.scrollTo(0, 0)")
+                pan_box = page.locator("#ace-narrow-pan").bounding_box()
+                sidebar_box = page.locator("#code-sidebar").bounding_box()
+                assert pan_box["x"] >= sidebar_box["x"] + sidebar_box["width"]
+                page.locator("#ace-narrow-pan").click()
+                page.wait_for_function(
+                    "document.querySelector('.ace-right-inspector').getBoundingClientRect().right <= innerWidth"
+                )
+                pan_box = page.locator("#ace-narrow-pan").bounding_box()
+                toggle_box = page.locator(".ace-applied-codes-toggle").bounding_box()
+                assert pan_box["x"] + pan_box["width"] <= toggle_box["x"]
+
                 page.set_viewport_size({"width": 1280, "height": 700})
                 assert not page.locator("#ace-narrow-pan").is_visible()
             finally:

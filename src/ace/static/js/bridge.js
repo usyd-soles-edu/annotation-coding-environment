@@ -1085,6 +1085,7 @@
 
     function sync() {
       const atRight = window.scrollX >= maxScroll() - 2;
+      button.classList.toggle("ace-narrow-pan--at-right", atRight);
       button.textContent = atRight ? "← Codebook" : "Applied codes →";
       button.setAttribute("aria-label", atRight
         ? "Show codebook panel" : "Show applied codes panel");

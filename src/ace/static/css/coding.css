@@ -51,6 +51,19 @@
   }
 }
 
+@media (max-width: 600px) {
+  .ace-narrow-pan {
+    left: auto;
+    right: var(--ace-space-2);
+    transform: none;
+  }
+
+  .ace-narrow-pan--at-right {
+    left: var(--ace-space-2);
+    right: auto;
+  }
+}
+
 /* Suppress the global statusbar on the coding page — the visible event channel
    is rehoused into the source-panel receipt (#ace-notification-receipt).
    coding.css is only loaded on /code, so this rule is scoped implicitly. */
