@@ -73,6 +73,8 @@ def test_one_column_mapping_hint_and_selection(tmp_path, engine):
                 page.locator('[data-import-text-col][value="response"]').check()
                 assert page.locator("#import-submit").is_enabled()
                 assert page.locator("[data-import-selected-count]").text_content() == "1"
+                page.locator("#import-submit").click()
+                page.get_by_text("Import complete").wait_for()
             finally:
                 browser.close()
     finally:

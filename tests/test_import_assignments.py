@@ -28,7 +28,10 @@ def test_second_import_is_immediately_codable(tmp_path, kind):
             path = tmp_path / f"batch{index}.csv"
             path.write_text(f"id,text\nS{index},Text {index}\n", encoding="utf-8")
             assert client.post("/api/import/file", data={"path": str(path)}).status_code == 200
-            response = client.post("/api/import/commit", data={"id_column": "id", "text_columns": '["text"]'})
+            response = client.post("/api/import/commit", data={
+                "stage_token": app.state.import_stage_token,
+                "id_column": "id", "text_columns": '["text"]',
+            })
         else:
             folder = tmp_path / f"batch{index}"
             folder.mkdir()

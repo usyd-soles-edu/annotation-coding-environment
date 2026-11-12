@@ -8,6 +8,7 @@ import json
 import logging
 import random
 import re
+import secrets
 import sqlite3
 import subprocess
 import tempfile
@@ -556,7 +557,14 @@ def _parse_tabular_for_mapping(
     request.app.state.import_tmp_path = str(path)
     request.app.state.import_tmp_cleanup = cleanup
     request.app.state.import_source_name = filename
-    return HTMLResponse(_build_import_mapping_fragment(filename, rows, columns))
+    request.app.state.import_stage_project_path = getattr(
+        request.app.state, "project_path", None
+    )
+    stage_token = secrets.token_urlsafe(24)
+    request.app.state.import_stage_token = stage_token
+    return HTMLResponse(
+        _build_import_mapping_fragment(filename, rows, columns, stage_token)
+    )
 
 
 def _infer_import_column_type(rows: list[dict], col_name: str) -> str:
@@ -610,7 +618,7 @@ def _sample_import_preview_rows(rows: list[dict], limit: int = 20) -> list[dict]
 
 
 def _build_import_mapping_fragment(
-    filename: str, rows: list[dict], columns: list[str]
+    filename: str, rows: list[dict], columns: list[str], stage_token: str
 ) -> str:
     safe_filename = html.escape(filename)
     n_rows = len(rows)
@@ -692,6 +700,7 @@ def _build_import_mapping_fragment(
     <h1 class="ace-wizard-title" tabindex="-1">Choose source labels and coding text</h1>
     <form id="import-form" class="ace-import-mapping" hx-post="/api/import/commit" hx-target="#step-done" hx-swap="innerHTML"
           hx-on::after-request="window.handleImportCommit(event)">
+      <input type="hidden" name="stage_token" value="{stage_token}">
       <div id="import-preview-data" data-preview-rows="{preview_data}" hidden></div>
       <div class="ace-import-mapping-grid">
         <section class="ace-import-card ace-import-card--source">

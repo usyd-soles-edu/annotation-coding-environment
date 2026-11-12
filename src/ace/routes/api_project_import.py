@@ -142,11 +142,8 @@ def _clear_folder_import_manifests(request: Request) -> None:
         manifest_store.clear()
 
 
-def _clear_project_transient_state(request: Request, project_path: str) -> None:
-    request.app.state.undo_managers.pop(project_path, None)
-    request.app.state.last_import_source_ids = None
-    _clear_folder_import_manifests(request)
-
+def _clear_tabular_import_stage(request: Request) -> None:
+    """Invalidate a file preview and remove only app-owned temporary uploads."""
     import_tmp_path = getattr(request.app.state, "import_tmp_path", None)
     if import_tmp_path and getattr(request.app.state, "import_tmp_cleanup", True):
         try:
@@ -156,6 +153,16 @@ def _clear_project_transient_state(request: Request, project_path: str) -> None:
     request.app.state.import_tmp_path = None
     request.app.state.import_tmp_cleanup = True
     request.app.state.import_source_name = None
+    request.app.state.import_stage_token = None
+    request.app.state.import_stage_project_path = None
+
+
+def _clear_project_transient_state(request: Request, project_path: str) -> None:
+    request.app.state.undo_managers.pop(project_path, None)
+    request.app.state.last_import_source_ids = None
+    _clear_folder_import_manifests(request)
+
+    _clear_tabular_import_stage(request)
 
 
 from ace.routes.api_support import (
@@ -372,6 +379,7 @@ async def project_open(request: Request, path: str = Form(...)):
         conn.close()
 
     _clear_folder_import_manifests(request)
+    _clear_tabular_import_stage(request)
     request.app.state.project_path = str(file_path)
     if coder_id:
         request.app.state.coder_id = coder_id
@@ -400,12 +408,25 @@ async def import_commit(
     request: Request,
     id_column: str = Form(default=""),
     text_columns: str = Form(default=""),
+    stage_token: str = Form(default=""),
 ):
     """Commit the uploaded file: import selected columns as sources."""
     from ace.app import get_db
     from ace.services.importer import import_csv, read_tabular
 
     tmp_path = getattr(request.app.state, "import_tmp_path", None)
+    current_token = getattr(request.app.state, "import_stage_token", None)
+    staged_project = getattr(request.app.state, "import_stage_project_path", None)
+    current_project = getattr(request.app.state, "project_path", None)
+    if (
+        not stage_token
+        or not stage_token.isascii()
+        or not current_token
+        or not secrets.compare_digest(stage_token, current_token)
+        or not staged_project
+        or staged_project != current_project
+    ):
+        return _oob_status("This import preview is no longer current. Choose the file again.")
     if tmp_path is None or not Path(tmp_path).exists():
         return _oob_status("No uploaded file found. Please upload again.")
 
@@ -453,12 +474,8 @@ async def import_commit(
     request.app.state.last_import_source_ids = created_ids
 
     # Clean up upload temp files. Native picker paths belong to the user.
-    if getattr(request.app.state, "import_tmp_cleanup", True):
-        Path(tmp_path).unlink(missing_ok=True)
     source_name = getattr(request.app.state, "import_source_name", None)
-    request.app.state.import_tmp_path = None
-    request.app.state.import_tmp_cleanup = True
-    request.app.state.import_source_name = None
+    _clear_tabular_import_stage(request)
 
     count_label = f'{count} source{"s" if count != 1 else ""}'
     return HTMLResponse(

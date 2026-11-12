@@ -30,6 +30,13 @@ def client_with_project(tmp_path):
         yield client, tmp_path
 
 
+def _commit_import(client, data):
+    return client.post(
+        "/api/import/commit",
+        data={"stage_token": client.app.state.import_stage_token, **data},
+    )
+
+
 def test_import_page_renders(client_with_project):
     """GET /import shows import page."""
     client, _ = client_with_project
@@ -111,8 +118,8 @@ def test_import_commit(client_with_project):
     client.post("/api/import/file", data={"path": str(csv_path)})
 
     # Commit the import
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "id", "text_columns": '["text"]'},
     )
 
@@ -137,7 +144,7 @@ def test_csv_mapping_preview_and_commit_preserve_numeric_text(client_with_projec
     assert [row["values"]["text"] for row in rows] == ["1e3", " 2.00 "]
     assert 'ace-import-column-type">number<' in preview.text
 
-    result = client.post("/api/import/commit", data={"id_column": "id", "text_columns": '["text"]'})
+    result = _commit_import(client, data={"id_column": "id", "text_columns": '["text"]'})
     assert result.status_code == 200
     assert "2 sources" in result.text
     conn = open_project(tmp_path / "test.ace")
@@ -156,8 +163,8 @@ def test_import_commit_reports_blank_source_labels(client_with_project):
     csv_path.write_text("id,text\nA1,first\n,second\n", encoding="utf-8")
     client.post("/api/import/file", data={"path": str(csv_path)})
 
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "id", "text_columns": '["text"]'},
     )
 
@@ -177,8 +184,8 @@ def test_import_commit_skips_completely_blank_rows(client_with_project):
     csv_path.write_text("id,text\nA1,first\n,\n", encoding="utf-8")
     client.post("/api/import/file", data={"path": str(csv_path)})
 
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "id", "text_columns": '["text"]'},
     )
 
@@ -201,8 +208,8 @@ def test_import_commit_requires_text_column(client_with_project):
 
     client.post("/api/import/file", data={"path": str(csv_path)})
 
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "id", "text_columns": ""},
     )
 
@@ -222,8 +229,8 @@ def test_import_commit_reports_missing_id_column_plainly(client_with_project):
     csv_path.write_text("id,text\nA1,hello\n", encoding="utf-8")
     client.post("/api/import/file", data={"path": str(csv_path)})
 
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "missing", "text_columns": '["text"]'},
     )
 
@@ -241,8 +248,8 @@ def test_import_commit_reports_missing_text_column_plainly(client_with_project):
     csv_path.write_text("id,text\nA1,hello\n", encoding="utf-8")
     client.post("/api/import/file", data={"path": str(csv_path)})
 
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "id", "text_columns": '["missing"]'},
     )
 
@@ -271,8 +278,8 @@ def test_import_commit_reuses_parsed_tabular_data(client_with_project, monkeypat
 
     monkeypatch.setattr(importer, "read_tabular", counted_read_tabular)
 
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "id", "text_columns": '["text"]'},
     )
 
@@ -293,8 +300,8 @@ def test_import_commit_multiple_text_columns_creates_one_source_per_row(client_w
 
     client.post("/api/import/file", data={"path": str(csv_path)})
 
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "id", "text_columns": '["reflection", "feedback"]'},
     )
 
@@ -327,8 +334,8 @@ def test_import_commit_reports_empty_rows_separately(client_with_project):
 
     client.post("/api/import/file", data={"path": str(csv_path)})
 
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "id", "text_columns": '["reflection", "feedback"]'},
     )
 
@@ -351,8 +358,8 @@ def test_import_commit_keeps_native_file_path(client_with_project):
     csv_path.write_text("id,text\nA1,hello\n")
     client.post("/api/import/file", data={"path": str(csv_path)})
 
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "id", "text_columns": '["text"]'},
     )
 
@@ -368,8 +375,8 @@ def test_import_commit_rejects_non_json_text_columns_payload(client_with_project
     client.post("/api/import/file", data={"path": str(csv_path)})
 
     for payload in ("text", "text,more", '["text"', '{"0": "text"}', "[1, 2]"):
-        resp = client.post(
-            "/api/import/commit",
+        resp = _commit_import(
+            client,
             data={"id_column": "id", "text_columns": payload},
         )
         assert resp.status_code == 200
@@ -406,8 +413,8 @@ def test_import_commit_xlsx_comma_nbsp_header_end_to_end(client_with_project):
     # The default selection is serialised as a JSON array, not comma-joined text.
     assert html.escape(json.dumps([header]), quote=True) in preview.text
 
-    resp = client.post(
-        "/api/import/commit",
+    resp = _commit_import(
+        client,
         data={"id_column": "participant", "text_columns": json.dumps([header])},
     )
     assert resp.status_code == 200
@@ -421,6 +428,101 @@ def test_import_commit_xlsx_comma_nbsp_header_end_to_end(client_with_project):
         assert stored == content
     finally:
         conn.close()
+
+
+def test_two_tabs_cannot_commit_a_replaced_file_preview(client_with_project):
+    """An older mapping must never import the file staged by another tab."""
+    client, tmp_path = client_with_project
+    first = tmp_path / "first.csv"
+    second = tmp_path / "second.csv"
+    first.write_text("id,text\nA,first text\n", encoding="utf-8")
+    second.write_text("id,text\nB,second text\n", encoding="utf-8")
+
+    preview_a = client.post("/api/import/file", data={"path": str(first)})
+    token_a = re.search(r'name="stage_token" value="([^"]+)"', preview_a.text)
+    preview_b = client.post("/api/import/file", data={"path": str(second)})
+    token_b = re.search(r'name="stage_token" value="([^"]+)"', preview_b.text)
+    assert preview_a.status_code == preview_b.status_code == 200
+
+    stale = _commit_import(
+        client,
+        data={
+            "stage_token": token_a.group(1) if token_a else "",
+            "id_column": "id",
+            "text_columns": '["text"]',
+        },
+    )
+    assert "preview is no longer current" in stale.text
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        assert list_sources(conn) == []
+    finally:
+        conn.close()
+
+    assert token_b is not None
+    current = _commit_import(
+        client,
+        data={"stage_token": token_b.group(1), "id_column": "id", "text_columns": '["text"]'},
+    )
+    assert "1 source" in current.text
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        assert [source["display_id"] for source in list_sources(conn)] == ["B"]
+    finally:
+        conn.close()
+
+
+def test_tabular_import_rejects_malformed_preview_token(client_with_project):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "sources.csv"
+    csv_path.write_text("id,text\nA,first text\n", encoding="utf-8")
+    client.post("/api/import/file", data={"path": str(csv_path)})
+
+    malformed = client.post(
+        "/api/import/commit",
+        data={
+            "stage_token": "é",
+            "id_column": "id",
+            "text_columns": '["text"]',
+        },
+    )
+    assert malformed.status_code == 200
+    assert "preview is no longer current" in malformed.text
+    conn = open_project(tmp_path / "test.ace")
+    try:
+        assert list_sources(conn) == []
+    finally:
+        conn.close()
+
+
+def test_tabular_preview_cannot_commit_after_project_switch(client_with_project):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "sources.csv"
+    csv_path.write_text("id,text\nA,first text\n", encoding="utf-8")
+    preview = client.post("/api/import/file", data={"path": str(csv_path)})
+    token = re.search(r'name="stage_token" value="([^"]+)"', preview.text)
+    assert token is not None
+
+    other_project = tmp_path / "other.ace"
+    create_project(other_project, "Other").close()
+    switched = client.post("/api/project/open", data={"path": str(other_project)})
+    assert switched.status_code == 200
+
+    stale = client.post(
+        "/api/import/commit",
+        data={
+            "stage_token": token.group(1),
+            "id_column": "id",
+            "text_columns": '["text"]',
+        },
+    )
+    assert "preview is no longer current" in stale.text
+    for project in (tmp_path / "test.ace", other_project):
+        conn = open_project(project)
+        try:
+            assert list_sources(conn) == []
+        finally:
+            conn.close()
 
 
 def test_import_preview_returns_reviewed_workspace(client_with_project):
