@@ -30,6 +30,8 @@ The header shows how many excerpts use the selected code and how many sources co
 
 Select **? Shortcuts** in the header to open the audit view's keyboard guide. Press `?` to open the same guide from the keyboard.
 
+Select **Print excerpts** in the header to print the excerpts currently shown, including any source or text filters. The print layout omits the codebook, source tracks, and editing controls.
+
 The mode switch above the source tracks lets you move between **Review excerpts** and **Edit code details**. Use review mode to inspect excerpts. Use edit mode when the review shows that a code name, folder, or definition needs to be corrected.
 
 ## Read source tracks

@@ -14,7 +14,7 @@ Harianto, J., Van Den Berg, F., Lilje, O., Pang, R., & Widjaja, M. (2026). *Anno
 
 ## Features
 
-- Import text from CSV files or folders of text documents.
+- Import text from CSV or Excel spreadsheets, or folders of text documents.
 - Build a grouped codebook for fast keyboard-driven coding.
 - Use optional local wording cues to notice possible code matches.
 - Highlight passages and assign one or more codes to each passage.
