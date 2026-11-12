@@ -64,6 +64,7 @@ window.addEventListener("keydown", function(event) {
   var selectedFolder = "";
   var pendingOverwrite = false;
   var pendingRecentPath = "";
+  var pendingDialogOpener = null;
 
   var form = document.getElementById("new-project-form");
   var nameInput = document.getElementById("new-project-input");
@@ -216,6 +217,8 @@ window.addEventListener("keydown", function(event) {
     e.preventDefault();
     var path = projectPath();
     if (!path) return;
+    var active = document.activeElement;
+    pendingDialogOpener = active && active !== document.body ? active : e.submitter || createBtn;
     setMessage("Creating project...", "");
     createBtn.disabled = true;
     pendingRecentPath = path;
@@ -227,6 +230,24 @@ window.addEventListener("keydown", function(event) {
       createBtn.disabled = false;
       updateFormState();
     });
+  });
+
+  document.addEventListener("htmx:afterSwap", function(evt) {
+    if (evt.detail.target !== modal) return;
+    var dialog = modal.querySelector("#project-overwrite-dialog");
+    if (!dialog) {
+      pendingDialogOpener = null;
+      return;
+    }
+    var opener = pendingDialogOpener;
+    pendingDialogOpener = null;
+    dialog.addEventListener("close", function() {
+      requestAnimationFrame(function() {
+        if (opener && opener.isConnected && !opener.disabled) {
+          opener.focus({ preventScroll: true });
+        }
+      });
+    }, { once: true });
   });
 
   window._aceConfirmOverwrite = function() {
