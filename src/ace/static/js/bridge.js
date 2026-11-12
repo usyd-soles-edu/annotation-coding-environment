@@ -2096,7 +2096,27 @@
   // After HTMX swap: restore focus, rebuild tabs, update keycaps,
   // and refresh the ambient status-bar segment. Use afterSettle (not
   // afterSwap) — fires after HTMX finishes all DOM changes.
+  let _lastStatusEventEl = document.getElementById("ace-statusbar-event");
+  let _statusRevision = 0;
+  const _statusRevisionAtRequest = new WeakMap();
+  document.addEventListener("htmx:beforeRequest", function (evt) {
+    const xhr = (evt.detail || {}).xhr;
+    if (xhr) _statusRevisionAtRequest.set(xhr, _statusRevision);
+  });
   document.addEventListener("htmx:afterSettle", function (evt) {
+    const statusEvent = document.getElementById("ace-statusbar-event");
+    const xhr = (evt.detail || {}).xhr;
+    // Notice a server status swap before considering a stale error. Comparing
+    // revisions from request start also protects a fresh error when an older
+    // request's delayed settle fires after the newer response has swapped.
+    if (statusEvent !== _lastStatusEventEl) _statusRevision++;
+    _lastStatusEventEl = statusEvent;
+    if (xhr && _statusRevisionAtRequest.get(xhr) === _statusRevision &&
+        xhr.status >= 200 && xhr.status < 400 &&
+        statusEvent?.classList.contains("ace-statusbar-event--err")) {
+      _setStatus("", "ok");
+    }
+
     // Keep the ambient left segment of the statusbar in sync on every
     // afterSettle, including target-less events — preserves the
     // behaviour of the previously-standalone listener this replaced.
@@ -4128,6 +4148,7 @@
     const sbEl = document.querySelector(".ace-statusbar-event");
     const receiptEl = _receiptEl();
     if (!sbEl && !receiptEl) return;
+    _statusRevision++;
 
     if (_statusEventClearTimer) {
       clearTimeout(_statusEventClearTimer);
