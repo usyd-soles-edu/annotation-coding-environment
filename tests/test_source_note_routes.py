@@ -112,6 +112,11 @@ def test_export_notes_returns_csv(client_with_sources):
     client.put(f"/api/source-note/{s1}", data={"note_text": "First"})
     client.put(f"/api/source-note/{s2}", data={"note_text": "Second"})
 
+    count = client.head("/api/export/notes")
+    assert count.status_code == 200
+    assert count.headers["x-ace-notes-count"] == "2"
+    assert count.content == b""
+
     resp = client.get("/api/export/notes")
     assert resp.status_code == 200
     assert resp.headers["content-type"].startswith("text/csv")
@@ -133,6 +138,10 @@ def test_export_notes_returns_csv(client_with_sources):
 
 def test_export_notes_header_only_when_empty(client_with_sources):
     client, _, _, _, _ = client_with_sources
+    count = client.head("/api/export/notes")
+    assert count.status_code == 200
+    assert count.headers["x-ace-notes-count"] == "0"
+    assert count.content == b""
     resp = client.get("/api/export/notes")
     assert resp.status_code == 200
     lines = resp.text.strip().split("\n")

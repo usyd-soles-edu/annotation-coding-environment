@@ -5265,8 +5265,38 @@
     // Export source notes button
     if (e.target.closest("#export-notes-btn")) {
       _setCodebookMenuOpen(false);
-      window.location.href = "/api/export/notes";
-      window._setStatus("Exported", "ok");
+      (async function () {
+        if (typeof window.aceFlushNoteIfDirty === "function") {
+          const saved = await window.aceFlushNoteIfDirty();
+          if (saved === false) throw new Error("Could not save source note");
+        }
+        const response = await fetch("/api/export/notes", { method: "HEAD" });
+        if (!response.ok) throw new Error("Could not check source notes");
+        const header = response.headers.get("X-ACE-Notes-Count");
+        if (header === null) throw new Error("Missing source note count");
+        if (Number(header) === 0) {
+          window._setStatus("No notes to export", "ok-sticky");
+          return;
+        }
+        const exportResponse = await fetch("/api/export/notes");
+        if (!exportResponse.ok) throw new Error("Could not download source notes");
+        const disposition = exportResponse.headers.get("Content-Disposition") || "";
+        const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "ace_notes.csv";
+        const blobUrl = URL.createObjectURL(await exportResponse.blob());
+        const link = document.createElement("a");
+        link.href = blobUrl;
+        link.download = filename;
+        document.body.appendChild(link);
+        try {
+          link.click();
+        } finally {
+          link.remove();
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+        }
+        window._setStatus("Exported", "ok");
+      })().catch(function () {
+        window._setStatus("Could not export source notes", "err");
+      });
       return;
     }
 
