@@ -56,6 +56,7 @@
 
 {% block scripts %}
 <script>
+  var importPreviewSequence = 0;
 (function() {
   "use strict";
 
@@ -342,17 +343,19 @@
         setButtonTitle(btn, "Import a spreadsheet");
         if (!path) return;
         setImportMessage("Reading spreadsheet...", "");
+        var previewRequestId = String(++importPreviewSequence);
         var afterFileRequest = function(evt) {
           var pathInfo = evt.detail.pathInfo || {};
           var requestConfig = evt.detail.requestConfig || {};
           var path = pathInfo.requestPath || pathInfo.finalRequestPath || requestConfig.path;
           if (path !== "/api/import/file") return;
+          if (requestConfig.parameters?.preview_request_id !== previewRequestId) return;
           document.removeEventListener("htmx:afterRequest", afterFileRequest);
           if (responseIsSuccessful(evt)) showStep("step-columns");
         };
         document.addEventListener("htmx:afterRequest", afterFileRequest);
         return htmx.ajax("POST", "/api/import/file", {
-          values: { path: path },
+          values: { path: path, preview_request_id: previewRequestId },
           target: "#step-columns",
           swap: "innerHTML"
         });
