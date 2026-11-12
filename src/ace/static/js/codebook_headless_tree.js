@@ -3071,6 +3071,7 @@
         event.preventDefault();
         event.stopImmediatePropagation();
         clearSearchInput();
+        window._setStatus?.("Filter cleared", "ok");
         return;
       }
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
