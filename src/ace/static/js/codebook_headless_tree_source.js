@@ -1447,6 +1447,7 @@ import {
       event.preventDefault();
       event.stopImmediatePropagation();
       clearSearchInput();
+      window._setStatus?.("Filter cleared", "ok");
       return;
     }
 
