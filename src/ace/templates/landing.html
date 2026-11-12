@@ -113,7 +113,10 @@
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: "accept=.ace"
     })
-      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (!r.ok) throw new Error("Native file picker failed");
+        return r.json();
+      })
       .then(function(data) { return data.path || ""; });
   }
 

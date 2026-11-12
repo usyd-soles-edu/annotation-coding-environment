@@ -190,7 +190,12 @@ async def pick_file(accept: str | None = Form(default=None)):
         type_filter = _accept_to_types(accept)
         script = f'POSIX path of (choose file{type_filter})'
         result = await asyncio.to_thread(_run_osascript, script)
-        path = result.stdout.strip() if result.returncode == 0 else ""
+        if result.returncode != 0:
+            if "(-128)" in result.stderr:
+                return JSONResponse({"path": ""})
+            logger.warning("Native file picker failed (exit code %s)", result.returncode)
+            return JSONResponse({"path": ""}, status_code=503)
+        path = result.stdout.strip()
     else:
         filetypes = _accept_to_filetypes(accept)
         path = await asyncio.to_thread(_tk_pick_file, filetypes)
