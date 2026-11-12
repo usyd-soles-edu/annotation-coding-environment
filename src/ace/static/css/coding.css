@@ -51,7 +51,7 @@
   }
 }
 
-@media (max-width: 600px) {
+@media (max-width: 720px) {
   .ace-narrow-pan {
     left: auto;
     right: var(--ace-space-2);
@@ -1576,6 +1576,12 @@ html[data-ace-note-open="1"] .ace-applied-codes-panel {
   background: rgba(255, 255, 255, 0.88);
 }
 
+@media (max-width: 720px) {
+  .ace-applied-codes-header {
+    padding-top: calc(var(--ace-space-3) + 32px);
+  }
+}
+
 .ace-applied-codes-kicker,
 .ace-applied-codes-total,
 .ace-applied-timeline-title,
@@ -2639,6 +2645,12 @@ body:has(#note-textarea:focus) .ace-note-drawer {
   padding: var(--ace-space-2) var(--ace-space-4);
   border-bottom: 1px solid var(--ace-note-border);
   flex-shrink: 0;
+}
+
+@media (max-width: 720px) {
+  .ace-note-drawer-header {
+    padding-top: calc(var(--ace-space-2) + 32px);
+  }
 }
 
 /* Only drawer-specific property not covered by .ace-panel-heading — prevents

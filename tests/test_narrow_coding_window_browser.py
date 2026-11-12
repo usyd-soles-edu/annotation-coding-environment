@@ -90,8 +90,18 @@ def test_narrow_window_can_reach_applied_codes_and_codebook(tmp_path, browser_na
                     "document.querySelector('.ace-right-inspector').getBoundingClientRect().right <= innerWidth"
                 )
                 pan_box = page.locator("#ace-narrow-pan").bounding_box()
+                heading_box = page.locator(".ace-applied-codes-kicker").bounding_box()
                 toggle_box = page.locator(".ace-applied-codes-toggle").bounding_box()
+                assert pan_box["y"] + pan_box["height"] <= heading_box["y"]
                 assert pan_box["x"] + pan_box["width"] <= toggle_box["x"]
+
+                page.evaluate("window.aceOpenNoteRead()")
+                page.wait_for_function(
+                    "document.querySelector('#note-drawer').getBoundingClientRect().right <= innerWidth"
+                )
+                note_heading = page.locator("#note-drawer-title").bounding_box()
+                assert pan_box["y"] + pan_box["height"] <= note_heading["y"]
+                page.evaluate("window.aceCloseNote()")
 
                 page.set_viewport_size({"width": 1280, "height": 700})
                 assert not page.locator("#ace-narrow-pan").is_visible()
