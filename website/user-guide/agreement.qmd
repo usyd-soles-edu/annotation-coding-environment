@@ -42,6 +42,8 @@ Steps:
 5. Compute agreement.
 6. Inspect the overall result and per-code results.
 
+The results identify the coders and project files included in the comparison. Check these before interpreting the scores.
+
 In the results, focus a column's sort button and press `Enter` or `Space` to cycle its sort direction. Focus a per-code or coder-pair row and press `Enter` or `Space` to expand or hide its guidance.
 
 ## Export agreement data

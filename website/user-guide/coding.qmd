@@ -16,6 +16,8 @@ The source map is the small grid below the codebook.
 
 Each square is one source in the project. The current source is highlighted. Sources with coding activity show their status in the grid, so you can quickly see where you are in the dataset.
 
+The overview above the squares marks flagged sources with orange ticks and sources with notes with gold ticks.
+
 Use the source map as a progress check, not as a detailed report. For detailed review, use [Review coded text](audit.qmd) or export the annotations.
 
 ## Navigate sources
