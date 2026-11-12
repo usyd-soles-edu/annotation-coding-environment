@@ -11,6 +11,12 @@
 <div class="ace-sidebar-strip" role="banner">
   <a href="/" class="ace-sidebar-strip-mark" title="ACE v{{ version }}">ACE</a>
   <div class="ace-sidebar-strip-actions">
+    {% if coding_mode %}
+    <button type="button" class="ace-layout-reset-btn" id="ace-layout-reset-btn"
+            aria-label="Reset panel sizes" title="Reset sidebar width and source map height">
+      <span aria-hidden="true">↺</span><span class="ace-layout-reset-label">Reset</span>
+    </button>
+    {% endif %}
     {% if show_coding_text_controls|default(false) %}
     <div class="ace-coding-text-menu" id="coding-text-menu-wrapper">
       <button type="button"

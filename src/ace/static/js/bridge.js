@@ -1078,8 +1078,13 @@
       _setWidth(_currentPx(), true);
     });
 
-    handle.addEventListener("dblclick", function () {
-      _setWidth(DEFAULT_PX, true);
+    function _resetWidth() {
+      try { localStorage.removeItem("ace-sidebar-width"); } catch (_) {}
+      _setWidth(DEFAULT_PX, false);
+    }
+    handle.addEventListener("dblclick", _resetWidth);
+    document.addEventListener("click", function (e) {
+      if (e.target.closest("#ace-layout-reset-btn")) _resetWidth();
     });
 
     handle.addEventListener("keydown", function (e) {
@@ -1178,13 +1183,14 @@
     handle.addEventListener("pointerup", _endDrag);
     handle.addEventListener("pointercancel", _endDrag);
 
-    // Double-click reset
-    handle.addEventListener("dblclick", function () {
+    function _resetGridHeight() {
       document.documentElement.style.removeProperty("--ace-grid-height");
       handle.setAttribute("aria-valuenow", DEFAULT_VH.toString());
       handle.setAttribute("aria-valuetext", DEFAULT_VH + " percent of viewport height");
       try { localStorage.removeItem("ace-grid-height"); } catch (_) {}
-    });
+    }
+    handle.addEventListener("dblclick", _resetGridHeight);
+    document.getElementById("ace-layout-reset-btn")?.addEventListener("click", _resetGridHeight);
 
     // Keyboard resize
     handle.addEventListener("keydown", function (e) {
