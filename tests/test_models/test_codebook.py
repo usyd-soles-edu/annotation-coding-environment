@@ -17,6 +17,7 @@ from ace.models.codebook import (
     inspect_codebook_csv,
     list_codes,
     move_code_to_parent,
+    next_colour,
     preview_codebook_csv,
     preview_codebook_csv_ledger,
     restore_code,
@@ -240,16 +241,28 @@ def test_import_csv_dedup_names(tmp_db, tmp_path):
     assert codes[1]["name"] == "Beta"
 
 
-def test_import_csv_colour_column_ignored_auto_assigns(tmp_db, tmp_path):
-    """Colour column in CSV is ignored — colours always auto-assigned from palette."""
+def test_import_csv_uses_valid_colours_and_skips_invalid_rows(tmp_db, tmp_path):
     conn = create_project(tmp_db, "Test")
     csv_path = tmp_path / "codes.csv"
-    csv_path.write_text("name,colour\nAlpha,red\nBeta,#00FF00\n")
+    csv_path.write_text("name,colour\nAlpha,#123abc\nBeta,\nGamma,red\n")
+    ledger = preview_codebook_csv_ledger(conn, csv_path)
+    assert [row["status"] for row in ledger["rows"]] == ["new", "new", "skipped"]
+    assert ledger["rows"][2]["reason"] == "invalid colour (use #RRGGBB)"
+    assert [row["colour"] for row in ledger["importable"]] == ["#123abc", next_colour(1)]
     count = import_codebook_from_csv(conn, csv_path)
     assert count == 2
     codes = _filter_codes(list_codes(conn))
-    assert re.match(r"^#[0-9A-F]{6}$", codes[0]["colour"])  # auto-assigned
-    assert re.match(r"^#[0-9A-F]{6}$", codes[1]["colour"])  # also auto-assigned
+    assert [(code["name"], code["colour"]) for code in codes] == [
+        ("Alpha", "#123abc"), ("Beta", next_colour(1))
+    ]
+
+
+def test_colour_column_can_be_left_unmapped(tmp_db, tmp_path):
+    conn = create_project(tmp_db, "Test")
+    csv_path = tmp_path / "codes.csv"
+    csv_path.write_text("name,colour\nAlpha,red\n", encoding="utf-8")
+    preview = preview_codebook_csv(conn, csv_path, colour_column="")
+    assert preview[0]["colour"] == next_colour(0)
 
 
 def test_import_csv_atomic_rollback(tmp_db, tmp_path):
@@ -394,6 +407,7 @@ def test_inspect_codebook_csv_detects_flexible_columns(tmp_db, tmp_path):
         "name": "Code Label",
         "group": "Theme",
         "definition": "Dictionary Definition",
+        "colour": None,
     }
     assert inspected["columns"] == ["Code Label", "Theme", "Dictionary Definition"]
 
@@ -792,7 +806,7 @@ def test_import_selected_with_group(tmp_db):
 
 
 def test_export_csv_includes_group(tmp_db, tmp_path):
-    """export_codebook_to_csv writes name,group,definition columns (no colour)."""
+    """Exported codebook preserves group, definition and colour."""
     conn = create_project(tmp_db, "Test")
     fid = add_folder(conn, "Emotions")
     add_code(conn, "Happy", "#FF0000", parent_id=fid, definition="Positive affect")
@@ -800,10 +814,9 @@ def test_export_csv_includes_group(tmp_db, tmp_path):
     out = tmp_path / "out.csv"
     export_codebook_to_csv(conn, out)
     content = out.read_text()
-    assert "name,group,definition" in content
-    assert "Happy,Emotions,Positive affect" in content
-    assert "Ungrouped," in content
-    assert "colour" not in content
+    assert "name,group,definition,colour" in content
+    assert "Happy,Emotions,Positive affect,#FF0000" in content
+    assert "Ungrouped,,,#00FF00" in content
 
 
 def test_round_trip_export_then_import_is_idempotent(tmp_path):
@@ -836,6 +849,8 @@ def test_round_trip_export_then_import_is_idempotent(tmp_path):
     assert _resolve_group_name(conn, by_name["Identity"]["id"]) == "Themes"
     assert _resolve_group_name(conn, by_name["Trust"]["id"]) is None
     assert by_name["Identity"]["definition"] == "How participants describe self or group membership"
+    assert by_name["Identity"]["colour"] == "#D55E00"
+    assert by_name["Trust"]["colour"] == "#0072B2"
     conn.close()
 
 
