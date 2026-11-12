@@ -278,25 +278,27 @@ import {
       restoreChildrenByParent(restoreSnapshot);
       return;
     }
+    const saveGeneration = initGeneration;
     setStatus("Saving");
     try {
       if (previousParent === nextParent) {
-        await htmxSwap("POST", "/api/codes/reorder-in-scope", {
+        await htmxDragSwap("POST", "/api/codes/reorder-in-scope", {
           code_ids: JSON.stringify(order),
           parent_id: formParentId(nextParent),
           current_index: currentIndex(),
         });
       } else {
-        await htmxSwap("PUT", `/api/codes/${id}/parent`, {
+        await htmxDragSwap("PUT", `/api/codes/${id}/parent`, {
           parent_id: formParentId(nextParent),
           target_order_ids: JSON.stringify(order),
           current_index: currentIndex(),
         });
       }
       setStatus("");
+      if (isCodingMode()) void refreshSavedTree(++reorderResolutionVersion);
     } catch (error) {
       setStatus("Move failed");
-      restoreChildrenByParent(restoreSnapshot);
+      if (saveGeneration === initGeneration) restoreChildrenByParent(restoreSnapshot);
       window.__aceHeadlessTreePreviewError = String(error && error.message || error);
       throw error;
     }
@@ -403,7 +405,7 @@ import {
     return changed;
   }
 
-  async function refreshKeyboardShortcuts(version) {
+  async function refreshSavedTree(version) {
     const sidebarGeneration = initGeneration;
     try {
       const response = await fetch("/api/codes/tree", { headers: { Accept: "application/json" } });
@@ -421,7 +423,7 @@ import {
       if (applyAuthoritativeTreeData(refreshedTreeData.items)) tree.rebuildTree();
       scheduleRender();
     } catch (error) {
-      setStatus("Shortcut refresh failed");
+      setStatus("Codebook refresh failed");
       window.__aceHeadlessTreePreviewError = String(error?.message || error);
     }
   }
@@ -480,7 +482,7 @@ import {
       // HTMX finishes its request bookkeeping after htmx:afterRequest.
       setTimeout(sendNextKeyboardReorder, 0);
     }
-    if (!pendingReorders.size) void refreshKeyboardShortcuts(reorderResolutionVersion);
+    if (!pendingReorders.size) void refreshSavedTree(reorderResolutionVersion);
   }
 
   document.addEventListener("htmx:afterRequest", function (event) {
@@ -584,6 +586,51 @@ import {
     });
   }
 
+  let dragRequestSource = null;
+  let nextDragRequestId = 0;
+  let dragSavePending = false;
+
+  function htmxDragSwap(method, url, values) {
+    if (document.body.dataset.aceNavigating === "1") {
+      return Promise.reject(new Error("Source navigation is in progress"));
+    }
+    if (!window.htmx || typeof window.htmx.ajax !== "function") {
+      return Promise.reject(new Error("HTMX is unavailable"));
+    }
+    if (!dragRequestSource?.isConnected) {
+      dragRequestSource = document.createElement("span");
+      dragRequestSource.hidden = true;
+      dragRequestSource.setAttribute("hx-sync", "this:queue all");
+      document.body.appendChild(dragRequestSource);
+    }
+    const requestId = String(++nextDragRequestId);
+    return new Promise(function (resolve, reject) {
+      function onResponse(event) {
+        if (event.detail?.requestConfig?.parameters?._ace_drag_request_id !== requestId) return;
+        document.removeEventListener("htmx:afterRequest", onResponse);
+        const status = event.detail.xhr?.status || 0;
+        if (status >= 200 && status < 300) resolve();
+        else reject(new Error(`Drag save failed (HTTP ${status})`));
+      }
+      document.addEventListener("htmx:afterRequest", onResponse);
+      try {
+        const target = document.getElementById("text-panel") ? "#text-panel" : "#code-sidebar";
+        window.htmx.ajax(method, url, {
+          source: dragRequestSource,
+          target,
+          swap: target === "#text-panel" ? "outerHTML" : "none",
+          values: codebookMutationValues({ ...values, _ace_drag_request_id: requestId }),
+        }).catch(function (error) {
+          document.removeEventListener("htmx:afterRequest", onResponse);
+          reject(error);
+        });
+      } catch (error) {
+        document.removeEventListener("htmx:afterRequest", onResponse);
+        reject(error);
+      }
+    });
+  }
+
   async function htmxSidebarSwap(method, url, values) {
     if (document.body.dataset.aceNavigating === "1") return;
     if (!window.htmx || typeof window.htmx.ajax !== "function") {
@@ -640,31 +687,36 @@ import {
   const applyLibraryDrop = createOnDropHandler(updateChildren);
 
   async function handleDrop(draggedItems, target) {
-    if (draggedItems.length !== 1) return;
-    const item = draggedItems[0];
-    const id = item.getId();
-    const restoreSnapshot = snapshotChildrenByParent();
-    const previousParent = findParentId(id) || ROOT_ID;
-    changedDropScopes = new Map();
-    let changedScopes;
+    if (draggedItems.length !== 1 || dragSavePending || pendingReorders.size) return;
+    dragSavePending = true;
     try {
-      await applyLibraryDrop(draggedItems, target);
-      changedScopes = changedDropScopes;
-    } finally {
-      changedDropScopes = null;
-    }
-    const nextParent = findParentId(id) || ROOT_ID;
-    const order = changedScopes?.get(nextParent) || [...childrenOf(nextParent)];
-    dropLog.push({
-      id,
-      from: previousParent,
-      to: nextParent,
-      order,
-    });
-    tree.rebuildTree();
-    scheduleRender();
+      const item = draggedItems[0];
+      const id = item.getId();
+      const restoreSnapshot = snapshotChildrenByParent();
+      const previousParent = findParentId(id) || ROOT_ID;
+      changedDropScopes = new Map();
+      let changedScopes;
+      try {
+        await applyLibraryDrop(draggedItems, target);
+        changedScopes = changedDropScopes;
+      } finally {
+        changedDropScopes = null;
+      }
+      const nextParent = findParentId(id) || ROOT_ID;
+      const order = changedScopes?.get(nextParent) || [...childrenOf(nextParent)];
+      dropLog.push({
+        id,
+        from: previousParent,
+        to: nextParent,
+        order,
+      });
+      tree.rebuildTree();
+      scheduleRender();
 
-    await persistDrop(id, previousParent, nextParent, order, restoreSnapshot);
+      await persistDrop(id, previousParent, nextParent, order, restoreSnapshot);
+    } finally {
+      dragSavePending = false;
+    }
   }
 
   function canDrop(draggedItems, target) {
@@ -929,6 +981,10 @@ import {
       return true;
     }
     itemProps.onKeyDown = function (event) {
+      if (tree?.getState?.().dnd) {
+        if (typeof defaultKeyDown === "function") defaultKeyDown(event);
+        return;
+      }
       if (
         event.key === "ArrowRight"
         && isCodingMode()
@@ -1314,7 +1370,7 @@ import {
       reorderAreaPercentage: 0.30,
       createForeignDragObject: nativeDragPayload,
       canDrag: function (draggedItems) {
-        if (codebookEditingDisabled()) return false;
+        if (codebookEditingDisabled() || dragSavePending || pendingReorders.size) return false;
         return draggedItems.every(function (item) { return item.getId() !== ROOT_ID; });
       },
       canDrop,
@@ -1423,7 +1479,7 @@ import {
     }
 
     function moveItemInDirection(itemId, direction) {
-      if (denyCodebookEditing()) return;
+      if (denyCodebookEditing() || dragSavePending) return;
       const parentId = findParentId(itemId) || ROOT_ID;
       const order = [...childrenOf(parentId)];
       const index = order.indexOf(itemId);

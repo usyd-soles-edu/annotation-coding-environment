@@ -180,8 +180,12 @@ async def set_code_parent_route(
     codebook_mode: str = Form(default="coding"),
     current_code_id: str | None = Form(default=None),
     request_id: str | None = Form(default=None),
+    drag_request_id: str = Form(default="", alias="_ace_drag_request_id"),
 ):
-    """Move `code_id` into the scope of `parent_id` (folder id or empty for root)."""
+    """Move `code_id` into the scope of `parent_id` (folder id or empty for root).
+
+    Coding drag requests receive status only; the client refreshes the tree.
+    """
     from ace.models.codebook import InvariantError, _move_code_to_parent_no_commit
 
     coder_id = _require_coder(request)
@@ -241,6 +245,12 @@ async def set_code_parent_route(
             new_source_ordering=new_source_ordering,
             new_dest_ordering=new_dest_ordering,
         )
+        if drag_request_id and codebook_mode == "coding":
+            # A delayed drag response must not replace source-specific OOB
+            # data after the user has navigated to another source.
+            response = _oob_status("Saved", "ok")
+            response.headers["HX-Reswap"] = "none"
+            return response
         content = _render_full_coding_oob(request, conn, coder_id, current_index)
         status_html = ""
         if _request_codebook_mode(request, explicit=codebook_mode) == "audit":
@@ -438,12 +448,13 @@ async def reorder_in_scope_route(
     codebook_mode: str = Form(default="coding"),
     current_code_id: str | None = Form(default=None),
     keyboard_reorder_id: str = Form(default="", alias="_ace_reorder_request_id"),
+    drag_request_id: str = Form(default="", alias="_ace_drag_request_id"),
 ):
-    """Reorder codebook items within a single scope. Returns text-panel + sidebar OOB.
+    """Reorder codebook items within a single scope.
 
-    Same response shape as the parent / cut-paste / indent-promote routes
-    so the count chips stay consistent. Records an undo entry for the
-    affected scope so Z reverts the drag — matches the legacy
+    Ordinary callers receive text-panel and sidebar OOB updates. Headless
+    coding gestures receive status only and refresh the tree. Records an undo
+    entry for the affected scope so Z reverts the drag — matches the legacy
     ``/codes/reorder`` route's behaviour.
 
     The UPDATE is scoped to ``parent_id`` defensively: only rows already in
@@ -497,8 +508,8 @@ async def reorder_in_scope_route(
         # Skip recording on no-ops so one drag doesn't burn two undo presses.
         if prev != new:
             _get_undo_manager(request).record_code_reorder(prev, new)
-        if keyboard_reorder_id and codebook_mode == "coding":
-            # The keyboard tree already has the new order. A full coding
+        if (keyboard_reorder_id or drag_request_id) and codebook_mode == "coding":
+            # The headless tree already has the new order. A full coding
             # fragment could arrive after source navigation and replace the
             # new source's annotations or inspector with stale data.
             response = _oob_status("Saved", "ok")
