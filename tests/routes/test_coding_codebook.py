@@ -343,8 +343,10 @@ def test_codebook_import_preview_uses_ledger_dialog(
     assert 'id="codebook-map-name"' in resp.text
     assert 'value="Code Label" selected' in resp.text
     assert 'id="codebook-map-group"' in resp.text
+    assert "Folder/group organises codes into folders." in resp.text
     assert 'value="Theme" selected' in resp.text
     assert 'id="codebook-map-definition"' in resp.text
+    assert "Definition appears in the code hover popup." in resp.text
     assert 'value="Dictionary Definition" selected' in resp.text
     assert 'id="codebook-map-colour"' in resp.text
     assert 'value="Colour" selected' in resp.text
