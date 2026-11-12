@@ -172,6 +172,9 @@ jobs:
       - name: Build launcher package
         run: uv run python scripts/build_launcher_package.py
 
+      - name: Smoke-test packaged launcher and server
+        run: uv run python scripts/smoke_packaged_server.py
+
       - name: Find installer artifacts
         id: artifacts
         shell: bash
