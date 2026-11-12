@@ -619,6 +619,11 @@ async def import_folder(
     if not folder.is_dir():
         return _oob_status("Invalid folder path.")
 
+    active_job = getattr(request.app.state, "tabular_import_job", None)
+    if active_job is not None and not active_job.done.is_set():
+        return _oob_status("An import is already running. Wait or cancel it first.")
+    _clear_tabular_import_stage(request)
+
     db_gen = get_db(request)
     conn = next(db_gen)
     try:

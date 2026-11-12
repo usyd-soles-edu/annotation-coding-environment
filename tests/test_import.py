@@ -185,6 +185,39 @@ def test_project_switch_invalidates_inflight_preview(client_with_project, monkey
     assert client.app.state.import_stage_token is None
 
 
+def test_folder_selection_invalidates_inflight_spreadsheet_preview(
+    client_with_project, monkeypatch
+):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "responses.csv"
+    csv_path.write_text("id,text\nA,First\n", encoding="utf-8")
+    folder = tmp_path / "responses"
+    folder.mkdir()
+    (folder / "one.txt").write_text("Folder source", encoding="utf-8")
+    started = threading.Event()
+    release = threading.Event()
+    original_scan = importer.scan_tabular_preview
+
+    def held_scan(path):
+        started.set()
+        assert release.wait(5), "spreadsheet preview was not released"
+        return original_scan(path)
+
+    monkeypatch.setattr(importer, "scan_tabular_preview", held_scan)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        spreadsheet = pool.submit(client.post, "/api/import/file", data={"path": str(csv_path)})
+        assert started.wait(2)
+        folder_preview = pool.submit(client.post, "/api/import/folder", data={"path": str(folder)})
+        try:
+            response = folder_preview.result(timeout=2)
+            assert response.status_code == 200
+            assert "ace-folder-preview-workspace" in response.text
+        finally:
+            release.set()
+        assert spreadsheet.result(timeout=5).status_code == 409
+    assert client.app.state.import_stage_token is None
+
+
 def test_single_column_import_explains_how_to_enable_import(client_with_project):
     client, tmp_path = client_with_project
     csv_path = tmp_path / "one-column.csv"

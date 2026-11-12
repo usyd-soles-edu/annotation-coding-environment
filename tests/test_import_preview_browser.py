@@ -13,7 +13,8 @@ from ace.db.connection import create_project
 
 @pytest.mark.slow
 @pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
-def test_stale_preview_finishes_before_current_preview(tmp_path, engine):
+@pytest.mark.parametrize("replacement", ["spreadsheet", "folder"])
+def test_stale_preview_does_not_hide_new_selection(tmp_path, engine, replacement):
     async_api = pytest.importorskip("playwright.async_api")
     project = tmp_path / "preview.ace"
     create_project(str(project), "Preview race").close()
@@ -21,6 +22,9 @@ def test_stale_preview_finishes_before_current_preview(tmp_path, engine):
     second_file = tmp_path / "second.csv"
     first_file.write_text("id,text\nA,First response\n", encoding="utf-8")
     second_file.write_text("id,text\nB,Second response\n", encoding="utf-8")
+    folder = tmp_path / "responses"
+    folder.mkdir()
+    (folder / "one.txt").write_text("Folder response", encoding="utf-8")
 
     app = create_app()
     with TestClient(app, base_url="http://127.0.0.1:8080") as client:
@@ -49,6 +53,13 @@ def test_stale_preview_finishes_before_current_preview(tmp_path, engine):
                                 status=200,
                                 content_type="application/json",
                                 body=json.dumps({"path": str(selected)}),
+                            )
+                            return
+                        if url.path == "/api/native/pick-folder":
+                            await route.fulfill(
+                                status=200,
+                                content_type="application/json",
+                                body=json.dumps({"path": str(folder)}),
                             )
                             return
                         if url.path == "/api/import/file":
@@ -81,15 +92,24 @@ def test_stale_preview_finishes_before_current_preview(tmp_path, engine):
                     button = page.locator("#import-spreadsheet-button")
                     await button.click()
                     await asyncio.wait_for(first_started.wait(), timeout=5)
-                    await button.click()
-                    assert pick_count == 2
+                    if replacement == "spreadsheet":
+                        await button.click()
+                        assert pick_count == 2
+                    else:
+                        await page.locator("#import-folder-button").click()
+                        await page.locator("[data-folder-import-preview]").wait_for(state="visible")
                     release_first.set()
                     await asyncio.wait_for(first_finished.wait(), timeout=5)
-                    assert await page.locator("#step-columns").is_hidden()
-                    await asyncio.wait_for(second_started.wait(), timeout=5)
-                    release_second.set()
-                    await page.locator("#import-submit").wait_for(state="visible")
-                    assert "Second response" in await page.locator("#step-columns").inner_text()
+                    if replacement == "spreadsheet":
+                        assert await page.locator("#step-columns").is_hidden()
+                        await asyncio.wait_for(second_started.wait(), timeout=5)
+                        release_second.set()
+                        await page.locator("#import-submit").wait_for(state="visible")
+                        assert "Second response" in await page.locator("#step-columns").inner_text()
+                    else:
+                        folder_workspace = page.locator("[data-folder-import-preview]")
+                        assert await folder_workspace.is_visible()
+                        assert "Folder response" in await folder_workspace.inner_text()
                 finally:
                     release_first.set()
                     release_second.set()
