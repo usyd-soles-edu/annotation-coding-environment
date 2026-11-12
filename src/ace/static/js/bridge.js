@@ -2401,16 +2401,9 @@
     if (!row) return;
     const itemId = _itemIdFromTreeElement(row);
     const controller = _getSidebarTreeController();
-    if (
-      itemId &&
-      row.classList.contains("ace-ht-row") &&
-      controller &&
-      typeof controller.startRenaming === "function"
-    ) {
+    if (itemId && controller && typeof controller.startRenaming === "function") {
       controller.startRenaming(itemId);
-      return;
     }
-    _startInlineRename(row, { isFolder: _isFolderRow(row) });
   }
 
   function _setCut(codeId) {
@@ -2581,134 +2574,10 @@
     });
   }
 
-  function _codeAction(method, url, body) {
-    if (_denyCodebookEditing()) return Promise.resolve();
-    return fetch(url, {
-      method: method,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body,
-    }).then(function (r) {
-      if (!r.ok) { window._setStatus("Action failed", "err"); return Promise.reject(); }
-      _refreshSidebar();
-    });
-  }
-
-  function _startInlineRename(elementOrId, opts) {
-    if (_denyCodebookEditing()) return;
-    opts = opts || {};
-    const isFolder = !!opts.isFolder;
-    let row;
-    if (typeof elementOrId === "string") {
-      // String → code id. Folder rename always passes the row element.
-      row = document.querySelector(`.ace-code-row[data-code-id="${elementOrId}"]`);
-    } else {
-      row = elementOrId;
-    }
-    if (!row) return;
-    const nameEl = isFolder
-      ? row.querySelector(".ace-folder-label")
-      : row.querySelector(".ace-code-name");
-    if (!nameEl) return;
-    const targetId = isFolder
-      ? row.getAttribute("data-folder-id")
-      : row.getAttribute("data-code-id");
-    if (!targetId) return;
-
-    const original = nameEl.textContent;
-    nameEl.contentEditable = "true";
-    nameEl.focus();
-
-    const range = document.createRange();
-    range.selectNodeContents(nameEl);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    let done = false;
-    function clearRenameState() {
-      nameEl.removeAttribute("contenteditable");
-      const selection = window.getSelection && window.getSelection();
-      if (selection && selection.rangeCount) {
-        const range = selection.getRangeAt(0);
-        if (nameEl.contains(range.commonAncestorContainer)) selection.removeAllRanges();
-      }
-    }
-
-    function cancel(restoreFocus) {
-      if (done) return;
-      done = true;
-      nameEl.textContent = original;
-      clearRenameState();
-      if (restoreFocus) {
-        _focusTreeItem(row);
-      } else {
-        clearInactiveSelection();
-      }
-    }
-
-    function clearInactiveSelection() {
-      row.setAttribute("tabindex", "-1");
-      if (document.activeElement === row) row.blur();
-      _setActiveZone("source");
-    }
-
-    function save(restoreFocus) {
-      if (done) return;
-      done = true;
-      const newName = nameEl.textContent.trim();
-      clearRenameState();
-      if (!newName || newName === original) {
-        nameEl.textContent = original;
-        if (restoreFocus) _focusTreeItem(row);
-        else clearInactiveSelection();
-        return;
-      }
-      _codeAction("PUT", `/api/codes/${targetId}`,
-        `name=${encodeURIComponent(newName)}&current_index=${window.__aceCurrentIndex}`
-      ).catch(function () { nameEl.textContent = original; });
-      if (restoreFocus) _focusTreeItem(row);
-      else clearInactiveSelection();
-    }
-
-    nameEl.addEventListener("keydown", function handler(e) {
-      if (e.key === "Enter") { e.preventDefault(); nameEl.removeEventListener("keydown", handler); save(true); }
-      if (e.key === "Escape") { e.preventDefault(); nameEl.removeEventListener("keydown", handler); cancel(true); }
-    });
-
-    nameEl.addEventListener("blur", function blurHandler() {
-      nameEl.removeEventListener("blur", blurHandler);
-      setTimeout(function () { save(false); }, 50);
-    });
-
-    nameEl.addEventListener("paste", function pasteHandler(e) {
-      e.preventDefault();
-      const text = (e.clipboardData || window.clipboardData).getData("text/plain");
-      document.execCommand("insertText", false, text.replace(/\n/g, " "));
-    });
-  }
-
-  // _startGroupRename was removed: folders share the PUT /api/codes/{id}
-  // route with codes, preserving `kind='folder'`.
-
-  document.addEventListener("dblclick", function (e) {
-    const nameEl = e.target.closest(".ace-code-name, .ace-folder-label");
-    if (!nameEl) return;
-    if (_denyCodebookEditing()) return;
-    const row = nameEl.closest(".ace-code-row, .ace-code-folder-row");
-    if (!row) return;
-    if (row.classList.contains("ace-code-folder-row")) {
-      _startInlineRename(row, { isFolder: true });
-      return;
-    }
-    const codeId = row.getAttribute("data-code-id");
-    if (codeId) _startInlineRename(codeId);
-  });
-
   function _executeDelete(codeId) {
     if (_denyCodebookEditing()) return;
-    // Route the response through HTMX (not _codeAction's plain fetch) so the
-    // OOB statusbar/pill fragments carrying the [Z] undo affordance get
-    // applied to the page. current_index goes in the URL — htmx.ajax's
+    // Route the response through HTMX so the OOB fragments carrying the [Z]
+    // undo affordance update the page. current_index goes in the URL — htmx.ajax's
     // `values` ride in the request body for DELETE, but the route reads
     // current_index via Query, so a body-borne value would be ignored.
     const query = _codebookMutationQueryString({
@@ -2801,7 +2670,7 @@
    * by a "\u2190 Back" item that returns to the parent menu. No hover-open,
    * no nested floating panel \u2014 keeps positioning logic trivial.
    *
-   * Each menu item delegates to existing helpers (`_startInlineRename`,
+   * Each menu item delegates to existing helpers (`_startCodebookRename`,
    * `_setCut`, `_openColourPopover`, `_executeDelete`, etc.) so behaviour
    * matches the keyboard gestures exactly: same API endpoints, same
    * undo entries.
@@ -4587,21 +4456,19 @@
           current_index: window.__aceCurrentIndex || 0,
         }),
       }).then(function () {
-        // After OOB swap, the moved code lives inside a new folder. Locate
-        // the folder header (sibling above the [role="group"] container that
-        // wraps the code) and start inline rename on it. Defer past
+        // After OOB swap, locate the moved code's new parent folder and
+        // start inline rename on it. Defer past
         // htmx:afterSettle (which can re-bind focus via _syncSidebarAfterSwap)
-        // by using a slightly longer timeout — the focus call inside
-        // `_startInlineRename` would otherwise race with sidebar re-init.
+        // by using a slightly longer timeout so sidebar re-init has finished.
         setTimeout(function () {
           const moved = document.querySelector(
-            `.ace-code-row[data-code-id="${codeId}"], .ace-ht-row[data-item-id="${codeId}"]`
+            `.ace-ht-row[data-item-id="${codeId}"]`
           );
           if (!moved) return;
           const folderRow = _parentFolderRow(moved);
           if (folderRow && _isFolderRow(folderRow)) {
             _focusTreeItem(folderRow);
-            _startInlineRename(folderRow, { isFolder: true });
+            _startCodebookRename(folderRow);
           }
         }, 100);
       });
@@ -4665,23 +4532,10 @@
       return;
     }
 
-    // F2 — Inline rename. Works on both code rows and folder headers.
-    // Folders share the PUT /api/codes/{id} endpoint with codes (the row's
-    // `kind='folder'` is preserved by the model layer).
+    // F2 — Rename through the shared tree controller.
     if (key === "F2" && !alt && !shift) {
       e.preventDefault();
-      if (_denyCodebookEditing()) return;
-      const itemId = _itemIdFromTreeElement(active);
-      if (controller && typeof controller.startRenaming === "function" && itemId) {
-        controller.startRenaming(itemId);
-        return;
-      }
-      if (_isFolderRow(active)) {
-        _startInlineRename(active, { isFolder: true });
-      } else {
-        const codeId4 = itemId;
-        if (codeId4) _startInlineRename(codeId4);
-      }
+      _startCodebookRename(active);
       return;
     }
 
