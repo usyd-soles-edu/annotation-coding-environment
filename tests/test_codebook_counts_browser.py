@@ -100,6 +100,15 @@ def test_annotation_count_survives_focus_search_and_delete(tmp_path, engine):
                 """, arg=alpha_id)
                 assert count_state() == {"shown": "1", "cached": 1}
 
+                # The next source has no annotation, but the codebook count
+                # covers the whole project rather than only the visible text.
+                page.evaluate("window.aceNavigate(1)")
+                page.wait_for_function("window.__aceCurrentIndex === 1")
+                assert count_state() == {"shown": "1", "cached": 1}
+                page.evaluate("window.aceNavigate(0)")
+                page.wait_for_function("window.__aceCurrentIndex === 0")
+                assert count_state() == {"shown": "1", "cached": 1}
+
                 focus_without_rerender(beta.click)
                 assert count_state() == {"shown": "1", "cached": 1}
                 search = page.locator("#code-search-input")
