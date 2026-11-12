@@ -401,7 +401,7 @@ import {
       parent_id: formParentId(request.parentId),
       current_index: currentIndex(),
       _ace_reorder_request_id: requestId,
-    }, document.documentElement).catch(function (error) {
+    }, document.head).catch(function (error) {
       settleKeyboardReorder(requestId, false, error);
     });
   }

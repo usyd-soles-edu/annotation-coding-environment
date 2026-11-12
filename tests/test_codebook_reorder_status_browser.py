@@ -157,6 +157,7 @@ def test_reorder_waits_for_pending_server_response(reorder_server, engine):
                 assert await page.locator(".ace-statusbar-event").text_content() != "Saved"
                 assert await page.locator("[data-headless-tree-status]").text_content() == "Saving"
                 assert _stored_order(project) == [first, second]
+                await page.locator(".ace-sentence").first.click(timeout=2000)
                 release_response.set()
                 await page.wait_for_function(
                     "document.querySelector('.ace-statusbar-event')?.textContent === 'Saved'"
