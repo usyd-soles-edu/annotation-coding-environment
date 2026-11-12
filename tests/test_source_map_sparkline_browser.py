@@ -91,11 +91,16 @@ def test_sparkline_shows_flag_and_note_positions(tmp_path, engine):
                     "document.getElementById('ace-grid-spark').getAttribute('aria-label').includes('2 with notes')"
                 )
                 assert note_path.get_attribute("d").count("M") == 2
+                page.evaluate("window.__flagTextPanel = document.getElementById('text-panel')")
                 page.locator("#nav-flag-btn").click()
                 page.wait_for_function(
                     "document.getElementById('ace-grid-spark').getAttribute('aria-label').includes('3 flagged')"
                 )
                 assert flag_path.get_attribute("d").count("M") == 3
+                assert page.evaluate(
+                    "document.getElementById('text-panel') === window.__flagTextPanel"
+                )
+                assert page.locator("#nav-flag-btn [data-flag-label]").inner_text() == "⚑ Flagged"
 
                 # A very large corpus still produces at most one marker per
                 # pixel column, rather than thousands of SVG elements.

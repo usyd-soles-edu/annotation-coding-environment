@@ -1978,10 +1978,29 @@
   document.addEventListener("htmx:beforeOnLoad", function (e) {
     if (e.detail?.requestConfig?.path !== "/api/code/flag") return;
     const sourceIndex = Number(e.detail.requestConfig.parameters?.source_index);
-    if (sourceIndex === window.__aceCurrentIndex) return;
     const flagged = e.detail.xhr?.getResponseHeader("X-ACE-Flagged");
-    if (Number.isInteger(sourceIndex) && (flagged === "1" || flagged === "0")) {
-      _aceSetSourceFlag(sourceIndex, flagged === "1");
+    if (!Number.isInteger(sourceIndex) || (flagged !== "1" && flagged !== "0")) {
+      _pendingFlagAnnounce = false;
+      return;
+    }
+    const isFlagged = flagged === "1";
+    _aceSetSourceFlag(sourceIndex, isFlagged);
+    if (sourceIndex === window.__aceCurrentIndex) {
+      const flagBtn = document.getElementById("nav-flag-btn");
+      if (flagBtn) {
+        flagBtn.classList.toggle("ace-flag-btn--active", isFlagged);
+        flagBtn.setAttribute("aria-pressed", isFlagged ? "true" : "false");
+        const chip = flagBtn.querySelector(".ace-flag-chip");
+        if (chip) chip.classList.toggle("ace-flag-chip--active", isFlagged);
+        const label = flagBtn.querySelector("[data-flag-label]");
+        if (label) label.textContent = isFlagged ? "⚑ Flagged" : "⚑ Flag";
+        if (_pendingFlagAnnounce) {
+          _pendingFlagAnnounce = false;
+          _announce(isFlagged ? "Source flagged" : "Source unflagged");
+          flagBtn.focus();
+        }
+      }
+      return;
     }
     e.preventDefault();
     _pendingFlagAnnounce = false;
@@ -2171,16 +2190,6 @@
       }
       _rerenderSourceGridIfPresent();
 
-      // Announce flag state and restore focus after flag toggle
-      if (_pendingFlagAnnounce) {
-        _pendingFlagAnnounce = false;
-        const flagBtn = document.getElementById("nav-flag-btn");
-        if (flagBtn) {
-          const pressed = flagBtn.getAttribute("aria-pressed") === "true";
-          _announce(pressed ? "Source flagged" : "Source unflagged");
-          flagBtn.focus();
-        }
-      }
     }
 
     if (target.id === "code-sidebar" || target.id === "coding-workspace") {
