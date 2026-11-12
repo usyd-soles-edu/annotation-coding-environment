@@ -20,6 +20,8 @@ const STARTUP_LOCK_TIMEOUT: Duration = Duration::from_secs(20);
 const STARTUP_LOCK_STALE_AFTER: Duration = Duration::from_secs(30);
 const STATUS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_millis(800);
+const DIAGNOSTIC_FILE_NAME: &str = "launcher-startup.log";
+const MAX_DIAGNOSTIC_CHARS: usize = 2_000;
 
 type LauncherResult<T> = Result<T, String>;
 
@@ -55,8 +57,68 @@ struct RuntimeStatus {
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("ACE launcher error: {error}");
+        let log_path = record_startup_error(&error);
+        let message = match log_path {
+            Some(path) => format!(
+                "ACE could not start. {error}\n\nStartup diagnostic: {}",
+                path.display()
+            ),
+            None => format!("ACE could not start. {error}"),
+        };
+        eprintln!("{message}");
+        show_startup_error(&message);
         std::process::exit(1);
+    }
+}
+
+fn record_startup_error(error: &str) -> Option<PathBuf> {
+    let runtime_file = env::var_os("ACE_TEST_RUNTIME_FILE")
+        .map(PathBuf::from)
+        .or_else(|| runtime_file_path().ok())?;
+    let path = runtime_file.with_file_name(DIAGNOSTIC_FILE_NAME);
+    fs::create_dir_all(path.parent()?).ok()?;
+    let message: String = error.chars().take(MAX_DIAGNOSTIC_CHARS).collect();
+    // One bounded record is retained. A later failure replaces it; server
+    // output and request contents are deliberately excluded.
+    fs::write(&path, format!("ACE launcher startup failure: {message}\n")).ok()?;
+    Some(path)
+}
+
+fn show_startup_error(message: &str) {
+    if env::var_os("ACE_TEST_SUPPRESS_BROWSER").is_some() {
+        return;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let _ = Command::new("osascript")
+            .arg("-e")
+            .arg("display alert \"ACE could not start\" message (system attribute \"ACE_LAUNCH_ERROR_MESSAGE\")")
+            .env("ACE_LAUNCH_ERROR_MESSAGE", message)
+            .status();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        #[link(name = "user32")]
+        unsafe extern "system" {
+            fn MessageBoxW(
+                window: *mut std::ffi::c_void,
+                text: *const u16,
+                caption: *const u16,
+                kind: u32,
+            ) -> i32;
+        }
+        let text: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
+        let title: Vec<u16> = "ACE could not start"
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        unsafe { MessageBoxW(std::ptr::null_mut(), text.as_ptr(), title.as_ptr(), 0x10) };
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = Command::new("zenity")
+            .args(["--error", "--title=ACE could not start", "--text", message])
+            .status();
     }
 }
 
@@ -75,7 +137,7 @@ fn run() -> LauncherResult<()> {
     };
     let _startup_lock = acquire_startup_lock(&runtime_file)?;
 
-    let (runtime, launched_child) = if open_path.is_some() {
+    let (runtime, mut launched_child) = if open_path.is_some() {
         let launched = start_server(&runtime_file)?;
         (launched.runtime, Some(launched.child))
     } else {
@@ -88,7 +150,7 @@ fn run() -> LauncherResult<()> {
         }
     };
 
-    if let Err(error) = wait_for_runtime(&runtime)
+    if let Err(error) = wait_for_runtime(&runtime, launched_child.as_mut())
         .and_then(|()| open_browser_for_runtime(&runtime, open_path.as_deref()))
     {
         cleanup_failed_launch(launched_child, &runtime_file, &runtime);
@@ -104,7 +166,7 @@ fn open_browser_for_runtime(runtime: &RuntimeInfo, open_path: Option<&Path>) -> 
         println!("{url}");
         return Ok(());
     }
-    webbrowser::open(&url).map_err(|error| format!("failed to open default browser at {url}: {error}"))
+    webbrowser::open(&url).map_err(|_| "failed to open the default browser".to_string())
 }
 
 fn cleanup_failed_launch(child: Option<Child>, runtime_file: &Path, runtime: &RuntimeInfo) {
@@ -337,11 +399,21 @@ fn port_is_available(port: u16) -> bool {
     TcpListener::bind(("127.0.0.1", port)).is_ok()
 }
 
-fn wait_for_runtime(runtime: &RuntimeInfo) -> LauncherResult<()> {
+fn wait_for_runtime(runtime: &RuntimeInfo, mut child: Option<&mut Child>) -> LauncherResult<()> {
     let deadline = Instant::now() + STARTUP_TIMEOUT;
     while Instant::now() < deadline {
         if is_runtime_live(runtime) {
             return Ok(());
+        }
+        if let Some(child) = child.as_deref_mut() {
+            if let Some(status) = child
+                .try_wait()
+                .map_err(|error| format!("failed to inspect bundled ACE server status: {error}"))?
+            {
+                return Err(format!(
+                    "bundled ACE server exited before startup ({status})"
+                ));
+            }
         }
         sleep(STATUS_POLL_INTERVAL);
     }
