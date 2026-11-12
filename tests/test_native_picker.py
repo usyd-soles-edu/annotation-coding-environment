@@ -17,10 +17,11 @@ app.include_router(router)
 client = TestClient(app)
 
 
-def _mock_result(returncode: int = 0, stdout: str = "") -> MagicMock:
+def _mock_result(returncode: int = 0, stdout: str = "", stderr: str = "") -> MagicMock:
     result = MagicMock()
     result.returncode = returncode
     result.stdout = stdout
+    result.stderr = stderr
     return result
 
 
@@ -44,11 +45,23 @@ def test_pick_file_returns_path(mock_osascript, mock_platform):
 @patch("ace.routes.api_project_import._run_osascript")
 def test_pick_file_returns_empty_on_cancel(mock_osascript, mock_platform):
     mock_platform.system.return_value = "Darwin"
-    mock_osascript.return_value = _mock_result(1, "")
+    mock_osascript.return_value = _mock_result(1, "", "User canceled. (-128)")
 
     response = client.post("/api/native/pick-file")
 
     assert response.status_code == 200
+    assert response.json() == {"path": ""}
+
+
+@patch("ace.routes.api_project_import.platform")
+@patch("ace.routes.api_project_import._run_osascript")
+def test_pick_file_reports_native_failure(mock_osascript, mock_platform):
+    mock_platform.system.return_value = "Darwin"
+    mock_osascript.return_value = _mock_result(1, "", "Permission denied. (-1743)")
+
+    response = client.post("/api/native/pick-file")
+
+    assert response.status_code == 503
     assert response.json() == {"path": ""}
 
 
