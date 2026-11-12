@@ -143,6 +143,12 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                 row.press("Shift+F10")
                 menu.get_by_role("menuitem", name="Change colour…").focus()
                 page.keyboard.press("Enter")
+                # A slow tree fetch must not leave focus on the replaced panel.
+                def delay_tree(route):
+                    time.sleep(0.15)
+                    route.continue_()
+
+                page.route(f"{base}/api/codes/tree", delay_tree, times=1)
                 page.get_by_role("group", name="Change code colour").get_by_role(
                     "button", name="Set code colour to #0B4F8A"
                 ).press("Enter")
@@ -155,6 +161,40 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                     "id => document.activeElement?.getAttribute('data-code-id') === id",
                     arg=alpha_id,
                 )
+
+                # An HTTP failure must not leave a stale focus listener that
+                # steals focus on a later mutation of the same code.
+                row.click(button="right")
+                menu.get_by_role("menuitem", name="Change colour…").click()
+                failed_path = f"{base}/api/codes/{alpha_id}"
+                page.route(failed_path, lambda route: route.fulfill(status=503, body="failed"), times=1)
+                with page.expect_response(
+                    lambda response: response.url == failed_path and response.status == 503
+                ):
+                    page.get_by_role("group", name="Change code colour").get_by_role(
+                        "button", name="Set code colour to #0B4F8A"
+                    ).click()
+                page.evaluate("""() => {
+                    const button = document.createElement('button');
+                    button.id = 'focus-sentinel';
+                    document.body.appendChild(button);
+                    button.focus();
+                }""")
+                active_after_settle = page.evaluate("""async id => {
+                    const path = `/api/codes/${id}`;
+                    const settled = new Promise(resolve => {
+                        document.addEventListener('htmx:afterSettle', event => {
+                            if (event.detail?.requestConfig?.path !== path) return;
+                            requestAnimationFrame(() => resolve(document.activeElement?.id));
+                        }, {once: true});
+                    });
+                    await htmx.ajax('PUT', path, {
+                        target: '#text-panel', swap: 'outerHTML',
+                        values: {colour: '#0B4F8A', current_index: 0},
+                    });
+                    return settled;
+                }""", alpha_id)
+                assert active_after_settle == "text-panel"
 
                 page.goto(f"{base}/code/{alpha_id}/view")
                 audit_row = page.locator(f'.ace-ht-row[data-code-id="{alpha_id}"]')
