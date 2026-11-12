@@ -3293,17 +3293,31 @@
     // from any sidebar element.
     if (_cutCode) {
       _setCut(null);
-      _announce("Cut cleared.");
-      window._setStatus("", "ok");
+      window._setStatus("Cut cleared", "ok");
       e.stopPropagation();
       e.preventDefault();
       return;
     }
-    if (t.id === "code-search-input") return;
+    if (t.id === "code-search-input") {
+      if (t.value.trim()) return;
+      e.stopPropagation();
+      e.preventDefault();
+      _focusTextPanel();
+      window._setStatus("Source focused", "ok");
+      return;
+    }
     if (t.getAttribute && t.getAttribute("role") === "treeitem") return;
     if (t.isContentEditable) return;
     const tag = (t.tagName || "").toLowerCase();
     if (tag === "input" || tag === "textarea" || tag === "select") return;
+    const search = document.getElementById("code-search-input");
+    if (search && search.value.trim()) {
+      e.stopPropagation();
+      e.preventDefault();
+      _clearSearchFilter();
+      window._setStatus("Filter cleared", "ok");
+      return;
+    }
     // stopPropagation so this Esc doesn't ALSO fire the bubble-phase
     // Esc cascade (which would close any open dialog / clear text
     // selection / step out of note-drawer edit mode after focus lands
@@ -3312,6 +3326,7 @@
     e.preventDefault();
     const tp = document.getElementById("text-panel");
     if (tp) tp.focus();
+    window._setStatus("Source focused", "ok");
   }, true);
 
   // ⌘X / Ctrl+X — cut a focused code row; ⌘V / Ctrl+V — paste it onto the
@@ -4760,12 +4775,17 @@
       e.preventDefault();
       if (_cutCode) {
         _setCut(null);
-        _announce("Cut cleared.");
-        window._setStatus("", "ok");
+        window._setStatus("Cut cleared", "ok");
         return;
       }
-      _clearSearchFilter();
-      _focusTextPanel();
+      const search = document.getElementById("code-search-input");
+      if (search && search.value.trim()) {
+        _clearSearchFilter();
+        window._setStatus("Filter cleared", "ok");
+      } else {
+        _focusTextPanel();
+        window._setStatus("Source focused", "ok");
+      }
       return;
     }
   });
