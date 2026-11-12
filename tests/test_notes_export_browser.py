@@ -77,6 +77,13 @@ def test_export_notes_feedback_matches_download(tmp_path, engine):
                 assert count.ok
                 assert count.headers["x-ace-notes-count"] == "1"
                 page.locator("#codebook-menu-btn").click()
+                page.evaluate("""() => {
+                    window.__aceExportStatuses = [];
+                    const status = document.querySelector('.ace-statusbar-event');
+                    new MutationObserver(() => {
+                        window.__aceExportStatuses.push(status.textContent);
+                    }).observe(status, {childList: true, characterData: true, subtree: true});
+                }""")
                 with page.expect_response(
                     lambda response: response.url.endswith("/api/export/notes")
                     and response.request.method == "GET"
@@ -87,7 +94,7 @@ def test_export_notes_feedback_matches_download(tmp_path, engine):
                 assert ".csv" in info.value.headers["content-disposition"]
                 assert page.url.endswith("/code")
                 page.wait_for_function(
-                    "document.querySelector('.ace-statusbar-event')?.textContent === 'Exported'"
+                    "window.__aceExportStatuses.includes('Exported')"
                 )
 
                 export_requests = []
