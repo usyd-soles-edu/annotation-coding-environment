@@ -10,6 +10,7 @@ import platform
 import re
 import secrets
 import sqlite3
+import threading
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -71,6 +72,38 @@ def _parse_import_text_columns(value: str) -> list[str]:
     if not all(isinstance(column, str) for column in parsed):
         return []
     return parsed
+
+
+class _TabularImportJob:
+    """Progress for the one active tabular import in this local app."""
+
+    def __init__(self, token: str, project_path: str, total: int) -> None:
+        self.token = token
+        self.project_path = project_path
+        self.total = total
+        self.cancel = threading.Event()
+        self.discard_upload = threading.Event()
+        self.done = threading.Event()
+        self._lock = threading.Lock()
+        self._processed = 0
+        self._status = "running"
+
+    def set_processed(self, processed: int) -> None:
+        with self._lock:
+            self._processed = processed
+
+    def finish(self, status: str) -> None:
+        with self._lock:
+            self._status = status
+        self.done.set()
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            processed = self._processed
+            status = self._status
+        if status == "running" and self.cancel.is_set():
+            status = "cancelling"
+        return {"processed": processed, "total": self.total, "status": status}
 
 
 def _sqlite_sidecar_paths(path: Path) -> tuple[Path, Path]:
@@ -144,8 +177,21 @@ def _clear_folder_import_manifests(request: Request) -> None:
 
 def _clear_tabular_import_stage(request: Request) -> None:
     """Invalidate a file preview and remove only app-owned temporary uploads."""
+    job = getattr(request.app.state, "tabular_import_job", None)
+    defer_upload_cleanup = (
+        job is not None
+        and not job.done.is_set()
+        and job.token == getattr(request.app.state, "import_stage_token", None)
+    )
+    if defer_upload_cleanup:
+        job.cancel.set()
+        job.discard_upload.set()
     import_tmp_path = getattr(request.app.state, "import_tmp_path", None)
-    if import_tmp_path and getattr(request.app.state, "import_tmp_cleanup", True):
+    if (
+        import_tmp_path
+        and getattr(request.app.state, "import_tmp_cleanup", True)
+        and not defer_upload_cleanup
+    ):
         try:
             Path(import_tmp_path).unlink(missing_ok=True)
         except OSError:
@@ -155,6 +201,7 @@ def _clear_tabular_import_stage(request: Request) -> None:
     request.app.state.import_source_name = None
     request.app.state.import_stage_token = None
     request.app.state.import_stage_project_path = None
+    request.app.state.import_stage_row_count = None
 
 
 def _clear_project_transient_state(request: Request, project_path: str) -> None:
@@ -264,6 +311,17 @@ async def project_create(
     # Ensure the path ends with .ace
     if file_path.suffix != ".ace":
         file_path = file_path.with_suffix(".ace")
+
+    active_job = getattr(request.app.state, "tabular_import_job", None)
+    if (
+        overwrite
+        and active_job is not None
+        and not active_job.done.is_set()
+        and Path(active_job.project_path).resolve() == file_path.resolve()
+    ):
+        return _oob_status(
+            "Wait for or cancel the current import before replacing this project."
+        )
 
     temporary_path: Path | None = None
     conn: sqlite3.Connection | None = None
@@ -411,8 +469,8 @@ async def import_commit(
     stage_token: str = Form(default=""),
 ):
     """Commit the uploaded file: import selected columns as sources."""
-    from ace.app import get_db
-    from ace.services.importer import import_csv
+    from ace.db.connection import open_project
+    from ace.services.importer import ImportCancelled, import_csv
 
     tmp_path = getattr(request.app.state, "import_tmp_path", None)
     current_token = getattr(request.app.state, "import_stage_token", None)
@@ -436,27 +494,76 @@ async def import_commit(
     if not text_col_list:
         return _oob_status("Choose at least one text column.")
 
-    db_gen = get_db(request)
-    conn = next(db_gen)
+    active_job = getattr(request.app.state, "tabular_import_job", None)
+    if active_job is not None and not active_job.done.is_set():
+        return _oob_status("An import is already running. Wait or cancel it first.")
+    job = _TabularImportJob(
+        stage_token, str(current_project),
+        int(getattr(request.app.state, "import_stage_row_count", 0) or 0),
+    )
+    request.app.state.tabular_import_job = job
+    source_name = getattr(request.app.state, "import_source_name", None)
+    cleanup_upload = getattr(request.app.state, "import_tmp_cleanup", True)
+
+    def run_import():
+        try:
+            conn = open_project(current_project)
+            try:
+                result = import_csv(
+                    conn, tmp_path, id_column, text_col_list,
+                    on_progress=job.set_processed,
+                    should_cancel=job.cancel.is_set,
+                )
+            finally:
+                conn.close()
+            job.finish("complete")
+            return result
+        except ImportCancelled:
+            job.finish("cancelled")
+            raise
+        except BaseException:
+            job.finish("failed")
+            raise
+        finally:
+            if job.discard_upload.is_set() and cleanup_upload:
+                try:
+                    Path(tmp_path).unlink(missing_ok=True)
+                except OSError:
+                    logger.warning("Could not remove cancelled import file at %s", tmp_path)
+
+    def publish_completed_import(task: asyncio.Task) -> None:
+        try:
+            finished = task.result()
+        except BaseException:
+            return
+        if (
+            request.app.state.project_path == current_project
+            and request.app.state.import_stage_token == stage_token
+        ):
+            request.app.state.last_import_source_ids = finished.created_ids
+
+    worker_task = asyncio.create_task(asyncio.to_thread(run_import))
+    worker_task.add_done_callback(publish_completed_import)
     try:
-        result = import_csv(conn, tmp_path, id_column, text_col_list)
-        count, skipped, created_ids = result
+        result = await asyncio.shield(worker_task)
+        publish_completed_import(worker_task)
+        count, skipped, _ = result
+    except asyncio.CancelledError:
+        job.cancel.set()
+        raise
+    except ImportCancelled:
+        return HTMLResponse(
+            '<span data-import-cancelled="true">Import cancelled. No sources were added.</span>',
+            headers={"HX-Reswap": "none"},
+        )
     except ValueError as exc:
         return _oob_status(str(exc))
     except Exception:
         return _oob_status(_friendly_import_error())
-    finally:
-        db_gen.close()
-
-    # Remember the last import's source ids so the 'Remove last import'
-    # button can delete them directly (imports are NOT on the undo stack).
-    # Set unconditionally — a no-op import (all duplicates) clears the
-    # record so the button never removes a previous batch by mistake.
-    request.app.state.last_import_source_ids = created_ids
 
     # Clean up upload temp files. Native picker paths belong to the user.
-    source_name = getattr(request.app.state, "import_source_name", None)
-    _clear_tabular_import_stage(request)
+    if request.app.state.import_stage_token == stage_token:
+        _clear_tabular_import_stage(request)
 
     count_label = f'{count} source{"s" if count != 1 else ""}'
     return HTMLResponse(
@@ -467,6 +574,24 @@ async def import_commit(
             empty_skipped=result.empty_skipped,
         )
     )
+
+
+@router.get("/import/progress")
+async def import_progress(request: Request, stage_token: str = Query(default="")):
+    job = getattr(request.app.state, "tabular_import_job", None)
+    if not job or not stage_token or job.token != stage_token:
+        return JSONResponse({"error": "Import job not found"}, status_code=404)
+    return JSONResponse(job.snapshot())
+
+
+@router.post("/import/cancel")
+async def import_cancel(request: Request, stage_token: str = Form(default="")):
+    job = getattr(request.app.state, "tabular_import_job", None)
+    if not job or not stage_token or job.token != stage_token:
+        return JSONResponse({"error": "Import job not found"}, status_code=404)
+    if not job.done.is_set():
+        job.cancel.set()
+    return JSONResponse(job.snapshot())
 
 
 @router.post("/import/folder")

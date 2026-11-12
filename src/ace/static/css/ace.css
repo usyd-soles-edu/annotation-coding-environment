@@ -1108,6 +1108,32 @@ body {
 .ace-import-actions--secondary {
   margin-top: var(--ace-space-5);
 }
+.ace-import-progress {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  bottom: var(--ace-space-4);
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 32px));
+  display: grid;
+  justify-items: center;
+  gap: var(--ace-space-2);
+  padding: var(--ace-space-3) var(--ace-space-4);
+  border: 1px solid var(--ace-border);
+  background: var(--ace-bg);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  font-size: var(--ace-font-size-sm);
+}
+.ace-import-progress[hidden] {
+  display: none;
+}
+.ace-import-progress progress {
+  width: 100%;
+  accent-color: var(--ace-focus);
+}
+.ace-import-progress p {
+  margin: 0;
+}
 .ace-import-file-meta {
   margin-top: var(--ace-space-3);
   text-align: center;

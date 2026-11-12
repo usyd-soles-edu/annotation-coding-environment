@@ -4,6 +4,7 @@ import html
 import json
 import os
 import re
+import threading
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -293,6 +294,7 @@ def test_large_csv_preview_keeps_bounded_sample_and_imports_all_rows(client_with
     preview = client.post("/api/import/file", data={"path": str(csv_path)})
     assert preview.status_code == 200
     assert "Import 200 sources" in preview.text
+    token = client.app.state.import_stage_token
     encoded = re.search(r'data-preview-rows="([^"]+)"', preview.text)
     assert encoded is not None
     sampled = json.loads(html.unescape(encoded.group(1)))
@@ -304,6 +306,9 @@ def test_large_csv_preview_keeps_bounded_sample_and_imports_all_rows(client_with
     )
     assert result.status_code == 200
     assert "200 sources" in result.text
+    assert client.get(
+        "/api/import/progress", params={"stage_token": token}
+    ).json() == {"processed": 200, "total": 200, "status": "complete"}
     conn = open_project(str(tmp_path / "test.ace"))
     try:
         assert len(list_sources(conn)) == 200
@@ -329,6 +334,120 @@ def test_large_csv_preview_defaults_use_leading_rows(client_with_project, monkey
     assert 'data-import-text-col value="coding_text" checked' in preview.text
     assert 'data-import-text-col value="number_or_text" checked' not in preview.text
     assert "<code>S0</code><code>S1</code><code>S2</code>" in preview.text
+
+
+def test_import_progress_and_cancel_keep_project_unchanged(client_with_project, monkeypatch):
+    client, tmp_path = client_with_project
+    csv_path = tmp_path / "cancel.csv"
+    csv_path.write_text("id,text\nA,first\nB,second\nC,third\n", encoding="utf-8")
+    client.post("/api/import/file", data={"path": str(csv_path)})
+    token = client.app.state.import_stage_token
+
+    inserted = threading.Event()
+    release = threading.Event()
+    original_add = importer._add_source_no_commit
+
+    def pause_after_first_insert(conn, **kwargs):
+        source_id = original_add(conn, **kwargs)
+        inserted.set()
+        assert release.wait(timeout=5)
+        return source_id
+
+    monkeypatch.setattr(importer, "_add_source_no_commit", pause_after_first_insert)
+    outcome = {}
+
+    def submit():
+        outcome["response"] = _commit_import(
+            client, {"id_column": "id", "text_columns": '["text"]'}
+        )
+
+    thread = threading.Thread(target=submit)
+    thread.start()
+    try:
+        assert inserted.wait(timeout=5)
+        status = client.get("/api/import/progress", params={"stage_token": token})
+        assert status.json() == {"processed": 0, "total": 3, "status": "running"}
+        duplicate = _commit_import(
+            client, {"id_column": "id", "text_columns": '["text"]'}
+        )
+        assert "An import is already running" in duplicate.text
+        overwrite = client.post(
+            "/api/project/create",
+            data={"name": "Replacement", "path": str(tmp_path / "test.ace"), "overwrite": "true"},
+        )
+        assert "Wait for or cancel the current import" in overwrite.text
+        assert client.post(
+            "/api/import/cancel", data={"stage_token": "wrong"}
+        ).status_code == 404
+        cancelled = client.post(
+            "/api/import/cancel", data={"stage_token": token}
+        )
+        assert cancelled.json()["status"] == "cancelling"
+    finally:
+        release.set()
+        thread.join(timeout=10)
+
+    assert not thread.is_alive()
+    assert "Import cancelled. No sources were added." in outcome["response"].text
+    assert client.get(
+        "/api/import/progress", params={"stage_token": token}
+    ).json()["status"] == "cancelled"
+    conn = open_project(str(tmp_path / "test.ace"))
+    try:
+        assert list_sources(conn) == []
+    finally:
+        conn.close()
+
+
+def test_completed_import_does_not_publish_metadata_after_project_switch(
+    client_with_project, monkeypatch
+):
+    client, tmp_path = client_with_project
+    other_project = tmp_path / "other.ace"
+    create_project(str(other_project), "Other").close()
+    csv_path = tmp_path / "switch.csv"
+    csv_path.write_text("id,text\nA,first\n", encoding="utf-8")
+    client.post("/api/import/file", data={"path": str(csv_path)})
+
+    from ace.routes.api_project_import import _TabularImportJob
+
+    committed = threading.Event()
+    release = threading.Event()
+    original_finish = _TabularImportJob.finish
+
+    def pause_after_commit(job, status):
+        if status == "complete":
+            committed.set()
+            assert release.wait(timeout=5)
+        original_finish(job, status)
+
+    monkeypatch.setattr(_TabularImportJob, "finish", pause_after_commit)
+    outcome = {}
+
+    def submit():
+        outcome["response"] = _commit_import(
+            client, {"id_column": "id", "text_columns": '["text"]'}
+        )
+
+    thread = threading.Thread(target=submit)
+    thread.start()
+    try:
+        assert committed.wait(timeout=5)
+        switched = client.post("/api/project/open", data={"path": str(other_project)})
+        assert switched.status_code == 200
+        assert client.app.state.project_path == str(other_project)
+    finally:
+        release.set()
+        thread.join(timeout=10)
+
+    assert not thread.is_alive()
+    assert "1 source" in outcome["response"].text
+    assert getattr(client.app.state, "last_import_source_ids", None) is None
+    conn = open_project(str(other_project))
+    try:
+        assert list_sources(conn) == []
+    finally:
+        conn.close()
 
 
 def test_import_commit_multiple_text_columns_creates_one_source_per_row(client_with_project):
