@@ -209,7 +209,12 @@ function _doSaveNote() {
           pill.classList.remove("ace-note-pill--has-note");
         }
       }
-      if (document.getElementById("note-status")?.textContent !== LONG_NOTE_WARNING) {
+      if (data.deleted) {
+        _setNoteStatus("", false);
+        if (typeof window._setStatus === "function") {
+          window._setStatus("Note deleted", "ok");
+        }
+      } else if (document.getElementById("note-status")?.textContent !== LONG_NOTE_WARNING) {
         _setNoteStatus("Saved", false);
       }
     }

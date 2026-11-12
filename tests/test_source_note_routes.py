@@ -62,9 +62,13 @@ def test_put_note_updates_existing(client_with_sources):
 def test_put_note_empty_deletes(client_with_sources):
     client, _, s1, _, _ = client_with_sources
     client.put(f"/api/source-note/{s1}", data={"note_text": "Some text"})
-    client.put(f"/api/source-note/{s1}", data={"note_text": "  "})
+    deleted = client.put(f"/api/source-note/{s1}", data={"note_text": "  "})
+    assert deleted.json()["deleted"] is True
     got = client.get(f"/api/source-note/{s1}")
     assert got.json() == {"note_text": ""}
+
+    empty_again = client.put(f"/api/source-note/{s1}", data={"note_text": ""})
+    assert empty_again.json()["deleted"] is False
 
 
 def test_put_note_does_not_change_flag_state(client_with_sources):

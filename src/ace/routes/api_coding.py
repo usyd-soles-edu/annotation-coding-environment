@@ -369,7 +369,7 @@ async def put_source_note(
     pill state client-side.
     """
     from ace.models.assignment import get_assignments_for_coder
-    from ace.models.source_note import upsert_note
+    from ace.models.source_note import get_note, upsert_note
 
     coder_id = _require_coder(request)
 
@@ -379,9 +379,15 @@ async def put_source_note(
         if not found:
             return JSONResponse({"ok": False}, status_code=404)
 
+        deleted = not note_text.strip() and get_note(conn, source_id, coder_id) is not None
         upsert_note(conn, source_id, coder_id, note_text)
 
-        return JSONResponse({"ok": True, "has_note": bool(note_text.strip()), "promoted": False})
+        return JSONResponse({
+            "ok": True,
+            "has_note": bool(note_text.strip()),
+            "deleted": deleted,
+            "promoted": False,
+        })
 
 
 @router.head("/export/notes")
