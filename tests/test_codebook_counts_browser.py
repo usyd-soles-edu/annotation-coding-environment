@@ -80,6 +80,14 @@ def test_annotation_count_survives_focus_search_and_delete(tmp_path, engine):
                     action()
                     page.wait_for_function("row => !row.isConnected", arg=old_row)
 
+                def focus_without_rerender(action):
+                    old_row = alpha.element_handle()
+                    action()
+                    page.wait_for_function("""() =>
+                      document.querySelectorAll('.ace-ht-row[data-kind="code"]')[1]?.tabIndex === 0
+                    """)
+                    assert old_row.evaluate("row => row.isConnected")
+
                 assert count_state() == {"shown": "", "cached": 0}
                 page.evaluate("""async id => {
                   await htmx.ajax('POST', '/api/code/apply-sentence', {
@@ -92,7 +100,7 @@ def test_annotation_count_survives_focus_search_and_delete(tmp_path, engine):
                 """, arg=alpha_id)
                 assert count_state() == {"shown": "1", "cached": 1}
 
-                rerender_after(beta.click)
+                focus_without_rerender(beta.click)
                 assert count_state() == {"shown": "1", "cached": 1}
                 search = page.locator("#code-search-input")
                 rerender_after(lambda: search.fill("Alpha"))
@@ -112,7 +120,7 @@ def test_annotation_count_survives_focus_search_and_delete(tmp_path, engine):
                   window.__aceHeadlessTreePreview?.items[id]?.count === 0
                 """, arg=alpha_id)
                 assert count_state() == {"shown": "", "cached": 0}
-                rerender_after(beta.click)
+                focus_without_rerender(beta.click)
                 assert count_state() == {"shown": "", "cached": 0}
             finally:
                 browser.close()
