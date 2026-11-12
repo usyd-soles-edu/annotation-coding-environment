@@ -674,12 +674,12 @@
       }
       if (!ctrl && !e.altKey && key === "ArrowLeft" && shift) {
         e.preventDefault();
-        _navigateSourceFromKeyboard(window.__aceCurrentIndex - 1);
+        _navigateSourceFromKeyboard(-1);
         return;
       }
       if (!ctrl && !e.altKey && key === "ArrowRight" && shift) {
         e.preventDefault();
-        _navigateSourceFromKeyboard(window.__aceCurrentIndex + 1);
+        _navigateSourceFromKeyboard(1);
         return;
       }
       return;
@@ -714,12 +714,12 @@
     // Shift+← / Shift+→ — Navigate between sources
     if (key === "ArrowLeft" && shift) {
       e.preventDefault();
-      _navigateSourceFromKeyboard(window.__aceCurrentIndex - 1);
+      _navigateSourceFromKeyboard(-1);
       return;
     }
     if (key === "ArrowRight" && shift) {
       e.preventDefault();
-      _navigateSourceFromKeyboard(window.__aceCurrentIndex + 1);
+      _navigateSourceFromKeyboard(1);
       return;
     }
 
@@ -817,22 +817,55 @@
    * 7. Navigation
    * ================================================================ */
 
-  async function _recordSourceNavigation(fromIndex, toIndex) {
-    if (!Number.isFinite(fromIndex) || !Number.isFinite(toIndex) || fromIndex === toIndex) return;
-    try {
-      const body = new URLSearchParams();
-      body.set("from_index", String(fromIndex));
-      body.set("to_index", String(toIndex));
-      await fetch("/api/navigation", {
-        method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: body.toString(),
-      });
-    } catch (_) {}
+  let _navigationInFlight = false;
+  let _navigationQueued = null;
+  let _navigationIntentIndex = null;
+
+  function _lockNoteDuringNavigation() {
+    const textarea = document.getElementById("note-textarea");
+    if (!textarea) return;
+    textarea.readOnly = true;
+    textarea.setAttribute("aria-readonly", "true");
+    textarea.dataset.aceNavigationLocked = "1";
   }
 
-  function _navigateSourceFromKeyboard(index) {
-    if (!Number.isFinite(index)) return;
+  function _unlockNoteAfterNavigation() {
+    const textarea = document.getElementById("note-textarea");
+    if (!textarea || textarea.dataset.aceNavigationLocked !== "1") return;
+    textarea.readOnly = false;
+    textarea.removeAttribute("aria-readonly");
+    delete textarea.dataset.aceNavigationLocked;
+  }
+
+  async function _requestNavigation(values) {
+    let responseStatus = null;
+    const onAfterRequest = function (event) {
+      const xhr = event.detail?.xhr;
+      if (!xhr?.responseURL) return;
+      if (new URL(xhr.responseURL).pathname === "/api/navigation") {
+        responseStatus = xhr.status;
+      }
+    };
+    document.addEventListener("htmx:afterRequest", onAfterRequest);
+    try {
+      await htmx.ajax("POST", "/api/navigation", {
+        target: "#text-panel", swap: "outerHTML", values,
+      });
+      if (responseStatus !== 200) throw new Error("Navigation request failed");
+    } finally {
+      document.removeEventListener("htmx:afterRequest", onAfterRequest);
+    }
+  }
+
+  document.addEventListener("htmx:afterSettle", function (event) {
+    if (_navigationInFlight && event.detail?.target?.id === "text-panel") {
+      _lockNoteDuringNavigation();
+    }
+  });
+
+  function _navigateSourceFromKeyboard(step) {
+    const base = _navigationIntentIndex ?? window.__aceCurrentIndex;
+    const index = base + step;
     if (index < 0) {
       if (typeof window._setStatus === "function") window._setStatus("First source", "ok");
       return;
@@ -844,35 +877,79 @@
     window.aceNavigate(index);
   }
 
-  window.aceNavigate = async function (index) {
+  window.aceNavigate = function (index, options) {
     if (!Number.isFinite(index) || index < 0 || index >= window.__aceTotalSources) return;
-    const fromIndex = window.__aceCurrentIndex;
-    // Flush any pending or in-flight note save before tearing down the page.
-    // Without this, debounced saves get cancelled by the navigation.
-    if (typeof window.aceFlushNoteIfDirty === "function") {
-      try { await window.aceFlushNoteIfDirty(); } catch (_) {}
-    }
-    await _recordSourceNavigation(fromIndex, index);
-    try {
-      const url = new URL(window.location.href);
-      if (!url.searchParams.has("index")) {
-        url.searchParams.set("index", String(fromIndex));
-        history.replaceState({}, "", url.pathname + url.search);
+    const opts = options || {};
+    _navigationIntentIndex = index;
+    _navigationQueued = {
+      index,
+      recordUndo: opts.recordUndo !== false,
+      historyMode: opts.historyMode === "none" ? "none" : "push",
+    };
+    if (_navigationInFlight) return;
+    _navigationInFlight = true;
+    document.body.dataset.aceNavigating = "1";
+    const workspace = document.getElementById("coding-workspace");
+    if (workspace) workspace.setAttribute("aria-busy", "true");
+    _lockNoteDuringNavigation();
+
+    (async function () {
+      try {
+        while (_navigationQueued) {
+          const next = _navigationQueued;
+          _navigationQueued = null;
+          const fromIndex = window.__aceCurrentIndex;
+          if (next.index === fromIndex) continue;
+          // A note save must finish before the inspector is replaced.
+          if (typeof window.aceFlushNoteIfDirty === "function") {
+            try { await window.aceFlushNoteIfDirty(); } catch (_) {}
+          }
+          if (next.historyMode === "push") {
+            const url = new URL(window.location.href);
+            if (!url.searchParams.has("index")) {
+              url.searchParams.set("index", String(fromIndex));
+              history.replaceState({}, "", url.pathname + url.search);
+            }
+          }
+          await _requestNavigation({
+            from_index: fromIndex,
+            to_index: next.index,
+            note_open: document.documentElement.dataset.aceNoteOpen === "1",
+            record_undo: next.recordUndo,
+            history_mode: next.historyMode,
+          });
+        }
+      } catch (_) {
+        _navigationQueued = null;
+        try {
+          history.replaceState({}, "", "/code?index=" + window.__aceCurrentIndex);
+        } catch (_) {}
+        if (typeof window._setStatus === "function") window._setStatus("Source navigation failed", "err");
+      } finally {
+        _navigationInFlight = false;
+        _navigationIntentIndex = null;
+        delete document.body.dataset.aceNavigating;
+        if (workspace) workspace.removeAttribute("aria-busy");
+        _unlockNoteAfterNavigation();
       }
-    } catch (_) {}
-    window.__aceCurrentIndex = index;
-    window.__aceFocusIndex = -1;
-    _setAmbient();
-    window.location.href = `/code?index=${index}`;
+    })();
   };
 
   window.aceNavigatePrev = function () {
-    window.aceNavigate(window.__aceCurrentIndex - 1);
+    _navigateSourceFromKeyboard(-1);
   };
 
   window.aceNavigateNext = function () {
-    window.aceNavigate(window.__aceCurrentIndex + 1);
+    _navigateSourceFromKeyboard(1);
   };
+
+  window.addEventListener("popstate", function () {
+    if (window.location.pathname !== "/code") return;
+    const index = Number(new URLSearchParams(window.location.search).get("index"));
+    if (Number.isInteger(index)) {
+      window.aceNavigate(index, { recordUndo: false, historyMode: "none" });
+    }
+  });
 
   /* ================================================================
    * 8. Cheat sheet overlay
@@ -2060,6 +2137,8 @@
       _setCut(null);
     }
     _clearCodeCues();
+    window.__aceLastSelection = null;
+    window.getSelection()?.removeAllRanges();
     const detail = e.detail || {};
     if (detail.index !== undefined) {
       window.__aceCurrentIndex = parseInt(detail.index, 10);
@@ -2073,11 +2152,20 @@
     // Reset scroll position for new source
     const cs = document.getElementById("text-scroll") || document.getElementById("content-scroll");
     if (cs) cs.scrollTop = 0;
-    // Sync URL so a refresh lands on the same source as the visible panel.
-    // Used by cross-source undo/redo, where the server swaps the body but
-    // the page never reloads.
+    const storageKey = window.__aceSourceIndexStorageKey;
+    if (storageKey) {
+      try { localStorage.setItem(storageKey, String(window.__aceCurrentIndex)); } catch (_) {}
+    }
+    // Keep URL and rendered source in sync. Ordinary navigation creates a
+    // history entry; undo/redo replace it; popstate already changed the URL.
     try {
-      history.replaceState({}, "", "/code?index=" + window.__aceCurrentIndex);
+      if (detail.history === "push" && _navigationQueued?.historyMode !== "none") {
+        history.pushState({}, "", "/code?index=" + window.__aceCurrentIndex);
+      } else if (detail.history === "none") {
+        history.replaceState({}, "", "/code?index=" + window.__aceCurrentIndex);
+      } else if (detail.history !== "push") {
+        history.replaceState({}, "", "/code?index=" + window.__aceCurrentIndex);
+      }
     } catch (_) {}
   });
 

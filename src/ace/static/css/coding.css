@@ -3208,3 +3208,8 @@ body[data-active-zone="codebook"]:has(#text-panel) .ace-code-folder-row[tabindex
   font-size: var(--ace-font-size-2xs);
 }
 .ace-cheatsheet-body dd { margin: 0; font-size: var(--ace-font-size-2xs); }
+
+body[data-ace-navigating="1"] .ace-nav-counter::after {
+  content: " · loading";
+  font-size: var(--ace-font-size-2xs);
+}

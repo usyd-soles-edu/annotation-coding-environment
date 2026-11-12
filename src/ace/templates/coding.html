@@ -420,6 +420,7 @@ rect.ace-flash-{{ code["id"] }} {
 <script>
   window.__aceCurrentIndex = {{ current_index }};
   window.__aceTotalSources = {{ total_sources }};
+  window.__aceSourceIndexStorageKey = {{ source_index_storage_key|tojson }};
   window.__aceFocusIndex = -1;
   window.__aceCodes = {{ codes | tojson }};
   window.__aceColourPalette = {{ colour_palette | tojson }};

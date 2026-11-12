@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 
 from fastapi import (
     APIRouter,
@@ -223,11 +224,16 @@ async def navigation_route(
     request: Request,
     from_index: int = Form(...),
     to_index: int = Form(...),
+    note_open: bool = Form(default=False),
+    record_undo: bool = Form(default=True),
+    history_mode: str = Form(default="push"),
 ):
-    """Record app-initiated source navigation in the undo sequence."""
+    """Record navigation and render the next source for HTMX callers."""
     from ace.models.assignment import get_assignments_for_coder
 
     coder_id = _require_coder(request)
+    if history_mode not in {"push", "none"}:
+        raise HTTPException(status_code=400, detail="invalid navigation history mode")
 
     with _project_db(request) as conn:
         assignments = get_assignments_for_coder(conn, coder_id)
@@ -239,11 +245,25 @@ async def navigation_route(
         ):
             raise HTTPException(status_code=400, detail="source index out of range")
 
-        if from_index != to_index:
+        if record_undo and from_index != to_index:
             _get_undo_manager(request).record_navigation(
                 assignments[from_index]["source_id"],
                 assignments[to_index]["source_id"],
             )
+
+        if request.headers.get("HX-Request") == "true":
+            content = _render_full_coding_oob(
+                request, conn, coder_id, to_index,
+                include_sidebar=False,
+                open_note_drawer=note_open,
+            )
+            trigger = {"ace-navigate": {
+                "index": to_index,
+                "total": len(assignments),
+                "history": history_mode,
+                "from_index": from_index,
+            }}
+            return HTMLResponse(content, headers={"HX-Trigger": json.dumps(trigger)})
 
     return Response(status_code=204)
 
