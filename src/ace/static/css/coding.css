@@ -1988,6 +1988,8 @@ html[data-ace-note-open="1"] .ace-applied-codes-panel {
 .ace-colour-popover {
   position: fixed;
   z-index: 100;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   background: var(--ace-bg);
   border: 1px solid var(--ace-border);
   box-shadow: var(--ace-shadow);

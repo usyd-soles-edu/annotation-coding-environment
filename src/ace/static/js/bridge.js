@@ -2484,8 +2484,14 @@
     _colourPopoverInvoker = invoker || row;
     document.addEventListener("keydown", _onColourEscape, true);
 
-    popover.style.top = `${rect.bottom + 4}px`;
-    popover.style.left = rect.left + "px";
+    const popoverWidth = popover.offsetWidth;
+    const popoverHeight = popover.offsetHeight;
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - popoverWidth - 8));
+    let top = rect.bottom + 4;
+    if (top + popoverHeight > window.innerHeight - 8) top = rect.top - popoverHeight - 4;
+    top = Math.max(8, Math.min(top, window.innerHeight - popoverHeight - 8));
+    popover.style.left = `${left}px`;
+    popover.style.top = `${top}px`;
     popover.querySelector("button")?.focus();
 
     setTimeout(function () {
