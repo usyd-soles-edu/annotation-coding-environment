@@ -77,15 +77,18 @@ def test_audit_codebook_mutations_send_mode_context():
         ROOT / "src" / "ace" / "static" / "js" / "codebook_headless_tree_source.js"
     ).read_text(encoding="utf-8")
 
-    assert "function _codebookMutationValues" in bridge
-    assert "next.codebook_mode = ctx.mode" in bridge
-    assert "next.current_code_id = ctx.currentCodeId" in bridge
+    assert "return _getSidebarTreeController().mutationContext()" in bridge
+    assert "return _getSidebarTreeController().mutationValues(values)" in bridge
+    assert "next.codebook_mode = ctx.mode" not in bridge
+    assert "next.current_code_id = ctx.currentCodeId" not in bridge
     assert "_codebookMutationQueryString" in bridge
 
     assert "function codebookMutationValues" in tree_source
     assert "next.codebook_mode = ctx.mode" in tree_source
     assert "next.current_code_id = ctx.currentCodeId" in tree_source
     assert "values: codebookMutationValues(values)" in tree_source
+    assert "mutationContext: codebookMutationContext" in tree_source
+    assert "mutationValues: codebookMutationValues" in tree_source
 
 
 def test_headless_tree_controller_exposes_mode_policy_contract():
