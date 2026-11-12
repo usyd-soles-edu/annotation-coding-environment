@@ -1087,6 +1087,7 @@ def _render_full_coding_oob(
     ctx = _coding_context(
         conn, coder_id, target_index, project_path=project_path,
         global_context=global_context,
+        sentence_cache=request.app.state.coding_context_cache,
     )
     ctx["request"] = request
     ctx["open_note_drawer"] = open_note_drawer
