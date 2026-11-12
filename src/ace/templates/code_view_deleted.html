@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Code no longer exists — ACE{% endblock %}
+
+{% block content %}
+<main class="ace-task-page ace-task-page--narrow">
+  <a href="/code" class="ace-back">← Back to coding</a>
+  <h1 id="code-view-deleted-title" class="ace-task-title" tabindex="-1">This code no longer exists</h1>
+  <p>The code was deleted from this project. Return to coding to choose another code.</p>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script>document.getElementById("code-view-deleted-title").focus();</script>
+{% endblock %}

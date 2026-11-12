@@ -359,6 +359,15 @@ async def code_view_page(request: Request, code_id: str):
     try:
         data = get_code_view_data(conn, code_id, coder_id)
         if data is None:
+            deleted_code = conn.execute(
+                "SELECT 1 FROM codebook_code "
+                "WHERE id = ? AND kind = 'code' AND deleted_at IS NOT NULL",
+                (code_id,),
+            ).fetchone()
+            if deleted_code:
+                return request.app.state.templates.TemplateResponse(
+                    request, "code_view_deleted.html", status_code=410
+                )
             raise HtmxRedirect("/code")
         tree_codes = list_codes_with_tree(conn)
         code_counts_by_id = get_annotation_counts_by_code(conn, coder_id)
