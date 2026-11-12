@@ -284,6 +284,28 @@ def test_annotate(client_with_codes):
     assert rows[0]["selected_text"] == "First"
 
 
+def test_annotation_only_response_does_not_resplit_text(client_with_codes, monkeypatch):
+    client, _, code_a, _, _ = client_with_codes
+
+    def unexpected_split(*_args, **_kwargs):
+        raise AssertionError("Annotation-only response re-segmented source text")
+
+    monkeypatch.setattr("ace.services.text_splitter.split_into_units", unexpected_split)
+    resp = client.post(
+        "/api/code/apply",
+        data={
+            "code_id": code_a,
+            "current_index": 0,
+            "start_offset": 0,
+            "end_offset": 5,
+            "selected_text": "First",
+        },
+    )
+    assert resp.status_code == 200
+    assert 'id="ace-ann-data"' in resp.text
+    assert 'id="ace-applied-codes-panel"' in resp.text
+
+
 def test_annotate_reports_retryable_write_contention(
     client_with_codes, monkeypatch
 ):
