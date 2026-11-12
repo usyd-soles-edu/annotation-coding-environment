@@ -2651,6 +2651,10 @@
   function _convertCodeToFolder(codeId) {
     if (_denyCodebookEditing()) return;
     if (!codeId) return;
+    if (!window.confirm(
+      "Convert this code to a folder? Existing annotations are preserved in a new child code. " +
+      "You can undo this conversion, but there is no separate Convert back action."
+    )) return;
     htmx.ajax("POST", `/api/codes/${codeId}/convert-to-folder`, {
       ..._codebookMutationSwapOptions(),
       values: _codebookMutationValues({
@@ -2734,7 +2738,7 @@
     }
     items.push({ sep: true });
     items.push({
-      label: "Convert to folder",
+      label: "Convert to folder\u2026",
       handler: function () { _convertCodeToFolder(codeId); },
     });
     items.push({
