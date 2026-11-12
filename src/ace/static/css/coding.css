@@ -2743,6 +2743,14 @@ html[data-ace-grid-collapsed="1"] .ace-sidebar-grid {
   stroke-width: 1;
   rx: 1;
 }
+.ace-grid-spark .spark-flag-ticks,
+.ace-grid-spark .spark-note-ticks {
+  fill: none;
+  stroke-width: 2;
+  pointer-events: none;
+}
+.ace-grid-spark .spark-flag-ticks { stroke: var(--ace-warning); }
+.ace-grid-spark .spark-note-ticks { stroke: var(--ace-note-accent); }
 .ace-grid-spark .spark-playhead {
   stroke: #000;
   stroke-width: 1.5;

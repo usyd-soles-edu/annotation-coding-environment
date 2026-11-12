@@ -1387,11 +1387,24 @@
     const H = 38;
     const padX = 2;
     const innerW = Math.max(1, W - 2 * padX);
+    const denom = Math.max(1, total - 1);
 
     const nPoints = Math.max(40, Math.min(160, Math.floor(innerW / 4)));
     let maxCount = 1;
+    const flaggedXs = new Set();
+    const noteXs = new Set();
+    let flaggedCount = 0;
+    let noteCount = 0;
     for (let k = 0; k < total; k++) {
-      if (st.sources[k].count > maxCount) maxCount = st.sources[k].count;
+      const source = st.sources[k];
+      if (source.count > maxCount) maxCount = source.count;
+      if (source.flagged || source.note) {
+        // Sources closer than one pixel share a tick, keeping the SVG path
+        // bounded by the sparkline width even for large projects.
+        const x = Math.round(padX + (k / denom) * innerW);
+        if (source.flagged) { flaggedXs.add(x); flaggedCount++; }
+        if (source.note) { noteXs.add(x); noteCount++; }
+      }
     }
 
     // One vertex per source so peaks land exactly at playhead positions.
@@ -1425,7 +1438,6 @@
     const area = line + " L" + (W - padX).toFixed(1) + "," + H +
                         " L" + padX.toFixed(1) + "," + H + " Z";
 
-    const denom = Math.max(1, total - 1);
     const vpX1 = padX + (st.windowStart / denom) * innerW;
     const vpEnd = Math.min(total, st.windowStart + st.visibleCount) - 1;
     const vpX2 = padX + (Math.max(vpEnd, 0) / denom) * innerW;
@@ -1451,6 +1463,18 @@
       x: vpX1.toFixed(1), y: 0,
       width: vpW.toFixed(1), height: H,
     }));
+    if (flaggedXs.size) {
+      svg.appendChild(mk("path", {
+        class: "spark-flag-ticks",
+        d: [...flaggedXs].map(x => `M${x},${H - 11}v6`).join(" "),
+      }));
+    }
+    if (noteXs.size) {
+      svg.appendChild(mk("path", {
+        class: "spark-note-ticks",
+        d: [...noteXs].map(x => `M${x},${H - 4}v5`).join(" "),
+      }));
+    }
     svg.appendChild(mk("line", {
       class: "spark-playhead",
       x1: playX, x2: playX, y1: 0, y2: H,
@@ -1480,6 +1504,9 @@
     });
 
     host.replaceChildren(svg);
+    host.setAttribute("aria-label",
+      `Source density overview: ${flaggedCount} flagged (orange ticks), ` +
+      `${noteCount} with notes (gold ticks). Click to jump to a range`);
   }
 
   function _aceTileCols() {
@@ -1671,6 +1698,18 @@
     blob.textContent = JSON.stringify(sources);
     window._aceRenderSourceGrid();
   }
+
+  window._aceSetSourceNote = function (sourceId, hasNote) {
+    const blob = document.getElementById("ace-sources-data");
+    if (!blob) return;
+    let sources;
+    try { sources = JSON.parse(blob.textContent || "[]"); } catch (_) { return; }
+    const source = sources.find(s => s.source_id === sourceId);
+    if (!source) return;
+    source.note = hasNote;
+    blob.textContent = JSON.stringify(sources);
+    window._aceRenderSourceGrid();
+  };
 
   /* ================================================================
    * 11. Dialog close cleanup
