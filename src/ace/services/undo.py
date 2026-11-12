@@ -323,6 +323,11 @@ class UndoManager:
         prefix = "Undone" if direction == 0 else "Redone"
         return {
             "operation": entry.op,
+            "annotation_id": (
+                entry.payload.get("annotation_id")
+                if entry.op in {"annotation_add", "annotation_delete", "annotation_merge_add"}
+                else None
+            ),
             "description": f"{prefix}: {description}",
             "notification": _notification_for(entry.op, direction),
             "source_id": entry.source_id,

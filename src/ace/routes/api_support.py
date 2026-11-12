@@ -947,10 +947,24 @@ def _render_ann_data_oob(ctx: dict) -> str:
     code_counts_json = ctx.get("code_counts_json")
     if code_counts_json is None:
         code_counts_json = html.escape(json.dumps(ctx.get("code_counts_by_id", {})))
+    patch = ctx.get("count_patch")
+    patch_attrs = ""
+    if patch:
+        patch_attrs = (
+            f' data-code-patch-id="{html.escape(patch["code_id"], quote=True)}"'
+            f' data-code-patch-count="{patch["code_count"]}"'
+            f' data-source-patch-id="{html.escape(patch["source_id"], quote=True)}"'
+            f' data-source-patch-index="{patch["source_index"]}"'
+            f' data-source-patch-count="{patch["source_count"]}"'
+        )
+    refresh_version = ctx.get("count_refresh_version")
+    if refresh_version:
+        patch_attrs += f' data-count-refresh-version="{refresh_version}"'
     return (
         '<div id="ace-ann-data" class="ace-hidden" '
         f'data-annotations="{ann_json}" '
         f'data-code-counts="{code_counts_json}" '
+        f'{patch_attrs} '
         'hx-swap-oob="outerHTML"></div>'
     )
 
@@ -1184,24 +1198,63 @@ def _annotation_only_response(
     conn,
     coder_id: str,
     target_index: int,
+    annotation_id: str | None,
     extra: str = "",
 ) -> HTMLResponse:
     """OOB-only response for routes that don't change source text or codes.
 
-    Returns applied-codes panel + data blobs only; bridge.js refreshes SVG
-    highlights inside the existing #ace-hl-overlay and patches count chips
-    from the swapped-in global count payload. HX-Reswap: none tells HTMX to
-    leave #text-panel alone (otherwise the empty primary body would wipe it).
+    Returns applied-codes panel and current-source annotations only. The
+    client patches one code count and one source count from indexed queries.
+    HX-Reswap: none leaves the existing #text-panel intact.
     """
-    from ace.routes.pages import _coding_context
+    from ace.models.source import get_source_content
+    from ace.routes.pages import _coding_context, _source_annotation_context
     from jinja2_fragments import render_block
 
-    templates = request.app.state.templates
-    project_path = request.app.state.project_path
-    ctx = _coding_context(
-        conn, coder_id, target_index, project_path=project_path,
-        render_sentences=False,
+    annotation = (
+        conn.execute(
+            "SELECT source_id, code_id FROM annotation WHERE id = ?", (annotation_id,),
+        ).fetchone()
+        if annotation_id else None
     )
+    if annotation_id and annotation is None:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+    templates = request.app.state.templates
+    refresh_version = request.headers.get("x-ace-counts-dirty", "")
+    valid_refresh = bool(re.fullmatch(r"[1-9][0-9]{0,11}", refresh_version))
+    full_refresh = annotation is None or valid_refresh
+    if full_refresh:
+        ctx = _coding_context(
+            conn, coder_id, target_index,
+            project_path=request.app.state.project_path,
+            render_sentences=False,
+        )
+        if valid_refresh:
+            ctx["count_refresh_version"] = refresh_version
+    else:
+        source_id = annotation["source_id"]
+        code_id = annotation["code_id"]
+        content = get_source_content(conn, source_id)
+        source_text = content["content_text"] if content else ""
+        ctx = _source_annotation_context(
+            conn, coder_id, source_id, source_text, (),
+            render_sentences=False,
+        )
+        ctx["count_patch"] = {
+            "code_id": code_id,
+            "code_count": conn.execute(
+                "SELECT COUNT(*) FROM annotation "
+                "WHERE coder_id = ? AND code_id = ? AND deleted_at IS NULL",
+                (coder_id, code_id),
+            ).fetchone()[0],
+            "source_id": source_id,
+            "source_index": target_index,
+            "source_count": conn.execute(
+                "SELECT COUNT(*) FROM annotation "
+                "WHERE coder_id = ? AND source_id = ? AND deleted_at IS NULL",
+                (coder_id, source_id),
+            ).fetchone()[0],
+        }
     ctx["request"] = request
 
     applied_html = render_block(templates.env, "coding.html", "applied_codes_panel", ctx)
@@ -1211,8 +1264,9 @@ def _annotation_only_response(
         _inject_oob(applied_rail_html, "ace-applied-codes-rail"),
         _render_colour_style_oob(ctx["codes"]),
         _render_ann_data_oob(ctx),
-        _render_sources_data_oob(ctx),
     ]
+    if full_refresh:
+        parts.append(_render_sources_data_oob(ctx))
     return HTMLResponse("".join(parts) + extra, headers={"HX-Reswap": "none"})
 
 
@@ -1404,7 +1458,7 @@ def _build_undo_response(
         "annotation_add", "annotation_delete", "annotation_merge_add",
     }):
         return _annotation_only_response(
-            request, conn, coder_id, target_index,
+            request, conn, coder_id, target_index, result["annotation_id"],
             extra=status_html + flash_html,
         )
 

@@ -497,7 +497,8 @@ def test_same_source_annotation_undo_redo_leave_text_panel_intact(client_with_co
         assert response.headers.get("HX-Reswap") == "none"
         assert 'id="text-panel"' not in response.text
         assert 'id="ace-ann-data"' in response.text
-        assert 'id="ace-sources-data"' in response.text
+        assert 'id="ace-sources-data"' not in response.text
+        assert 'data-source-patch-count="' in response.text
 
 
 def test_undo_endpoint_empty_stack_returns_status(client_with_codes):
@@ -786,9 +787,7 @@ def test_counter_chip_is_static(client_with_codes):
 
 
 def test_annotate_refreshes_grid(client_with_codes):
-    """POST /api/code/apply returns OOB sources blob with incremented count."""
-    import html
-    import json
+    """Annotation responses send only the changed source and code counts."""
     import re
     client, coder_id, code_a, _, _ = client_with_codes
     client.cookies.set("coder_id", coder_id)
@@ -804,26 +803,59 @@ def test_annotate_refreshes_grid(client_with_codes):
         },
     )
     assert resp.status_code == 200
-    # Annotation apply omits the sidebar OOB — counts are patched client-side
-    # from the OOB count payload.
+    # Annotation apply omits project-wide source and code payloads.
     assert 'id="code-sidebar"' not in resp.text
-    assert 'id="ace-sources-data"' in resp.text
+    assert 'id="ace-sources-data"' not in resp.text
+    assert 'data-source-patch-index="0"' in resp.text
+    assert 'data-source-patch-count="1"' in resp.text
+    assert f'data-code-patch-id="{code_a}"' in resp.text
+    assert 'data-code-patch-count="1"' in resp.text
 
-    # Parse the OOB blob and confirm the first source now has count == 1.
-    # The OOB payload is JSON with < > & escaped as \u003c \u003e \u0026 (Task 4 fix);
-    # those are valid inside JSON strings so json.loads accepts it as-is.
-    m = re.search(
-        r'id="ace-sources-data"[^>]*hx-swap-oob[^>]*>([^<]*)</script>',
-        resp.text,
+
+def test_annotation_response_size_is_bounded_by_current_source(client_with_codes):
+    from ace.models.assignment import ensure_assignments
+    from ace.models.source import _add_source_no_commit
+
+    client, coder_id, code_id, _, db_path = client_with_codes
+    conn = sqlite3.connect(db_path)
+    try:
+        for index in range(300):
+            _add_source_no_commit(conn, f"Extra {index:03}", "Other source.", "row")
+        conn.commit()
+        ensure_assignments(conn, coder_id)
+    finally:
+        conn.close()
+
+    response = client.post("/api/code/apply", data={
+        "code_id": code_id,
+        "current_index": 0,
+        "start_offset": 0,
+        "end_offset": 5,
+        "selected_text": "First",
+    })
+    assert response.status_code == 200
+    assert len(response.content) < 8_000
+    assert 'id="ace-sources-data"' not in response.text
+
+
+def test_annotation_refreshes_global_counts_after_other_tab_edit(client_with_codes):
+    client, _, code_a, _, _ = client_with_codes
+    response = client.post(
+        "/api/code/apply",
+        data={
+            "code_id": code_a,
+            "current_index": 0,
+            "start_offset": 0,
+            "end_offset": 5,
+            "selected_text": "First",
+        },
+        headers={"X-Ace-Counts-Dirty": "1"},
     )
-    assert m, "ace-sources-data OOB fragment not found in response"
-    payload = json.loads(m.group(1))
-    assert payload[0]["count"] == 1
-
-    m = re.search(r'data-code-counts="([^"]*)"', resp.text)
-    assert m, "code-count payload missing from response"
-    counts = json.loads(html.unescape(m.group(1)))
-    assert counts[code_a] == 1
+    assert response.status_code == 200
+    assert 'data-count-refresh-version="1"' in response.text
+    assert 'id="ace-sources-data"' in response.text
+    assert 'data-code-patch-id=' not in response.text
+    assert 'data-source-patch-id=' not in response.text
 
 
 def test_delete_refreshes_grid(client_with_codes):
@@ -866,24 +898,13 @@ def test_delete_refreshes_grid(client_with_codes):
     assert resp.status_code == 200, (
         f"delete returned {resp.status_code}: {resp.text[:200]}"
     )
-    # Annotation delete omits the sidebar OOB — counts are patched client-side
-    # from the OOB count payload.
+    # Annotation delete patches only the changed counts.
     assert 'id="code-sidebar"' not in resp.text
-    assert 'id="ace-sources-data"' in resp.text
-
-    # Parse the OOB sources blob — source 0's count should be back to 0
-    m = re.search(
-        r'id="ace-sources-data"[^>]*hx-swap-oob[^>]*>([^<]*)</script>',
-        resp.text,
-    )
-    assert m, "ace-sources-data OOB fragment missing after delete"
-    sources = json.loads(m.group(1))
-    assert sources[0]["count"] == 0
-
-    m = re.search(r'data-code-counts="([^"]*)"', resp.text)
-    assert m, "code-count payload missing after delete"
-    counts = json.loads(html.unescape(m.group(1)))
-    assert counts.get(code_a, 0) == 0
+    assert 'id="ace-sources-data"' not in resp.text
+    assert 'data-source-patch-index="0"' in resp.text
+    assert 'data-source-patch-count="0"' in resp.text
+    assert f'data-code-patch-id="{code_a}"' in resp.text
+    assert 'data-code-patch-count="0"' in resp.text
 
 
 def test_coding_page_has_notification_receipt_host(client_with_sources):
@@ -1167,12 +1188,16 @@ def test_delete_sentence_status_when_nothing_to_remove(client_with_codes):
     resp = client.post(
         "/api/code/delete-sentence",
         data={"sentence_index": 0, "current_index": 0},
+        headers={"X-Ace-Counts-Dirty": "1"},
     )
 
     assert resp.status_code == 200
     assert "No code on this sentence" in resp.text
     assert 'id="ace-statusbar-event"' in resp.text
     assert 'id="ace-notification-receipt"' in resp.text
+    assert 'id="ace-ann-data"' in resp.text
+    assert 'id="ace-sources-data"' in resp.text
+    assert 'data-count-refresh-version="1"' in resp.text
     assert "Z undo" not in resp.text
     assert _count_active_annotations(client, db_path, 0) == 0
 

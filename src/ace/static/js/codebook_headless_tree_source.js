@@ -1325,6 +1325,17 @@ import {
       });
     }
 
+    function patchCodeCount(id, value) {
+      const item = items[id];
+      if (!item || item.kind !== "code") return;
+      item.count = Math.max(0, Number(value) || 0);
+      const row = rootElement()?.querySelector(
+        `.ace-ht-row--code[data-item-id="${CSS.escape(id)}"]`
+      );
+      const chip = row?.querySelector(".ace-ht-count");
+      if (chip) chip.textContent = item.count ? String(item.count) : "";
+    }
+
     const api = {
       kind: "headless",
       refresh,
@@ -1360,6 +1371,7 @@ import {
       setChordHighlight,
       setCutItemId,
       setCodeCounts,
+      patchCodeCount,
     };
 
     return api;

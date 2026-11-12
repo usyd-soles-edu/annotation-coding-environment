@@ -107,7 +107,7 @@ async def annotate(
         status_html = _oob_status(status_msg, "ok").body.decode()
 
         return _annotation_only_response(
-            request, conn, coder_id, current_index, extra=status_html,
+            request, conn, coder_id, current_index, ann_id, extra=status_html,
         )
 
 
@@ -143,6 +143,7 @@ async def delete_annotation_route(
             conn,
             coder_id,
             current_index,
+            annotation_id,
             _oob_status_undo("Removed code"),
         )
 
@@ -469,8 +470,9 @@ async def annotate_sentence(
 
         if existing_same_code:
             # Toggle off: remove this specific code
-            delete_annotation(conn, existing_same_code["id"])
-            undo.record_delete(source_id, existing_same_code["id"])
+            ann_id = existing_same_code["id"]
+            delete_annotation(conn, ann_id)
+            undo.record_delete(source_id, ann_id)
             status_msg = "Removed code"
         else:
             # Auto-merge: check if adjacent sentence already has the same code
@@ -520,7 +522,9 @@ async def annotate_sentence(
                 status_msg = "Added code"
 
         status_html = _oob_status(status_msg, "ok").body.decode()
-        return _annotation_only_response(request, conn, coder_id, current_index, extra=status_html)
+        return _annotation_only_response(
+            request, conn, coder_id, current_index, ann_id, extra=status_html,
+        )
 
 
 @router.post("/code/delete-sentence")
@@ -579,4 +583,7 @@ async def delete_sentence_annotations(
             if most_recent
             else _oob_status("No code on this sentence", "ok").body.decode()
         )
-        return _annotation_only_response(request, conn, coder_id, current_index, extra)
+        return _annotation_only_response(
+            request, conn, coder_id, current_index,
+            most_recent["id"] if most_recent else None, extra,
+        )
