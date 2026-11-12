@@ -277,14 +277,17 @@ def _request_process_shutdown() -> None:
     os.kill(os.getpid(), signal.SIGTERM)
 
 
-def _remove_runtime_file_for_current_process(config: BrowserRuntimeConfig) -> None:
-    if config.runtime_file is None:
+def _remove_runtime_file_for_current_runtime(config: BrowserRuntimeConfig) -> None:
+    if config.runtime_file is None or not config.enabled or not config.token:
         return
     try:
         data = json.loads(config.runtime_file.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return
-    if data.get("pid") != os.getpid():
+    # Nuitka onefile starts Python in a child of its bootstrap process, while
+    # the launcher records the bootstrap PID. The random launcher token is the
+    # identity shared by both processes and protects a newer runtime's file.
+    if data.get("token") != config.token:
         return
     try:
         config.runtime_file.unlink()
@@ -356,7 +359,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             if conn is not None:
                 checkpoint_and_close(conn)
                 app.state.db = None
-            _remove_runtime_file_for_current_process(app.state.browser_runtime_config)
+            _remove_runtime_file_for_current_runtime(app.state.browser_runtime_config)
 
 
 # ---------------------------------------------------------------------------

@@ -6,7 +6,7 @@ import os
 import random
 import sqlite3
 import stat
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
@@ -33,6 +33,10 @@ class ImportResult:
         yield self.created_ids
 
 
+class ImportCancelled(Exception):
+    """An import stopped before commit; the current transaction is rolled back."""
+
+
 @dataclass(frozen=True)
 class _SourceCandidate:
     display_id: str
@@ -56,6 +60,8 @@ def import_csv(
     id_column: str,
     text_columns: list[str],
     tabular_data: tuple[list[dict], list[str]] | None = None,
+    on_progress: Callable[[int], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> ImportResult:
     """Import rows from a CSV or Excel file as sources.
 
@@ -73,9 +79,15 @@ def import_csv(
     path = Path(path)
     if tabular_data is None:
         with stream_tabular(path) as (columns, rows):
-            return _import_tabular_rows(conn, path, rows, columns, id_column, text_columns)
+            return _import_tabular_rows(
+                conn, path, rows, columns, id_column, text_columns,
+                on_progress, should_cancel,
+            )
     rows, columns = tabular_data
-    return _import_tabular_rows(conn, path, rows, columns, id_column, text_columns)
+    return _import_tabular_rows(
+        conn, path, rows, columns, id_column, text_columns,
+        on_progress, should_cancel,
+    )
 
 
 def _import_tabular_rows(
@@ -85,6 +97,8 @@ def _import_tabular_rows(
     columns: list[str],
     id_column: str,
     text_columns: list[str],
+    on_progress: Callable[[int], None] | None,
+    should_cancel: Callable[[], bool] | None,
 ) -> ImportResult:
     if id_column not in columns:
         raise ValueError(
@@ -134,7 +148,9 @@ def _import_tabular_rows(
                 empty=not has_selected_text,
             )
 
-    return _insert_candidates(conn, candidates())
+    return _insert_candidates(
+        conn, candidates(), on_progress=on_progress, should_cancel=should_cancel
+    )
 
 
 def _row_has_selected_text(row: dict, text_columns: list[str]) -> bool:
@@ -745,6 +761,9 @@ def _insert_candidates(
     conn: sqlite3.Connection,
     candidates: Iterable[_SourceCandidate | None],
     empty_skipped: int = 0,
+    *,
+    on_progress: Callable[[int], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> ImportResult:
     """Insert one prepared import batch atomically in candidate order."""
     if conn.in_transaction:
@@ -754,35 +773,43 @@ def _insert_candidates(
 
     created_ids: list[str] = []
     duplicate_skipped = 0
+    processed = 0
     transaction_started = False
     try:
         conn.execute("BEGIN IMMEDIATE")
         transaction_started = True
         existing = _existing_display_ids(conn)
         for candidate in candidates:
+            if should_cancel is not None and should_cancel():
+                raise ImportCancelled
+            processed += 1
             if candidate is None:
                 empty_skipped += 1
-                continue
-            if candidate.display_id in existing:
+            elif candidate.display_id in existing:
                 duplicate_skipped += 1
-                continue
-            if candidate.empty:
+            elif candidate.empty:
                 empty_skipped += 1
-                continue
-            created_ids.append(
-                _add_source_no_commit(
-                    conn,
-                    display_id=candidate.display_id,
-                    content_text=candidate.content_text,
-                    source_type=candidate.source_type,
-                    filename=candidate.filename,
-                    source_column=candidate.source_column,
-                    metadata=candidate.metadata,
-                    section_heading_spans=candidate.section_heading_spans,
+            else:
+                created_ids.append(
+                    _add_source_no_commit(
+                        conn,
+                        display_id=candidate.display_id,
+                        content_text=candidate.content_text,
+                        source_type=candidate.source_type,
+                        filename=candidate.filename,
+                        source_column=candidate.source_column,
+                        metadata=candidate.metadata,
+                        section_heading_spans=candidate.section_heading_spans,
+                    )
                 )
-            )
-            existing.add(candidate.display_id)
+                existing.add(candidate.display_id)
+            if on_progress is not None:
+                on_progress(processed)
+        if should_cancel is not None and should_cancel():
+            raise ImportCancelled
         _ensure_assignments_no_commit(conn)
+        if should_cancel is not None and should_cancel():
+            raise ImportCancelled
         conn.commit()
     except Exception:
         if transaction_started:

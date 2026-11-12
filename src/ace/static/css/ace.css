@@ -315,6 +315,12 @@ body {
   letter-spacing: 0;
   line-height: 1.2;
 }
+.ace-home-description {
+  max-width: 360px;
+  margin: 0;
+  font-size: var(--ace-font-size-sm);
+  line-height: 1.4;
+}
 .ace-home-section {
   width: 100%;
   display: grid;
@@ -392,6 +398,13 @@ body {
   padding-block: 18px;
   border-block: 1px solid var(--ace-border-light);
   margin-bottom: 18px;
+}
+.ace-home-action-hint,
+.ace-home-tool-hint {
+  max-width: 340px;
+  margin: var(--ace-space-2) 0 0;
+  font-size: var(--ace-font-size-2xs);
+  line-height: 1.4;
 }
 .ace-home-resume-close {
   position: absolute;
@@ -510,6 +523,9 @@ body {
 }
 .ace-home-tool-link {
   font-size: var(--ace-font-size-md);
+}
+.ace-home-tool-hint {
+  margin: 0 0 var(--ace-space-2);
 }
 
 /* Minimal task pages */
@@ -1091,6 +1107,32 @@ body {
 }
 .ace-import-actions--secondary {
   margin-top: var(--ace-space-5);
+}
+.ace-import-progress {
+  position: fixed;
+  z-index: 20;
+  left: 50%;
+  bottom: var(--ace-space-4);
+  transform: translateX(-50%);
+  width: min(420px, calc(100vw - 32px));
+  display: grid;
+  justify-items: center;
+  gap: var(--ace-space-2);
+  padding: var(--ace-space-3) var(--ace-space-4);
+  border: 1px solid var(--ace-border);
+  background: var(--ace-bg);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
+  font-size: var(--ace-font-size-sm);
+}
+.ace-import-progress[hidden] {
+  display: none;
+}
+.ace-import-progress progress {
+  width: 100%;
+  accent-color: var(--ace-focus);
+}
+.ace-import-progress p {
+  margin: 0;
 }
 .ace-import-file-meta {
   margin-top: var(--ace-space-3);

@@ -333,11 +333,9 @@ async def flag_route(
         _get_undo_manager(request).record_flag_toggle(source_id, coder_id, prev_flagged)
 
         msg = "Source flagged" if new_flagged else "Source unflagged"
-        content = _render_full_coding_oob(
-            request, conn, coder_id, source_index, include_sidebar=False,
-        ) + _oob_announce(msg)
-        return HTMLResponse(content, headers={
+        return HTMLResponse(_oob_announce(msg), headers={
             "X-ACE-Flagged": "1" if new_flagged else "0",
+            "HX-Reswap": "none",
         })
 
 

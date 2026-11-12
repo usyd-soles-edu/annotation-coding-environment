@@ -546,6 +546,12 @@ def _parse_tabular_for_mapping(
 ) -> HTMLResponse:
     from ace.services.importer import scan_tabular_preview
 
+    active_job = getattr(request.app.state, "tabular_import_job", None)
+    if active_job is not None and not active_job.done.is_set():
+        if cleanup:
+            path.unlink(missing_ok=True)
+        return _oob_status("An import is already running. Wait or cancel it first.")
+
     try:
         row_count, leading, sampled, example_labels, columns = scan_tabular_preview(path)
     except Exception as e:
@@ -561,6 +567,7 @@ def _parse_tabular_for_mapping(
     )
     stage_token = secrets.token_urlsafe(24)
     request.app.state.import_stage_token = stage_token
+    request.app.state.import_stage_row_count = row_count
     return HTMLResponse(
         _build_import_mapping_fragment(
             filename, leading, sampled, example_labels, columns, stage_token, row_count
@@ -750,8 +757,14 @@ def _build_import_mapping_fragment(
       <input type="hidden" name="id_column" id="import-id-col" value="{html.escape(str(id_col), quote=True)}">
       <input type="hidden" name="text_columns" id="import-text-cols" value="{html.escape(selected_text_value, quote=True)}">
       <div class="ace-import-actions">
-        <button class="ace-btn" type="button" onclick="showStep('step-choose')">Back</button>
+        <button class="ace-btn" type="button" data-import-back onclick="showStep('step-choose')">Back</button>
         <button type="submit" class="ace-btn ace-btn--primary" id="import-submit"{' disabled' if not (id_col and text_cols) else ''}>{import_label}</button>
+      </div>
+      <div class="ace-import-progress" id="import-progress" hidden>
+        <label for="import-progress-bar">Importing sources</label>
+        <progress id="import-progress-bar" max="{max(n_rows, 1)}" value="0"></progress>
+        <p data-import-progress-text role="status" aria-live="polite">0 of {n_rows:,} rows processed</p>
+        <button class="ace-btn" type="button" data-import-cancel>Cancel import</button>
       </div>
       <p class="ace-import-file-meta">{safe_filename} · {n_rows:,} rows x {n_cols:,} columns</p>
     </form>

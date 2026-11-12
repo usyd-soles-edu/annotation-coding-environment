@@ -78,6 +78,10 @@
   function responseIsSuccessful(evt) {
     var xhr = evt.detail.xhr;
     var body = (xhr && xhr.responseText) || "";
+    if (body.indexOf('data-import-cancelled="true"') !== -1) {
+      setImportMessage("Import cancelled. No sources were added.", "");
+      return false;
+    }
     var error = extractOobError(body);
     if (error !== null) {
       setImportMessage(error, "err");
@@ -218,7 +222,112 @@
     });
   }
 
+  var importProgressTimer = null;
+  var importProgressEpoch = 0;
+
+  function setImportMappingControlsDisabled(form, disabled) {
+    form.querySelectorAll("#import-id-choice, [data-import-text-col], .ace-import-search, [data-import-preview-refresh]")
+      .forEach(function(control) { control.disabled = disabled; });
+  }
+
+  function stopImportProgress(form) {
+    importProgressEpoch += 1;
+    if (importProgressTimer !== null) clearTimeout(importProgressTimer);
+    importProgressTimer = null;
+    if (!form) return;
+    delete form.dataset.importRunning;
+    setImportMappingControlsDisabled(form, false);
+    var panel = form.querySelector("#import-progress");
+    if (panel) panel.hidden = true;
+    var back = form.querySelector("[data-import-back]");
+    if (back) back.disabled = false;
+    var submit = form.querySelector("#import-submit");
+    if (submit) submit.disabled = false;
+    var cancel = form.querySelector("[data-import-cancel]");
+    if (cancel) {
+      cancel.disabled = false;
+      cancel.textContent = "Cancel import";
+    }
+  }
+
+  function pollImportProgress(form, token, epoch) {
+    if (!form.isConnected || form.dataset.importRunning !== "1" || epoch !== importProgressEpoch) return;
+    fetch("/api/import/progress?" + new URLSearchParams({ stage_token: token }))
+      .then(function(response) { return response.ok ? response.json() : null; })
+      .then(function(data) {
+        if (!form.isConnected || form.dataset.importRunning !== "1" || epoch !== importProgressEpoch) return;
+        if (data) {
+          var progress = form.querySelector("#import-progress-bar");
+          var label = form.querySelector("[data-import-progress-text]");
+          var cancel = form.querySelector("[data-import-cancel]");
+          if (progress) {
+            progress.max = Math.max(1, data.total, data.processed);
+            progress.value = data.processed;
+          }
+          if (label) {
+            label.textContent = data.status === "cancelling"
+              ? "Cancelling import…"
+              : data.processed.toLocaleString() + " of " + data.total.toLocaleString() + " rows processed";
+          }
+          if (cancel) cancel.disabled = data.status !== "running";
+        }
+      })
+      .catch(function() {
+        var label = form.querySelector("[data-import-progress-text]");
+        if (label) label.textContent = "Importing… progress temporarily unavailable.";
+      })
+      .finally(function() {
+        if (form.isConnected && form.dataset.importRunning === "1" && epoch === importProgressEpoch) {
+          importProgressTimer = setTimeout(function() { pollImportProgress(form, token, epoch); }, 250);
+        }
+      });
+  }
+
+  document.addEventListener("htmx:beforeRequest", function(evt) {
+    var form = evt.detail.elt;
+    if (!form || form.id !== "import-form") return;
+    if (form.dataset.importRunning === "1") {
+      evt.preventDefault();
+      return;
+    }
+    var token = form.querySelector('[name="stage_token"]')?.value || "";
+    var epoch = ++importProgressEpoch;
+    form.dataset.importRunning = "1";
+    setImportMappingControlsDisabled(form, true);
+    var panel = form.querySelector("#import-progress");
+    if (panel) panel.hidden = false;
+    var back = form.querySelector("[data-import-back]");
+    if (back) back.disabled = true;
+    var submit = form.querySelector("#import-submit");
+    if (submit) submit.disabled = true;
+    setImportMessage("Importing sources…", "");
+    importProgressTimer = setTimeout(function() { pollImportProgress(form, token, epoch); }, 250);
+  });
+
+  document.addEventListener("click", function(evt) {
+    var cancel = evt.target.closest("[data-import-cancel]");
+    if (!cancel) return;
+    var form = cancel.closest("#import-form");
+    if (!form || form.dataset.importRunning !== "1") return;
+    var token = form.querySelector('[name="stage_token"]')?.value || "";
+    cancel.disabled = true;
+    cancel.textContent = "Cancelling…";
+    fetch("/api/import/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ stage_token: token })
+    }).then(function(response) {
+      if (!response.ok) throw new Error();
+    }).catch(function() {
+      cancel.disabled = false;
+      cancel.textContent = "Cancel import";
+      setImportMessage("Could not cancel the import. Try again.", "err");
+    });
+  });
+
   window.handleImportCommit = function(evt) {
+    var form = evt.detail.elt;
+    stopImportProgress(form);
     if (responseIsSuccessful(evt)) showStep("step-done");
   };
 

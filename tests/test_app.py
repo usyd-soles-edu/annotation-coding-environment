@@ -61,7 +61,9 @@ def test_lifespan_cancellation_during_manifest_purge_still_cleans_up(monkeypatch
     monkeypatch.setattr(app_module, "BrowserRuntimeMonitor", Monitor)
     monkeypatch.setenv("ACE_LAUNCHER_TOKEN", "test-token")
     runtime_file = tmp_path / "runtime.json"
-    runtime_file.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    runtime_file.write_text(
+        json.dumps({"pid": os.getpid(), "token": "test-token"}), encoding="utf-8"
+    )
     monkeypatch.setenv("ACE_RUNTIME_FILE", str(runtime_file))
     closed = []
     monkeypatch.setattr(app_module, "checkpoint_and_close", lambda conn: closed.append(conn))
@@ -101,7 +103,9 @@ def test_lifespan_repeated_cancellation_during_purge_gather_still_cleans_up(
     monkeypatch.setattr(app_module, "BrowserRuntimeMonitor", Monitor)
     monkeypatch.setenv("ACE_LAUNCHER_TOKEN", "test-token")
     runtime_file = tmp_path / "runtime.json"
-    runtime_file.write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    runtime_file.write_text(
+        json.dumps({"pid": os.getpid(), "token": "test-token"}), encoding="utf-8"
+    )
     monkeypatch.setenv("ACE_RUNTIME_FILE", str(runtime_file))
     monkeypatch.setattr(
         app_module, "checkpoint_and_close", lambda conn: events.append("db-close")

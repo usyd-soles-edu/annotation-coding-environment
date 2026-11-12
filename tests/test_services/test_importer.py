@@ -24,6 +24,7 @@ from ace.services.importer import (
     build_folder_import_preview,
     confirm_folder_import,
     FolderImportRepreviewRequired,
+    ImportCancelled,
     ImportResult,
     import_csv,
     import_text_files,
@@ -465,6 +466,31 @@ def test_import_csv_rolls_back_batch_when_later_source_fails(tmp_path):
         conn.close()
 
 
+@pytest.mark.parametrize("cancel_after", [2, 3])
+def test_import_csv_cancel_rolls_back_every_source(tmp_path, cancel_after):
+    csv_path = tmp_path / "cancel.csv"
+    csv_path.write_text("id,text\nA,first\nB,second\nC,third\n", encoding="utf-8")
+    conn = create_project(tmp_path / "cancel.ace", "test")
+    processed = 0
+
+    def on_progress(count):
+        nonlocal processed
+        processed = count
+
+    try:
+        with pytest.raises(ImportCancelled):
+            import_csv(
+                conn, csv_path, id_column="id", text_columns=["text"],
+                on_progress=on_progress,
+                should_cancel=lambda: processed >= cancel_after,
+            )
+        assert processed == cancel_after
+        assert list_sources(conn) == []
+        assert not conn.in_transaction
+    finally:
+        conn.close()
+
+
 @pytest.mark.parametrize("display_id", [None, "", "   "])
 def test_import_csv_rejects_blank_source_labels(tmp_path, display_id):
     """Missing and whitespace-only labels must fail before any rows are inserted."""
@@ -529,10 +555,10 @@ def test_import_csv_serialises_duplicate_checks_across_connections(
     barrier = threading.Barrier(2)
     original_insert_candidates = importer._insert_candidates
 
-    def synchronised_insert(conn, candidates, empty_skipped=0):
+    def synchronised_insert(conn, candidates, empty_skipped=0, **kwargs):
         barrier.wait(timeout=5)
         return original_insert_candidates(
-            conn, candidates, empty_skipped=empty_skipped
+            conn, candidates, empty_skipped=empty_skipped, **kwargs
         )
 
     monkeypatch.setattr(importer, "_insert_candidates", synchronised_insert)
