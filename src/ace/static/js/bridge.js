@@ -5234,8 +5234,8 @@
           window._setStatus("No notes to export", "ok-sticky");
           return;
         }
-        window.location.href = "/api/export/notes";
         window._setStatus("Exported", "ok");
+        window.location.href = "/api/export/notes";
       })().catch(function () {
         window._setStatus("Could not export source notes", "err");
       });
