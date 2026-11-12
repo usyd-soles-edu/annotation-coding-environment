@@ -84,6 +84,19 @@ def test_audit_shortcuts_button_opens_dialog_and_restores_focus(tmp_path, engine
                 page.keyboard.press("Escape")
                 assert not dialog.is_visible()
                 assert opener.evaluate("el => document.activeElement === el")
+
+                print_button = page.get_by_role("button", name="Print excerpts")
+                assert print_button.is_visible()
+                page.evaluate("window.__printCalled = false; window.print = () => { window.__printCalled = true; }")
+                print_button.click()
+                assert page.evaluate("window.__printCalled")
+                page.emulate_media(media="print")
+                assert not page.locator("#code-sidebar").is_visible()
+                assert page.locator("#cv-table").is_visible()
+                assert page.locator("#cv-table").evaluate(
+                    "el => getComputedStyle(el).overflowY"
+                ) == "visible"
+                assert page.locator(".cv-row").count() == 1
             finally:
                 browser.close()
     finally:

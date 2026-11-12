@@ -725,3 +725,54 @@
     overflow: visible;
   }
 }
+
+@media print {
+  @page { margin: 16mm; }
+
+  html, body { height: auto; overflow: visible; }
+  #ace-statusbar,
+  #code-sidebar,
+  .cv-resize-handle,
+  .cv-back,
+  .cv-print-button,
+  .cv-shortcuts-button,
+  .cv-mode-band,
+  .cv-tracks-col,
+  .cv-toolbar,
+  .cv-clear,
+  #ace-notification-receipt {
+    display: none !important;
+  }
+
+  #code-view,
+  #code-view .cv-main,
+  #code-view .cv-body,
+  #code-view .cv-excerpts-col,
+  #code-view .cv-table {
+    display: block !important;
+    height: auto;
+    min-height: 0;
+    overflow: visible !important;
+  }
+
+  #code-view { background: #fff; }
+  .cv-header {
+    display: block;
+    padding: 0 0 8px;
+    border-bottom: 1px solid #000;
+  }
+  .cv-header-left,
+  .cv-header-actions { display: block; }
+  .cv-title { margin-bottom: 4px; }
+  .cv-context {
+    padding: 8px 0;
+    background: #fff;
+  }
+  .cv-table { padding: 0; }
+  .cv-table-head { position: static; }
+  .cv-row { break-inside: avoid; }
+  .cv-row.selected {
+    background: #fff;
+    box-shadow: none;
+  }
+}
