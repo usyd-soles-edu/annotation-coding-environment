@@ -4424,44 +4424,6 @@
     return controller ? controller.directChildItemIds(container) : [];
   }
 
-  /** Move a folder block (the wrapper carrying header + children group) up
-   *  or down by one position relative to its sibling folder blocks. */
-  function _moveFolderInDirection(folderRow, direction) {
-    if (_denyCodebookEditing()) return;
-    const controller = _getSidebarTreeController();
-    const controlledId = controller && typeof controller.itemIdFromTreeElement === "function"
-      ? controller.itemIdFromTreeElement(folderRow)
-      : null;
-    if (controlledId && typeof controller.moveItemInDirection === "function") {
-      controller.moveItemInDirection(controlledId, direction);
-      return;
-    }
-    const block = folderRow.closest(".ace-folder-block");
-    const container = block ? block.parentElement : null;
-    if (!block || !container) return;
-
-    function isFolderBlock(el) {
-      return el && el.classList && el.classList.contains("ace-folder-block");
-    }
-
-    if (direction === -1) {
-      let prev = block.previousElementSibling;
-      while (prev && !isFolderBlock(prev)) prev = prev.previousElementSibling;
-      if (!prev) return;
-      container.insertBefore(block, prev);
-    } else {
-      let next = block.nextElementSibling;
-      while (next && !isFolderBlock(next)) next = next.nextElementSibling;
-      if (!next) return;
-      container.insertBefore(block, next.nextElementSibling); // null ref → append
-    }
-
-    _persistScopeOrder(container);
-
-    _updateKeycaps();
-    _initSortable();
-  }
-
   // --- Indent/outdent helpers (Alt-arrow gestures) ---
 
   /** Move a codebook item into the scope of `folderRow` via PUT /api/codes/{id}/parent. */
@@ -4535,10 +4497,7 @@
         _moveCode(_itemIdFromTreeElement(active), -1);
         setTimeout(function () { active.classList.remove("ace-code-row--reordering"); }, 300);
       } else {
-        const labelEl = active.querySelector(".ace-folder-label");
-        const name = labelEl ? labelEl.textContent.trim() : "folder";
-        _moveFolderInDirection(active, -1);
-        _announce(`${name} moved up`);
+        controller.moveItemInDirection(controller.itemIdFromTreeElement(active), -1);
       }
       return;
     }
@@ -4552,10 +4511,7 @@
         _moveCode(_itemIdFromTreeElement(active), 1);
         setTimeout(function () { active.classList.remove("ace-code-row--reordering"); }, 300);
       } else {
-        const labelEl = active.querySelector(".ace-folder-label");
-        const name = labelEl ? labelEl.textContent.trim() : "folder";
-        _moveFolderInDirection(active, 1);
-        _announce(`${name} moved down`);
+        controller.moveItemInDirection(controller.itemIdFromTreeElement(active), 1);
       }
       return;
     }

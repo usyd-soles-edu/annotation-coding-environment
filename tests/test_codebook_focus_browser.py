@@ -107,6 +107,22 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                 folder_a.locator(".ace-ht-toggle").click()
                 assert folder_a.get_attribute("aria-expanded") == "false"
                 assert alpha.count() == 0
+
+                folder_a.focus()
+                page.evaluate("document.getElementById('ace-live-region').textContent = ''")
+                page.keyboard.press("Alt+Shift+ArrowUp")
+                assert page.locator("#ace-live-region").inner_text() == ""
+                assert page.evaluate(
+                    "window.__aceHeadlessTreePreview.snapshot().rootChildren"
+                ) == [first_folder, second_folder]
+                page.keyboard.press("Alt+Shift+ArrowDown")
+                page.wait_for_function(
+                    "ids => JSON.stringify(window.__aceHeadlessTreePreview.snapshot().rootChildren) === JSON.stringify(ids)",
+                    arg=[second_folder, first_folder],
+                )
+                page.wait_for_function(
+                    "document.querySelector('.ace-statusbar-event')?.textContent === 'Saved'"
+                )
             finally:
                 browser.close()
     finally:
