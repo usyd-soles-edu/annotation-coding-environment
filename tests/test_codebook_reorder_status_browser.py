@@ -14,7 +14,7 @@ import pytest
 
 from ace.db.connection import create_project
 from ace.models.annotation import add_annotation
-from ace.models.codebook import add_code
+from ace.models.codebook import add_code, add_folder
 from ace.models.project import list_coders
 from ace.models.source import add_source
 
@@ -712,6 +712,353 @@ def test_undo_wins_over_delayed_reorder_response(reorder_server, engine):
                 ).evaluate_all("rows => rows.map(row => row.dataset.codeId)") == [str(first), str(second)]
             finally:
                 release_reorder.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_failed_keyboard_drag_restores_saved_order(reorder_server, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    base, project, first, second = reorder_server
+    with sync_api.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        try:
+            page = browser.new_page()
+            page.goto(base + "/")
+            assert page.request.post(base + "/api/project/open", form={"path": str(project)}).ok
+            page.goto(base + "/code")
+            page.route(
+                "**/api/codes/reorder-in-scope",
+                lambda route: route.fulfill(status=500, body="save failed"),
+            )
+            page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+            page.keyboard.press("Control+Shift+d")
+            assert "Moving" in page.locator("#ace-headless-tree-dnd-live").text_content()
+            page.keyboard.press("ArrowDown")
+            with page.expect_response(
+                lambda response: response.url.endswith("/api/codes/reorder-in-scope")
+                and response.status == 500,
+                timeout=5000,
+            ):
+                page.keyboard.press("Enter")
+            page.wait_for_function(
+                "document.querySelector('[data-headless-tree-status]')?.textContent === 'Move failed'",
+                timeout=2000,
+            )
+            assert page.locator("#ace-headless-tree-mount .ace-ht-row[data-code-id]").evaluate_all(
+                "rows => rows.map(row => row.dataset.codeId)"
+            ) == [str(first), str(second)]
+            assert _stored_order(project) == [first, second]
+        finally:
+            browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_keyboard_drag_enter_completes_move(reorder_server, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    base, project, first, second = reorder_server
+    with sync_api.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        try:
+            page = browser.new_page()
+            page.goto(base + "/")
+            assert page.request.post(base + "/api/project/open", form={"path": str(project)}).ok
+            page.goto(base + "/code")
+            page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+            with sqlite3.connect(project) as stored:
+                annotations_before_drag = stored.execute(
+                    "SELECT COUNT(*) FROM annotation"
+                ).fetchone()[0]
+            page.keyboard.press("Control+Shift+d")
+            assert "Moving" in page.locator("#ace-headless-tree-dnd-live").text_content()
+            page.keyboard.press("ArrowDown")
+            with page.expect_response("**/api/codes/reorder-in-scope", timeout=5000):
+                page.keyboard.press("Enter")
+            page.wait_for_function(
+                "document.querySelector('.ace-statusbar-event')?.textContent === 'Saved'"
+            )
+            assert _stored_order(project) == [second, first]
+            with sqlite3.connect(project) as stored:
+                assert stored.execute(
+                    "SELECT COUNT(*) FROM annotation"
+                ).fetchone()[0] == annotations_before_drag
+        finally:
+            browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_failed_reparent_drag_restores_saved_parent(reorder_server, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    base, project, first, _second = reorder_server
+    with sqlite3.connect(project) as setup:
+        setup.row_factory = sqlite3.Row
+        folder = add_folder(setup, "Group")
+    with sync_api.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        try:
+            page = browser.new_page()
+            page.goto(base + "/")
+            assert page.request.post(base + "/api/project/open", form={"path": str(project)}).ok
+            page.goto(base + "/code")
+            page.route(
+                f"**/api/codes/{first}/parent",
+                lambda route: route.fulfill(status=500, body="save failed"),
+            )
+            source_row = page.locator(f'.ace-ht-row[data-code-id="{first}"]')
+            folder_row = page.locator(f'.ace-ht-row[data-folder-id="{folder}"]')
+            with page.expect_response(f"**/api/codes/{first}/parent", timeout=5000):
+                source_row.drag_to(folder_row)
+            page.wait_for_function(
+                "document.querySelector('[data-headless-tree-status]')?.textContent === 'Move failed'",
+                timeout=2000,
+            )
+            with sqlite3.connect(project) as stored:
+                assert stored.execute(
+                    "SELECT parent_id FROM codebook_code WHERE id = ?", (first,)
+                ).fetchone()[0] is None
+            assert source_row.get_attribute("aria-level") == "1"
+        finally:
+            browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_reparent_drag_saves_new_folder(reorder_server, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    base, project, first, _second = reorder_server
+    with sqlite3.connect(project) as setup:
+        setup.row_factory = sqlite3.Row
+        folder = add_folder(setup, "Group")
+    with sync_api.sync_playwright() as playwright:
+        browser = getattr(playwright, engine).launch()
+        try:
+            page = browser.new_page()
+            page.goto(base + "/")
+            assert page.request.post(base + "/api/project/open", form={"path": str(project)}).ok
+            page.goto(base + "/code")
+            source_row = page.locator(f'.ace-ht-row[data-code-id="{first}"]')
+            folder_row = page.locator(f'.ace-ht-row[data-folder-id="{folder}"]')
+            with page.expect_response(f"**/api/codes/{first}/parent", timeout=5000):
+                source_row.drag_to(folder_row)
+            page.wait_for_function(
+                "document.querySelector('.ace-statusbar-event')?.textContent === 'Saved'"
+            )
+            with sqlite3.connect(project) as stored:
+                assert stored.execute(
+                    "SELECT parent_id FROM codebook_code WHERE id = ?", (first,)
+                ).fetchone()[0] == folder
+            assert source_row.get_attribute("aria-level") == "2"
+        finally:
+            browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_failed_drag_cannot_erase_newer_sidebar(reorder_server, engine):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, _second = reorder_server
+
+    async def exercise():
+        reorder_sent = asyncio.Event()
+        release_failure = asyncio.Event()
+        async with async_api.async_playwright() as playwright:
+            browser = await getattr(playwright, engine).launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def delay_failed_save(route):
+                    reorder_sent.set()
+                    await release_failure.wait()
+                    await route.fulfill(status=500, body="save failed")
+
+                await page.route("**/api/codes/reorder-in-scope", delay_failed_save)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Control+Shift+d")
+                await page.keyboard.press("ArrowDown")
+                await page.keyboard.press("Enter")
+                await asyncio.wait_for(reorder_sent.wait(), timeout=5)
+                async with page.expect_response("**/api/codes/folder"):
+                    await page.evaluate("""() => window.htmx.ajax('POST', '/api/codes/folder', {
+                        target: '#text-panel', swap: 'outerHTML',
+                        values: {name: 'Newer folder', current_index: 0}
+                    })""")
+                await page.locator('.ace-ht-row[data-kind="folder"]').wait_for()
+                release_failure.set()
+                await page.wait_for_function(
+                    "document.querySelector('[data-headless-tree-status]')?.textContent === 'Move failed'"
+                )
+                assert await page.locator('.ace-ht-row[data-kind="folder"]').count() == 1
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT COUNT(*) FROM codebook_code WHERE kind = 'folder'"
+                    ).fetchone()[0] == 1
+            finally:
+                release_failure.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_second_drag_waits_for_failed_save(reorder_server, engine):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        first_sent = asyncio.Event()
+        release_failure = asyncio.Event()
+        request_count = 0
+        async with async_api.async_playwright() as playwright:
+            browser = await getattr(playwright, engine).launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def fail_saves(route):
+                    nonlocal request_count
+                    request_count += 1
+                    first_sent.set()
+                    await release_failure.wait()
+                    await route.fulfill(status=500, body="save failed")
+
+                await page.route("**/api/codes/reorder-in-scope", fail_saves)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Control+Shift+d")
+                await page.keyboard.press("ArrowDown")
+                await page.keyboard.press("Enter")
+                await asyncio.wait_for(first_sent.wait(), timeout=5)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Control+Shift+d")
+                assert await page.evaluate(
+                    "() => !window.__aceHeadlessTreePreview.tree.getState().dnd"
+                )
+                assert request_count == 1
+                release_failure.set()
+                await page.wait_for_function(
+                    "document.querySelector('[data-headless-tree-status]')?.textContent === 'Move failed'"
+                )
+                await page.wait_for_load_state("networkidle")
+                assert request_count == 1
+                assert await page.locator(
+                    "#ace-headless-tree-mount .ace-ht-row[data-code-id]"
+                ).evaluate_all("rows => rows.map(row => row.dataset.codeId)") == [str(first), str(second)]
+                assert _stored_order(project) == [first, second]
+            finally:
+                release_failure.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_keyboard_reorder_waits_for_drag_save(reorder_server, engine):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        drag_sent = asyncio.Event()
+        release_failure = asyncio.Event()
+        requests = 0
+        async with async_api.async_playwright() as playwright:
+            browser = await getattr(playwright, engine).launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def fail_drag(route):
+                    nonlocal requests
+                    requests += 1
+                    drag_sent.set()
+                    await release_failure.wait()
+                    await route.fulfill(status=500, body="save failed")
+
+                await page.route("**/api/codes/reorder-in-scope", fail_drag)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Control+Shift+d")
+                await page.keyboard.press("ArrowDown")
+                await page.keyboard.press("Enter")
+                await asyncio.wait_for(drag_sent.wait(), timeout=5)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowUp")
+                assert await page.locator(
+                    "#ace-headless-tree-mount .ace-ht-row[data-code-id]"
+                ).evaluate_all("rows => rows.map(row => row.dataset.codeId)") == [str(second), str(first)]
+                release_failure.set()
+                await page.wait_for_function(
+                    "document.querySelector('[data-headless-tree-status]')?.textContent === 'Move failed'"
+                )
+                await page.wait_for_load_state("networkidle")
+                assert requests == 1
+                assert _stored_order(project) == [first, second]
+                assert await page.locator(
+                    "#ace-headless-tree-mount .ace-ht-row[data-code-id]"
+                ).evaluate_all("rows => rows.map(row => row.dataset.codeId)") == [str(first), str(second)]
+            finally:
+                release_failure.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_drag_waits_for_keyboard_reorder_save(reorder_server, engine):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        reorder_sent = asyncio.Event()
+        release_success = asyncio.Event()
+        requests = 0
+        async with async_api.async_playwright() as playwright:
+            browser = await getattr(playwright, engine).launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def delay_keyboard_reorder(route):
+                    nonlocal requests
+                    requests += 1
+                    reorder_sent.set()
+                    await release_success.wait()
+                    await route.fulfill(response=await route.fetch())
+
+                await page.route("**/api/codes/reorder-in-scope", delay_keyboard_reorder)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(reorder_sent.wait(), timeout=5)
+                await page.keyboard.press("Control+Shift+d")
+                assert await page.evaluate(
+                    "() => !window.__aceHeadlessTreePreview.tree.getState().dnd"
+                )
+                release_success.set()
+                await page.wait_for_load_state("networkidle")
+                assert requests == 1
+                assert _stored_order(project) == [second, first]
+            finally:
+                release_success.set()
                 await browser.close()
 
     asyncio.run(exercise())
