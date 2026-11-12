@@ -468,11 +468,10 @@ def _with_headers(response: HTMLResponse, headers: dict[str, str]) -> HTMLRespon
     return response
 
 
-def _receipt_fragment(inner: str, kind: str, *, live: bool = True) -> str:
-    live_attrs = 'role="status" aria-live="polite" ' if live else ""
+def _receipt_fragment(inner: str, kind: str) -> str:
     return (
         f'<div class="ace-notification-receipt ace-notification-receipt--{kind}" '
-        f'id="ace-notification-receipt" {live_attrs}'
+        'id="ace-notification-receipt" '
         'hx-swap-oob="outerHTML">' + inner + "</div>"
     )
 
@@ -501,7 +500,7 @@ def _oob_status_undo(message: str) -> str:
         '<span class="ace-statusbar-event ace-statusbar-event--undo" '
         'id="ace-statusbar-event" hx-swap-oob="outerHTML">' + inner + '</span>'
     )
-    receipt_fragment = _receipt_fragment(inner, "undo", live=False)
+    receipt_fragment = _receipt_fragment(inner, "undo")
     announce = _oob_announce(message, assertive=False)
     return status_fragment + receipt_fragment + announce
 
@@ -514,9 +513,8 @@ def _oob_status(message: str, kind: str = "err") -> HTMLResponse:
          CSS on /code but still DOM-present).
       2. Coding notification receipt (only exists on /code — HTMX silently drops
          the fragment on other pages).
-      3. Assertive ARIA live region (because the statusbar and receipt are
-         aria-hidden / role=status, so screen-reader users would otherwise
-         miss errors).
+      3. ARIA live region, the sole automatic announcer on the coding page.
+         Errors use its assertive variant.
 
     kind is "err" for sticky errors, "ok" for 2-second ephemeral success,
     or "ok-sticky" for neutral feedback that stays until another message.

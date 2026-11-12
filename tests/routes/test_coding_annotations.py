@@ -865,8 +865,13 @@ def test_coding_page_has_notification_receipt_host(client_with_sources):
     assert 'class="ace-text-header"' in body
     assert 'id="ace-notification-receipt"' in body
     assert 'class="ace-notification-receipt"' in body
-    assert 'role="status"' in body
-    assert 'aria-live="polite"' in body
+    receipt_id = body.index('id="ace-notification-receipt"')
+    receipt_tag = body[body.rfind("<div", 0, receipt_id):body.index(">", receipt_id)]
+    assert 'role=' not in receipt_tag
+    assert 'aria-live=' not in receipt_tag
+    assert 'aria-hidden=' not in receipt_tag
+    assert 'id="ace-live-region"' in body
+    assert 'id="ace-live-region-assertive"' in body
     assert 'id="ace-text-event-pill"' not in body
     assert "ace-text-event-row" not in body
 

@@ -4017,17 +4017,6 @@
     );
   }
 
-  function _setReceiptLiveSemantics(el, enabled) {
-    if (!el) return;
-    if (enabled) {
-      el.setAttribute("role", "status");
-      el.setAttribute("aria-live", "polite");
-    } else {
-      el.removeAttribute("role");
-      el.removeAttribute("aria-live");
-    }
-  }
-
   function _syncReceiptFromStatusbar() {
     const sb = document.querySelector(".ace-statusbar-event");
     const receipt = _receiptEl();
@@ -4050,7 +4039,6 @@
     const receiptClass = "ace-notification-receipt--" + kind;
     if (receipt.textContent.trim() === text && receipt.classList.contains(receiptClass)) return;
 
-    _setReceiptLiveSemantics(receipt, true);
     receipt.textContent = text;
     receipt.removeAttribute("style");
     _clearReceiptClasses(receipt);
@@ -4072,7 +4060,6 @@
       receiptEl.textContent = "";
       receiptEl.removeAttribute("style");
       receiptEl.classList.remove("ace-notification-receipt--undo");
-      _setReceiptLiveSemantics(receiptEl, true);
     }
   }
 
@@ -4087,7 +4074,6 @@
     if (receipt) {
       _clearReceiptClasses(receipt);
       receipt.classList.add("ace-notification-receipt--undo");
-      _setReceiptLiveSemantics(receipt, false);
       if (receipt.innerHTML !== sbEvent.innerHTML) {
         receipt.innerHTML = sbEvent.innerHTML;
       }
@@ -4167,7 +4153,6 @@
       if (text) sbEl.classList.add("ace-statusbar-event--" + kind);
     }
     if (receiptEl) {
-      _setReceiptLiveSemantics(receiptEl, true);
       receiptEl.textContent = text || "";
       receiptEl.removeAttribute("style");
       _clearReceiptClasses(receiptEl);
