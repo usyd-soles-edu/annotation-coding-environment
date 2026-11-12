@@ -224,9 +224,11 @@
   function _restoreFocus() {
     // Delay until after HTMX settling completes (outerHTML swap replaces DOM)
     requestAnimationFrame(function () {
-      // Don't steal focus from the note drawer textarea during autosave —
-      // the save response swaps #text-panel but the textarea lives outside it.
-      if (document.activeElement && document.activeElement.id === "note-textarea") return;
+      // Keep focus on controls outside the replaced text panel. The sidebar
+      // may still be loading its tree after an OOB replacement.
+      const active = document.activeElement;
+      if (active?.id === "note-textarea" || active?.closest?.("#code-sidebar") ||
+          window.AceHeadlessTreePreview?.isSidebarFocusPending?.()) return;
       const idx = window.__aceFocusIndex;
       if (idx >= 0) _focusSentence(idx);
       _focusTextPanel();
@@ -1934,37 +1936,6 @@
     if (ann) _renderFlashRects([ann]);
   };
 
-  // --- Focus restoration across HTMX swaps ---
-
-  const _sidebarFocusState = {
-    codeId: null,
-    folderId: null,
-    searchText: "",
-    scrollTop: 0,
-    zone: null,
-  };
-
-  document.addEventListener("htmx:beforeSwap", function (e) {
-    const target = e.detail.target;
-    if (!target) return;
-    if (target.id !== "code-sidebar" && target.id !== "coding-workspace" && target.id !== "text-panel") return;
-
-    let zone = _activeZone();
-    _sidebarFocusState.zone = zone;
-
-    if (zone === "tree") {
-      const active = _getActiveTreeItem();
-      _sidebarFocusState.codeId = active ? active.getAttribute("data-code-id") : null;
-      _sidebarFocusState.folderId = active ? active.getAttribute("data-folder-id") : null;
-    }
-
-    let search = document.getElementById("code-search-input");
-    _sidebarFocusState.searchText = search ? search.value : "";
-
-    const tree = document.getElementById("ace-headless-tree-mount");
-    _sidebarFocusState.scrollTop = tree ? tree.scrollTop : 0;
-  });
-
   /* ================================================================
    * 4xx error feedback — surface HTMX error bodies in the status bar
    * ================================================================ */
@@ -2100,18 +2071,13 @@
   // Re-bind sidebar event wiring after an HTMX swap replaces sidebar DOM.
   // opts: { sortable: bool, gridResize: bool } — both default false.
   // Sortable re-init is skipped while a drag is in progress.
-  // Always restores tree scrollTop (saved in htmx:beforeSwap) so applying a
-  // code via hotkey/click doesn't bounce the sidebar back to the top.
+  // Tree focus, search and scroll restoration are owned by the tree controller.
   function _syncSidebarAfterSwap(opts) {
     opts = opts || {};
     if (opts.sortable && !_isDragging) _initSortable();
     _restoreCollapseState();
     _updateKeycaps();
     if (opts.gridResize) _initGridResize();
-    const tree = document.getElementById("ace-headless-tree-mount");
-    if (tree && _sidebarFocusState.scrollTop) {
-      tree.scrollTop = _sidebarFocusState.scrollTop;
-    }
     if (_codeCuesEnabled()) {
       _scheduleCodeCues();
     } else {
@@ -2288,37 +2254,6 @@
       }
       _rerenderSourceGridIfPresent();
 
-      // Restore focus state
-      let search = document.getElementById("code-search-input");
-      if (_sidebarFocusState.searchText && search) {
-        search.value = _sidebarFocusState.searchText;
-        search.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-
-      // Scroll already restored in _syncSidebarAfterSwap.
-
-      if (_sidebarFocusState.zone === "tree") {
-        let item = null;
-        if (_sidebarFocusState.codeId) {
-          item = _findCodebookItemRow(_sidebarFocusState.codeId);
-        } else if (_sidebarFocusState.folderId) {
-          item = _findCodebookItemRow(_sidebarFocusState.folderId);
-        }
-        if (item) {
-          _focusTreeItem(item, { activate: false });
-        } else {
-          const items = _getTreeItems();
-          if (items.length > 0) _focusTreeItem(items[0], { activate: false });
-        }
-      } else if (_sidebarFocusState.zone === "search" && search) {
-        search.focus();
-      }
-
-      // Reset sidebar state
-      _sidebarFocusState.codeId = null;
-      _sidebarFocusState.folderId = null;
-      _sidebarFocusState.searchText = "";
-      _sidebarFocusState.zone = null;
     }
 
     // Auto-open dialogs
