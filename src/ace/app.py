@@ -29,6 +29,7 @@ from ace.services.browser_runtime import (
     BrowserRuntimeMonitor,
     BrowserSessionTracker,
 )
+from ace.services.coding_context_cache import CodingContextCache
 
 _DATA_DIR = Path.home() / ".ace"
 _PKG_DIR = Path(__file__).parent
@@ -317,6 +318,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
     app.state.migrated_paths = set()
     app.state.active_projects = set()
+    app.state.coding_context_cache = CodingContextCache()
     app.state.browser_runtime_config = _runtime_config_from_env()
     app.state.browser_runtime = None
     app.state.browser_runtime_monitor = None
@@ -355,6 +357,7 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             if monitor is not None:
                 monitor.stop()
                 app.state.browser_runtime_monitor = None
+            app.state.coding_context_cache.close()
             conn: sqlite3.Connection | None = getattr(app.state, "db", None)
             if conn is not None:
                 checkpoint_and_close(conn)

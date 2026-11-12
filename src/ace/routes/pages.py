@@ -176,6 +176,63 @@ def _source_annotation_context(
     }
 
 
+def _global_coding_context(
+    conn: sqlite3.Connection,
+    coder_id: str,
+    project_path: str | None = None,
+) -> dict:
+    """Build the project-wide coding data shared by every source."""
+    project = get_project(conn)
+    sources = list_sources(conn)
+    total_sources = len(sources)
+    project_file_stem = Path(project_path).stem if project_path else ""
+
+    # Repair missing assignments in projects imported before reconciliation.
+    assignments = [dict(row) for row in get_assignments_for_coder(conn, coder_id)]
+    if len(assignments) != total_sources:
+        ensure_assignments(conn, coder_id)
+        assignments = [dict(row) for row in get_assignments_for_coder(conn, coder_id)]
+
+    notes_present = source_ids_with_notes(conn, coder_id)
+    annotation_counts = get_annotation_counts_by_source(conn, coder_id)
+    code_counts_by_id = get_annotation_counts_by_code(conn, coder_id)
+    tree_codes = list_codes_with_tree(conn)
+    code_counts_json = Markup(html.escape(json.dumps(code_counts_by_id)))
+    coder_row = conn.execute(
+        "SELECT name FROM coder WHERE id = ?", (coder_id,),
+    ).fetchone()
+    coder_name = coder_row["name"] if coder_row else "Unknown"
+    sources_json = [
+        {
+            "index": i,
+            "source_id": a["source_id"],
+            "display_id": a["display_id"],
+            "count": annotation_counts.get(a["source_id"], 0),
+            "flagged": bool(a["flagged"]),
+            "note": a["source_id"] in notes_present,
+        }
+        for i, a in enumerate(assignments)
+    ]
+    return {
+        "project_name": project["name"],
+        "project_file_stem": project_file_stem,
+        "source_index_storage_key": f"ace-source-index:{project['id']}",
+        "total_sources": total_sources,
+        "colour_palette": [hex_val for hex_val, _label in COLOUR_PALETTE],
+        "annotation_counts": annotation_counts,
+        "coder_name": coder_name,
+        "source_ids_with_notes": notes_present,
+        "assignments": assignments,
+        "sources_json": sources_json,
+        "sources_snapshot_version": _sources_snapshot_version(sources_json),
+        "tree_codes": tree_codes,
+        "code_counts_by_id": code_counts_by_id,
+        "code_counts_json": code_counts_json,
+        "show_coding_text_controls": True,
+        "version": __version__,
+    }
+
+
 def _coding_context(
     conn: sqlite3.Connection,
     coder_id: str,
@@ -183,27 +240,16 @@ def _coding_context(
     project_path: str | None = None,
     *,
     render_sentences: bool = True,
+    global_context: dict | None = None,
 ) -> dict:
-    """Assemble all data needed to render the coding page."""
+    """Assemble a source's coding view from fresh or cached project data."""
+    project_ctx = global_context or _global_coding_context(
+        conn, coder_id, project_path
+    )
+    assignments = project_ctx["assignments"]
+    total_sources = project_ctx["total_sources"]
+    current_index = max(0, min(current_index, total_sources - 1))
 
-    project = get_project(conn)
-    sources = list_sources(conn)
-    total_sources = len(sources)
-    project_file_stem = Path(project_path).stem if project_path else ""
-
-    # Repair missing assignments in projects imported before reconciliation.
-    assignments = get_assignments_for_coder(conn, coder_id)
-    if len(assignments) != total_sources:
-        ensure_assignments(conn, coder_id)
-        assignments = get_assignments_for_coder(conn, coder_id)
-
-    # Clamp index
-    if current_index < 0:
-        current_index = 0
-    if current_index >= total_sources:
-        current_index = total_sources - 1
-
-    # Current source + content
     current_source = None
     source_text = ""
     section_heading_spans: tuple[tuple[int, int], ...] = ()
@@ -219,24 +265,22 @@ def _coding_context(
             section_heading_spans = decode_section_heading_spans(
                 source_text, content_row["section_headings_json"]
             )
-    elif sources:
-        current_source = {
-            "display_id": sources[current_index]["display_id"],
-            "id": sources[current_index]["id"],
-        }
-        content_row = get_source_content(conn, sources[current_index]["id"])
+    elif total_sources:
+        # Defensive fallback for a project whose assignments could not yet be
+        # reconciled; the normal path above reads only the selected source.
+        source = list_sources(conn)[current_index]
+        current_source = {"display_id": source["display_id"], "id": source["id"]}
+        content_row = get_source_content(conn, source["id"])
         if content_row:
             source_text = content_row["content_text"]
             section_heading_spans = decode_section_heading_spans(
                 source_text, content_row["section_headings_json"]
             )
 
-    # Source note state for the current source + presence set for the grid
-    current_note_text = ""
-    if current_source:
-        current_note_text = get_note(conn, current_source["id"], coder_id) or ""
-    notes_present = source_ids_with_notes(conn, coder_id)
-
+    current_note_text = (
+        get_note(conn, current_source["id"], coder_id) or ""
+        if current_source else ""
+    )
     source_ctx = _source_annotation_context(
         conn,
         coder_id,
@@ -245,56 +289,15 @@ def _coding_context(
         section_heading_spans,
         render_sentences=render_sentences,
     )
-
-    # Global counts and source data are needed when rendering the whole page.
-    annotation_counts = get_annotation_counts_by_source(conn, coder_id)
-    code_counts_by_id = get_annotation_counts_by_code(conn, coder_id)
-    tree_codes = list_codes_with_tree(conn)
-    code_counts_json = Markup(html.escape(json.dumps(code_counts_by_id)))
-
-    # Coder name
-    coder_row = conn.execute(
-        "SELECT name FROM coder WHERE id = ?", (coder_id,),
-    ).fetchone()
-    coder_name = coder_row["name"] if coder_row else "Unknown"
-
-    # Flat per-source data for the client-rendered sparkline + tile grid.
-    sources_json = [
-        {
-            "index": i,
-            "source_id": a["source_id"],
-            "display_id": a["display_id"],
-            "count": annotation_counts.get(a["source_id"], 0),
-            "flagged": bool(a["flagged"]),
-            "note": a["source_id"] in notes_present,
-        }
-        for i, a in enumerate(assignments)
-    ]
-
     return {
-        "project_name": project["name"],
-        "project_file_stem": project_file_stem,
-        "source_index_storage_key": f"ace-source-index:{project['id']}",
+        **project_ctx,
         "current_index": current_index,
-        "total_sources": total_sources,
         "current_source": current_source,
         "is_flagged": is_flagged,
         "source_text": source_text,
         **source_ctx,
-        "colour_palette": [hex_val for hex_val, _label in COLOUR_PALETTE],
-        "annotation_counts": annotation_counts,
-        "coder_name": coder_name,
         "current_note_text": current_note_text,
         "has_note": bool(current_note_text),
-        "source_ids_with_notes": notes_present,
-        "assignments": [dict(a) for a in assignments],
-        "sources_json": sources_json,
-        "sources_snapshot_version": _sources_snapshot_version(sources_json),
-        "tree_codes": tree_codes,
-        "code_counts_by_id": code_counts_by_id,
-        "code_counts_json": code_counts_json,
-        "show_coding_text_controls": True,
-        "version": __version__,
     }
 
 
@@ -328,6 +331,7 @@ async def coding_page(
         # confirmation imports into the current database, so drop the store
         # before the newly opened project is published.
         _clear_folder_import_manifests(request)
+        request.app.state.coding_context_cache.close()
         request.app.state.project_path = str(open_path)
         if coders:
             request.app.state.coder_id = coders[0]["id"]

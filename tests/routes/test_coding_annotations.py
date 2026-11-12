@@ -1,5 +1,6 @@
 import json
 import re
+import shutil
 
 import sqlite3
 
@@ -693,6 +694,88 @@ def test_navigation_reuses_unchanged_source_snapshot(client_with_codes):
     assert 'id="ace-sources-data"' in changed.text
     assert '"flagged": true' in changed.text
     assert re.search(r'data-snapshot-version="([0-9a-f]{64})"', changed.text).group(1) != snapshot.group(1)
+
+
+def test_navigation_skips_global_scan_until_another_connection_commits(
+    client_with_codes, monkeypatch
+):
+    client, coder_id, _code_id, _, db_path = client_with_codes
+    from ace.routes import pages
+
+    original = pages._global_coding_context
+    scans = 0
+
+    def counted_global_context(conn, selected_coder, project_path=None):
+        nonlocal scans
+        scans += 1
+        return original(conn, selected_coder, project_path)
+
+    monkeypatch.setattr(pages, "_global_coding_context", counted_global_context)
+    headers = {"HX-Request": "true"}
+    first = client.post(
+        "/api/navigation", data={"from_index": 0, "to_index": 1}, headers=headers
+    )
+    second = client.post(
+        "/api/navigation", data={"from_index": 1, "to_index": 0}, headers=headers
+    )
+    assert first.status_code == second.status_code == 200
+    assert scans == 1
+
+    # This writer represents another tab or desktop runtime. The observer
+    # must notice the commit even though the current app did not perform it.
+    with sqlite3.connect(db_path) as other_runtime:
+        other_runtime.execute(
+            "UPDATE assignment SET flagged = 1 WHERE coder_id = ? "
+            "AND source_id = (SELECT source_id FROM assignment "
+            "WHERE coder_id = ? ORDER BY rowid LIMIT 1)",
+            (coder_id, coder_id),
+        )
+    third = client.post(
+        "/api/navigation", data={"from_index": 0, "to_index": 1}, headers=headers
+    )
+    assert third.status_code == 200
+    assert scans == 2
+    assert '"flagged": true' in third.text
+
+
+def test_navigation_cache_closes_before_standalone_project_copy(tmp_path):
+    project = tmp_path / "checkpoint.ace"
+    conn = create_project(project, "Checkpoint")
+    coder_id = list_coders(conn)[0]["id"]
+    source_id = add_source(conn, "S1", "Source text.", "row")
+    conn.close()
+
+    app = create_app()
+    with TestClient(app) as client:
+        app.state.project_path = str(project)
+        app.state.coder_id = coder_id
+        navigation = client.post(
+            "/api/navigation",
+            data={"from_index": 0, "to_index": 0},
+            headers={"HX-Request": "true"},
+        )
+        assert navigation.status_code == 200
+        other_runtime = sqlite3.connect(project)
+        try:
+            other_runtime.execute(
+                "UPDATE assignment SET flagged = 1 "
+                "WHERE source_id = ? AND coder_id = ?",
+                (source_id, coder_id),
+            )
+            other_runtime.commit()
+        finally:
+            other_runtime.close()
+
+    # The documented backup boundary is project close or graceful app exit.
+    # The observer must close so a copy of the .ace file alone is current.
+    copied_project = tmp_path / "standalone-copy.ace"
+    shutil.copyfile(project, copied_project)
+    with sqlite3.connect(copied_project) as copied:
+        flagged = copied.execute(
+            "SELECT flagged FROM assignment WHERE source_id = ? AND coder_id = ?",
+            (source_id, coder_id),
+        ).fetchone()[0]
+    assert flagged == 1
 
 
 def test_popstate_navigation_does_not_add_undo_entry(client_with_codes):

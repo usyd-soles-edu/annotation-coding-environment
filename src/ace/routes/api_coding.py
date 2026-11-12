@@ -230,14 +230,20 @@ async def navigation_route(
     history_mode: str = Form(default="push"),
 ):
     """Record navigation and render the next source for HTMX callers."""
-    from ace.models.assignment import get_assignments_for_coder
+    from ace.routes.pages import _global_coding_context
 
     coder_id = _require_coder(request)
     if history_mode not in {"push", "none"}:
         raise HTTPException(status_code=400, detail="invalid navigation history mode")
 
     with _project_db(request) as conn:
-        assignments = get_assignments_for_coder(conn, coder_id)
+        project_path = request.app.state.project_path
+        global_context = request.app.state.coding_context_cache.get(
+            project_path,
+            coder_id,
+            lambda: _global_coding_context(conn, coder_id, project_path),
+        )
+        assignments = global_context["assignments"]
         if (
             from_index < 0
             or to_index < 0
@@ -258,6 +264,7 @@ async def navigation_route(
                 include_sidebar=False,
                 open_note_drawer=note_open,
                 client_source_snapshot=request.headers.get("x-ace-sources-snapshot"),
+                global_context=global_context,
             )
             trigger = {"ace-navigate": {
                 "index": to_index,

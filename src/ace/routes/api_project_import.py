@@ -209,6 +209,7 @@ def _clear_tabular_import_stage(request: Request) -> None:
 
 
 def _clear_project_transient_state(request: Request, project_path: str) -> None:
+    request.app.state.coding_context_cache.close()
     request.app.state.undo_managers.pop(project_path, None)
     request.app.state.last_import_source_ids = None
     _clear_folder_import_manifests(request)
@@ -371,6 +372,9 @@ async def project_create(
             validation_conn = open_project(temporary_path)
             checkpoint_and_close(validation_conn)
             validation_conn = None
+            # On Windows the observer can keep the old database's WAL sidecars
+            # locked, so close it before quarantining any replacement files.
+            request.app.state.coding_context_cache.close()
             quarantined_sidecars = _quarantine_sqlite_sidecars(file_path)
             try:
                 os.replace(temporary_path, file_path)
@@ -442,6 +446,7 @@ async def project_open(request: Request, path: str = Form(...)):
 
     _clear_folder_import_manifests(request)
     _clear_tabular_import_stage(request)
+    request.app.state.coding_context_cache.close()
     request.app.state.project_path = str(file_path)
     if coder_id:
         request.app.state.coder_id = coder_id
