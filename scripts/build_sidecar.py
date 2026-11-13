@@ -16,8 +16,6 @@ import sys
 import tempfile
 from pathlib import Path
 
-from ace import __version__
-
 TRIPLES = {
     ("darwin", "aarch64"): "aarch64-apple-darwin",
     ("darwin", "x86_64"): "x86_64-apple-darwin",
@@ -70,8 +68,7 @@ def main() -> None:
     if macos:
         mode_args = ["--standalone", "--nofollow-import-to=tkinter", "--nofollow-import-to=_tkinter"]
     else:
-        # Windows locks a running onefile extraction; an upgrade needs its own directory.
-        mode_args = ["--onefile", f"--onefile-tempdir-spec={{CACHE_DIR}}/ace-coder/{__version__}"]
+        mode_args = ["--onefile", f"--onefile-tempdir-spec={{CACHE_DIR}}/ace-coder"]
 
     cmd = [
         sys.executable, "-m", "nuitka",
