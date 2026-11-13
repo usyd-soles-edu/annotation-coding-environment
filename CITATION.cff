@@ -21,7 +21,6 @@ authors:
     given-names: "Michael"
     affiliation: "School of Life and Environmental Sciences, The University of Sydney"
 version: "1.8.0"
-date-released: "2026-11-12"
 license: "MIT"
 repository-code: "https://github.com/usyd-soles-edu/annotation-coding-environment"
 url: "https://github.com/usyd-soles-edu/annotation-coding-environment"
