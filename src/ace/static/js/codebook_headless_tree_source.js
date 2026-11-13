@@ -608,7 +608,9 @@ import {
       source,
       target: document.getElementById("text-panel") ? "#text-panel" : "#code-sidebar",
       swap: document.getElementById("text-panel") ? "outerHTML" : "none",
-      values: codebookMutationValues(values),
+      // DELETE carries its Query fields in the URL; adding them here would
+      // duplicate them because HTMX serialises DELETE values as URL params.
+      values: method === "DELETE" ? values : codebookMutationValues(values),
     });
   }
 
@@ -819,9 +821,22 @@ import {
   function deleteItem(item) {
     if (item.getId() === ROOT_ID) return;
     if (!confirmDelete(item)) return;
-    document.dispatchEvent(new CustomEvent("ace:delete-codebook-item", {
-      detail: { itemId: item.getId() },
-    }));
+    // The DELETE route reads mutation context from Query fields. Keep those
+    // fields in the URL so this remains correct regardless of HTMX settings.
+    const query = new URLSearchParams();
+    Object.entries(codebookMutationValues({ current_index: currentIndex() }))
+      .forEach(function ([key, value]) {
+        if (value !== undefined && value !== null && value !== "") {
+          query.set(key, value);
+        }
+      });
+    htmxSwap("DELETE", `/api/codes/${item.getId()}?${query}`, {});
+  }
+
+  function deleteItemById(itemId) {
+    if (denyCodebookEditing(true)) return;
+    const item = itemId && tree?.getItemInstance(itemId);
+    if (item) deleteItem(item);
   }
 
   function requiresDeleteConfirmation(item) {
@@ -1716,6 +1731,7 @@ import {
       pasteCutItem,
       moveItemToParent,
       lookupSingleKey,
+      deleteItemById,
       folderOptions,
       itemLabel,
       syncCodeCounts,
