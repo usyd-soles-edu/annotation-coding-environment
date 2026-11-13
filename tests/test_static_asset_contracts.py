@@ -81,12 +81,14 @@ def test_audit_codebook_mutations_send_mode_context():
     assert "return _getSidebarTreeController().mutationValues(values)" in bridge
     assert "next.codebook_mode = ctx.mode" not in bridge
     assert "next.current_code_id = ctx.currentCodeId" not in bridge
-    assert "_codebookMutationQueryString" in bridge
+    assert "_codebookMutationQueryString" not in bridge
+    assert "deleteItemById" in bridge
 
     assert "function codebookMutationValues" in tree_source
     assert "next.codebook_mode = ctx.mode" in tree_source
     assert "next.current_code_id = ctx.currentCodeId" in tree_source
-    assert "values: codebookMutationValues(values)" in tree_source
+    assert "codebookMutationValues(values)" in tree_source
+    assert "deleteItemById," in tree_source
     assert "mutationContext: codebookMutationContext" in tree_source
     assert "mutationValues: codebookMutationValues" in tree_source
 
