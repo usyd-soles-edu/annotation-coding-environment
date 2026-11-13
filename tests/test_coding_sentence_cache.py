@@ -7,6 +7,7 @@ from ace.db.connection import create_project
 from ace.models.assignment import _ensure_assignments_no_commit
 from ace.models.project import list_coders
 from ace.models.source import _add_source_no_commit
+from ace.services import coding_context_cache
 from ace.services.coding_context_cache import CodingContextCache
 from ace.services import text_splitter
 
@@ -50,9 +51,11 @@ def test_sentence_cache_tracks_text_headings_and_project(tmp_path, monkeypatch):
         cache.close()
 
 
-def test_sentence_cache_has_a_size_limit(tmp_path):
+def test_sentence_cache_has_a_size_limit(tmp_path, monkeypatch):
     project = tmp_path / "limited.ace"
     create_project(str(project), "Limited").close()
+    monkeypatch.setattr(coding_context_cache, "_MAX_SENTENCE_CHARS", 250_000)
+    monkeypatch.setattr(coding_context_cache, "_MAX_SENTENCE_UNITS", 10_000)
     cache = CodingContextCache()
     try:
         for index in range(5):
@@ -65,6 +68,46 @@ def test_sentence_cache_has_a_size_limit(tmp_path):
             cache.get_sentence_units(str(project), f"list-{index}", text, ())
         assert cache._sentence_unit_count <= 10_000
         assert len(cache._sentence_units) <= 3
+    finally:
+        cache.close()
+
+
+def test_sentence_cache_keeps_a_long_transcript_working_set(tmp_path, monkeypatch):
+    project = tmp_path / "transcripts.ace"
+    create_project(str(project), "Transcripts").close()
+    sentence = "A substantial interview response with enough detail to form one clear sentence. "
+    texts = [f"Opening {index}. " + sentence * 600 for index in range(19)]
+    calls = 0
+
+    def counted(value, headings):
+        nonlocal calls
+        calls += 1
+        return [
+            {"text": value[:1], "start_offset": index, "end_offset": index + 1,
+             "type": "sentence"}
+            for index in range(600)
+        ]
+
+    monkeypatch.setattr(text_splitter, "split_into_units", counted)
+    cache = CodingContextCache()
+    try:
+        for index, text in enumerate(texts):
+            cache.get_sentence_units(str(project), f"source-{index}", text, ())
+        for index, text in enumerate(texts):
+            cache.get_sentence_units(str(project), f"source-{index}", text, ())
+        assert calls == len(texts)
+        assert cache._sentence_chars == sum(len(text) for text in texts)
+        assert cache._sentence_unit_count == 19 * 600
+        assert cache._sentence_chars <= coding_context_cache._MAX_SENTENCE_CHARS
+        assert cache._sentence_unit_count <= coding_context_cache._MAX_SENTENCE_UNITS
+
+        for index in range(19, 24):
+            cache.get_sentence_units(
+                str(project), f"source-{index}", f"Opening {index}. " + sentence * 600, ()
+            )
+        assert cache._sentence_chars <= coding_context_cache._MAX_SENTENCE_CHARS
+        assert cache._sentence_unit_count <= coding_context_cache._MAX_SENTENCE_UNITS
+        assert len(cache._sentence_units) < 24
     finally:
         cache.close()
 
