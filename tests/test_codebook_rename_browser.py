@@ -1,5 +1,6 @@
 """The current tree controller handles codebook renaming across engines."""
 
+import sqlite3
 from urllib.parse import urlsplit
 
 import pytest
@@ -10,6 +11,67 @@ from ace.db.connection import create_project
 from ace.models.codebook import add_code, add_folder
 from ace.models.project import list_coders
 from ace.models.source import add_source
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("browser_name", ["chromium", "firefox", "webkit"])
+def test_failed_nested_wrap_does_not_rename_existing_parent(tmp_path, browser_name):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    project = tmp_path / "failed-wrap.ace"
+    conn = create_project(str(project), "Failed wrap")
+    coder_id = list_coders(conn)[0]["id"]
+    add_source(conn, "S1", "Source text.", "row")
+    parent_id = add_folder(conn, "Group")
+    add_code(conn, "Alpha", "#336699", parent_id=parent_id)
+    second_id = add_code(conn, "Beta", "#663399", parent_id=parent_id)
+    add_folder(conn, "New folder")
+    conn.close()
+
+    app = create_app()
+    with TestClient(app, base_url="http://127.0.0.1:8080") as client:
+        app.state.project_path = str(project)
+        app.state.coder_id = coder_id
+        with sync_api.sync_playwright() as playwright:
+            browser = getattr(playwright, browser_name).launch()
+            try:
+                page = browser.new_page()
+                page.set_default_timeout(8000)
+
+                def serve_from_test_client(route):
+                    request = route.request
+                    url = urlsplit(request.url)
+                    path = url.path + (f"?{url.query}" if url.query else "")
+                    headers = {
+                        key: value for key, value in request.headers.items()
+                        if key.lower() not in {"host", "content-length"}
+                    }
+                    response = client.request(
+                        request.method, path,
+                        content=request.post_data_buffer, headers=headers,
+                    )
+                    route.fulfill(
+                        status=response.status_code,
+                        headers=dict(response.headers), body=response.content,
+                    )
+
+                page.route("http://127.0.0.1:8080/**", serve_from_test_client)
+                page.goto("http://127.0.0.1:8080/code")
+                page.locator(f'.ace-ht-row[data-item-id="{second_id}"]').click()
+                with page.expect_response(f"**/api/codes/{second_id}/indent-promote") as result:
+                    page.keyboard.press("Alt+Shift+ArrowRight")
+                assert result.value.status == 200
+                assert "already exists" in result.value.text()
+                page.wait_for_timeout(200)
+                assert page.locator("input.ace-ht-rename").count() == 0
+                assert page.locator(
+                    f'.ace-ht-row[data-item-id="{parent_id}"] .ace-ht-label'
+                ).inner_text() == "Group"
+                with sqlite3.connect(project) as saved:
+                    assert saved.execute(
+                        "SELECT parent_id FROM codebook_code WHERE id = ?", (second_id,)
+                    ).fetchone()[0] == parent_id
+            finally:
+                browser.close()
 
 
 @pytest.mark.slow
@@ -87,6 +149,25 @@ def test_code_folder_and_new_wrapper_rename_use_tree_controller(tmp_path, browse
                 page.wait_for_function(
                     "() => [...document.querySelectorAll('.ace-ht-row--folder .ace-ht-label')].some(el => el.textContent === 'Bundle')"
                 )
+
+                next_code.click()
+                page.keyboard.press("Alt+Shift+ArrowRight")
+                nested_folder_name = page.locator("input.ace-ht-rename")
+                nested_folder_name.fill("Inside")
+                nested_folder_name.press("Enter")
+                page.wait_for_function(
+                    "() => [...document.querySelectorAll('.ace-ht-row--folder .ace-ht-label')].some(el => el.textContent === 'Inside')"
+                )
+                with sqlite3.connect(project) as saved:
+                    nested_id = saved.execute(
+                        "SELECT id FROM codebook_code WHERE name = 'Inside' AND kind = 'folder'"
+                    ).fetchone()[0]
+                    assert saved.execute(
+                        "SELECT parent_id FROM codebook_code WHERE id = ?", (nested_id,)
+                    ).fetchone()[0] is not None
+                    assert saved.execute(
+                        "SELECT parent_id FROM codebook_code WHERE id = ?", (next_code_id,)
+                    ).fetchone()[0] == nested_id
 
                 page.goto(f"http://127.0.0.1:8080/code/{code_id}/view")
                 audit_code = page.locator(f'.ace-ht-row[data-item-id="{code_id}"]')

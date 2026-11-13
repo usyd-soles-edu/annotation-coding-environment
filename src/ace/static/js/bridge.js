@@ -4193,6 +4193,7 @@
         window._setStatus("Need two sibling codes to wrap into a folder", "err");
         return;
       }
+      const previousParentId = _itemIdFromTreeElement(_parentFolderRow(active));
       const aboveCodeId = _itemIdFromTreeElement(above);
       htmx.ajax("POST", `/api/codes/${codeId}/indent-promote`, {
         ..._codebookMutationSwapOptions(),
@@ -4212,7 +4213,8 @@
           );
           if (!moved) return;
           const folderRow = _parentFolderRow(moved);
-          if (folderRow && _isFolderRow(folderRow)) {
+          if (folderRow && _isFolderRow(folderRow) &&
+              _itemIdFromTreeElement(folderRow) !== previousParentId) {
             _focusTreeItem(folderRow);
             _startCodebookRename(folderRow);
           }
