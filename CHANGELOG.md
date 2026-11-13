@@ -26,6 +26,7 @@
 - **Codebook imports** — undo imported codes and the folders created with them without removing folders that were already in the project.
 - **Annotation exports** — preserve exact selected spans and memos, including every memo and the source whitespace in merged exports.
 - **Coding text** — keep selections and highlights aligned with emoji-containing source text, and keep the source map usable in short windows.
+- **Multi-line highlights** — fill the gaps between wrapped highlighted lines while keeping paragraph spacing clear.
 - **Narrow coding windows** — provide a visible way to reach the codebook and applied codes while keeping an open source note in view.
 - **Source notes** — retain unsaved drafts after failed or overlapping saves.
 - **Codebook sidebar** — retain annotation counts and the cut marker when the tree redraws.
