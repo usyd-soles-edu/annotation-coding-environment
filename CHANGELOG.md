@@ -42,7 +42,7 @@
 - **Long highlights** — keep highlight painting responsive across sources with many text lines.
 - **Codebook actions** — make context menus keyboard accessible, show the create-code shortcut, warn before turning a code into a folder, keep the codebook visible during chord shortcuts, and keep the colour picker within the window.
 - **Codebook shortcuts** — keep single-key labels, accessible shortcut descriptions, and applied codes in sync after filtering or sidebar refresh; leave the existing folder alone if creating a nested folder fails.
-- **Codebook navigation** — keep Ctrl+Home and Ctrl+Right from moving focus, and Ctrl/Command+Enter from applying a code; ordinary tree keys still work.
+- **Codebook navigation** — keep Ctrl+Home and Ctrl+Right from moving focus, preserve source focus after returning from the tree, and prevent Ctrl/Command+Enter from applying a code; ordinary tree keys still work.
 - **Codebook errors** — keep the coding screen and sidebar intact if another tab has already created a code or folder with the same name.
 - **Audit codebook** — confirm context-menu deletion of the currently viewed code or a folder.
 - **Shortcut help** — explain two-letter code shortcuts, unify help dialogs, and clarify that applying a code stays on the current sentence.
