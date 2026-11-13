@@ -539,7 +539,12 @@ def _oob_status(message: str, kind: str = "err") -> HTMLResponse:
     receipt_fragment = _receipt_fragment(escaped, kind)
     # Assertive region for errors (sticky), polite for ok (ephemeral).
     announce = _oob_announce(message, assertive=(kind == "err"))
-    return HTMLResponse(status_fragment + receipt_fragment + announce)
+    # This response has no primary content. Keep the current HTMX target
+    # intact while applying its out-of-band status and announcement fragments.
+    return HTMLResponse(
+        status_fragment + receipt_fragment + announce,
+        headers={"HX-Reswap": "none"},
+    )
 
 
 def _native_selection_path(value: str) -> Path:
