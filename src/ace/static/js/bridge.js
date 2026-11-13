@@ -4986,31 +4986,6 @@
     const dialog = btn.closest("dialog");
     if (dialog) dialog.close();
 
-    let importCount = 0;
-    try {
-      const parsed = JSON.parse(codesJson);
-      if (Array.isArray(parsed)) importCount = parsed.length;
-    } catch (_) { /* ignore — fall back to no count */ }
-    const successLabel = importCount > 0
-      ? "Imported " + importCount + " code" + (importCount === 1 ? "" : "s")
-      : "Imported";
-
-    // One-time afterRequest listener — fires the success message only when the
-    // import request actually succeeded. _oob_status returns HTTP 200 with an
-    // OOB error fragment that overwrites the status bar, so we additionally
-    // skip when the response body contains the err-status marker.
-    const onAfter = function (evt) {
-      if (!evt.detail) return;
-      const xhr = evt.detail.xhr;
-      if (!xhr || !xhr.responseURL || !xhr.responseURL.endsWith("/api/codes/import")) return;
-      document.removeEventListener("htmx:afterRequest", onAfter);
-      if (!evt.detail.successful) return;
-      const body = xhr.responseText || "";
-      if (body.indexOf("ace-statusbar-event--err") !== -1) return;
-      window._setStatus(successLabel, "ok");
-    };
-    document.addEventListener("htmx:afterRequest", onAfter);
-
     htmx.ajax("POST", "/api/codes/import", {
       values: _codebookMutationValues({
         codes_json: codesJson,
