@@ -1566,6 +1566,14 @@ import {
       });
     }
 
+    function moveItemToParent(itemId, parentId) {
+      if (!itemId || codebookEditingDisabled()) return;
+      return htmxSwap("PUT", `/api/codes/${itemId}/parent`, {
+        parent_id: formParentId(parentId),
+        current_index: currentIndex(),
+      });
+    }
+
     // HTMX resolves ajax() immediately when a request is queued. The actual
     // response event is the only reliable point to clear a successfully
     // pasted item; a rejected or dropped request leaves it available to retry.
@@ -1633,6 +1641,7 @@ import {
       getCutItemId: function () { return cutItemId; },
       setCutItemId,
       pasteCutItem,
+      moveItemToParent,
       folderOptions,
       itemLabel,
       setCodeCounts,

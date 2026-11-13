@@ -2611,26 +2611,14 @@
   function _moveCodeToFolder(codeId, folderId) {
     if (_denyCodebookEditing()) return;
     if (!codeId || !folderId) return;
-    htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
-      ..._codebookMutationSwapOptions(),
-      values: _codebookMutationValues({
-        parent_id: folderId,
-        current_index: window.__aceCurrentIndex || 0,
-      }),
-    });
+    _getSidebarTreeController()?.moveItemToParent(codeId, folderId);
   }
 
   /** Move an item back to root (empty parent_id). */
   function _moveCodeToRoot(codeId) {
     if (_denyCodebookEditing()) return;
     if (!codeId) return;
-    htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
-      ..._codebookMutationSwapOptions(),
-      values: _codebookMutationValues({
-        parent_id: "",
-        current_index: window.__aceCurrentIndex || 0,
-      }),
-    });
+    _getSidebarTreeController()?.moveItemToParent(codeId, "");
   }
 
   /** Paste the cut item onto a code, folder, or the root scope. */
@@ -4199,13 +4187,7 @@
       _announce("Already in that folder.");
       return;
     }
-    htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
-      ..._codebookMutationSwapOptions(),
-      values: _codebookMutationValues({
-        parent_id: parentId,
-        current_index: window.__aceCurrentIndex || 0,
-      }),
-    });
+    _getSidebarTreeController()?.moveItemToParent(codeId, parentId);
   }
 
   /** Move a codebook item out one level, or to root if it is already one level deep. */
@@ -4216,13 +4198,7 @@
     const parentRow = _parentFolderRow(row);
     const grandparentRow = parentRow ? _parentFolderRow(parentRow) : null;
     const newParentId = grandparentRow ? _itemIdFromTreeElement(grandparentRow) : "";
-    htmx.ajax("PUT", `/api/codes/${codeId}/parent`, {
-      ..._codebookMutationSwapOptions(),
-      values: _codebookMutationValues({
-        parent_id: newParentId || "",
-        current_index: window.__aceCurrentIndex || 0,
-      }),
-    });
+    _getSidebarTreeController()?.moveItemToParent(codeId, newParentId);
   }
 
   function _folderRowAbove(item) {

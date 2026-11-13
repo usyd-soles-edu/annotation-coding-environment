@@ -78,6 +78,21 @@ def test_filtered_code_menu_keeps_all_folder_destinations(tmp_path, engine):
                 assert menu.get_by_role("menuitem", name="Review State").is_visible()
                 with page.expect_response(f"**/api/codes/{code_id}/parent"):
                     menu.get_by_role("menuitem", name="Methods").click()
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT parent_id FROM codebook_code WHERE id = ?", (code_id,)
+                    ).fetchone()[0] == destination_id
+                page.wait_for_function(
+                    "([code, folder]) => {"
+                    " const row = document.querySelector(`[data-code-id='${code}']`);"
+                    " return window.__aceHeadlessTreeController?.parentFolderRow(row)"
+                    "   ?.dataset.itemId === folder;"
+                    "}",
+                    arg=[code_id, destination_id],
+                )
+                page.locator(f'.ace-ht-row[data-code-id="{code_id}"]').click(button="right")
+                with page.expect_response(f"**/api/codes/{code_id}/parent"):
+                    page.get_by_role("menuitem", name="Move to root").click()
             finally:
                 browser.close()
 
@@ -85,7 +100,7 @@ def test_filtered_code_menu_keeps_all_folder_destinations(tmp_path, engine):
         parent_id = stored.execute(
             "SELECT parent_id FROM codebook_code WHERE id = ?", (code_id,)
         ).fetchone()[0]
-    assert parent_id == destination_id
+    assert parent_id is None
 
 
 @pytest.mark.slow
