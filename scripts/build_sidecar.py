@@ -67,6 +67,10 @@ def main() -> None:
 
     if macos:
         mode_args = ["--standalone", "--nofollow-import-to=tkinter", "--nofollow-import-to=_tkinter"]
+    elif "windows" in triple:
+        # Use Nuitka's unique temporary extraction for each launch. A fixed
+        # cache can be locked by a still-running copy during restart/upgrade.
+        mode_args = ["--onefile"]
     else:
         mode_args = ["--onefile", f"--onefile-tempdir-spec={{CACHE_DIR}}/ace-coder"]
 
