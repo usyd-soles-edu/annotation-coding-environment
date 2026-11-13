@@ -40,6 +40,8 @@ Put common codes near the top. ACE assigns quick keyboard positions from the vis
 
 If a code is hard to reach, move it higher.
 
+Drag a code or folder to move it. With the keyboard, focus the row and press `Control+Shift+D`, use the arrow keys to choose a position, then press `Enter` to move it or `Esc` to cancel. Codes can move into folders; folders stay at the top level.
+
 ## Editing in more than one tab
 
 Keep one ACE tab open for codebook editing. When ACE detects another tab, it shows a warning above the codebook. Edits made in different tabs can overwrite one another. Close the other tab, then reload to recheck.
