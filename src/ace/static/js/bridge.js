@@ -705,7 +705,7 @@
   document.addEventListener("keydown", function (e) {
     if (_chordMode === "awaiting") return;
     if (_isTyping()) return;
-    if (_menuOpen) return;
+    if (_activeCodeMenu) return;
 
     // Skip entirely on pages without the coding surface (e.g. /code/{id}/view
     // shares bridge.js but has no #text-panel; its shortcuts live in code_view.js).
@@ -2321,8 +2321,6 @@
    * 13. Code management helpers
    * ================================================================ */
 
-  let _menuOpen = false;
-
   // Cut/paste state for the codebook sidebar (⌘X / ⌘V).
   // The tree controller owns the id of the item currently flagged for paste;
   // the matching row carries `.ace-code-row--ghost` so the user sees what's cut.
@@ -2551,7 +2549,6 @@
       const focusWasInMenu = _activeCodeMenu.contains(document.activeElement);
       _activeCodeMenu.remove();
       _activeCodeMenu = null;
-      _menuOpen = false;
       if (restoreFocus && focusWasInMenu && _menuInvoker?.isConnected) {
         _menuInvoker.focus();
       }
@@ -2878,7 +2875,6 @@
 
   function _renderContextMenu(items, x, y, invoker) {
     _closeAllPopovers();
-    _menuOpen = true;
     _menuInvoker = invoker || null;
     const menu = document.createElement("div");
     menu.className = "ace-context-menu";
