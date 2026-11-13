@@ -123,23 +123,29 @@ def validate_release_metadata(
         if version != expected
     ]
 
-    release_date = _match(
-        root / "CITATION.cff",
+    citation = (root / "CITATION.cff").read_text(encoding="utf-8")
+    release_date_match = re.search(
         r'^date-released:\s*["\']?([^"\'\s]+)["\']?$',
-        "CFF release date",
+        citation,
+        re.MULTILINE,
     )
-    try:
-        date.fromisoformat(release_date)
-    except ValueError:
-        errors.append(f"CITATION.cff has invalid release date {release_date}")
+    release_date = release_date_match.group(1) if release_date_match else None
+    if release_date is None:
+        if expected_tag:
+            errors.append(f"CITATION.cff needs date-released for {expected_tag}")
+    else:
+        try:
+            date.fromisoformat(release_date)
+        except ValueError:
+            errors.append(f"CITATION.cff has invalid release date {release_date}")
 
-    if expected_tag:
-        tag_date = _tag_date(expected_tag, root)
-        if release_date != tag_date:
-            errors.append(
-                f"CITATION.cff date-released is {release_date}; "
-                f"{expected_tag} was released on {tag_date}"
-            )
+        if expected_tag:
+            tag_date = _tag_date(expected_tag, root)
+            if release_date != tag_date:
+                errors.append(
+                    f"CITATION.cff date-released is {release_date}; "
+                    f"{expected_tag} was released on {tag_date}"
+                )
 
     return errors
 
