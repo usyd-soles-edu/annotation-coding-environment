@@ -129,16 +129,42 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                 focus(second_folder)
                 folder_b.focus()
                 source_focus = page.evaluate("""() => {
-                    const press = key => document.activeElement.dispatchEvent(
-                        new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true})
-                    );
+                    const press = key => {
+                        const target = document.activeElement;
+                        target.dispatchEvent(new KeyboardEvent('keydown', {
+                            key, bubbles: true, cancelable: true,
+                        }));
+                        target.dispatchEvent(new KeyboardEvent('keyup', {key, bubbles: true}));
+                    };
                     press('ArrowDown');
                     press('ArrowRight');
-                    return document.activeElement?.id;
+                    return {
+                        activeId: document.activeElement?.id,
+                        focusedItemId: window.__aceHeadlessTreePreview.tree.getFocusedItem()?.getId(),
+                    };
                 }""")
-                assert source_focus == "text-panel"
+                assert source_focus == {
+                    "activeId": "text-panel",
+                    "focusedItemId": str(second_code),
+                }
                 page.wait_for_timeout(100)
                 assert page.evaluate("document.activeElement?.id") == "text-panel"
+                focus(first_folder)
+                folder_a.focus()
+                page.evaluate("""() => {
+                    const mount = document.getElementById('ace-headless-tree-mount');
+                    mount.style.cssText = 'height: 48px; flex: 0 0 48px; overflow: auto';
+                    mount.scrollTop = 0;
+                    mount.addEventListener('keydown', event => {
+                        if (event.key === 'End') event.preventDefault();
+                    }, {capture: true, once: true});
+                }""")
+                page.keyboard.press("End")
+                wait_focused(second_code)
+                assert page.evaluate(
+                    "document.getElementById('ace-headless-tree-mount').scrollTop"
+                ) > 0
+                page.evaluate("document.getElementById('ace-headless-tree-mount').removeAttribute('style')")
                 focus(second_code)
                 beta.focus()
 

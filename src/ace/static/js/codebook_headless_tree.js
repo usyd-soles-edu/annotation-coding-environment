@@ -3001,7 +3001,7 @@
       treeInstance: {
         updateDomFocus: function({ tree: tree2 }) {
           if (!mountedElement?.isConnected || !mountedElement.contains(document.activeElement) || tree2.getRenamingItem?.()) return;
-          tree2.getFocusedItem?.()?.getElement?.()?.focus({ preventScroll: true });
+          tree2.getFocusedItem?.()?.getElement?.()?.focus();
         }
       }
     };

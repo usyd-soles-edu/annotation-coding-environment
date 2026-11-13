@@ -1395,7 +1395,7 @@ import {
         if (!mountedElement?.isConnected ||
             !mountedElement.contains(document.activeElement) ||
             tree.getRenamingItem?.()) return;
-        tree.getFocusedItem?.()?.getElement?.()?.focus({ preventScroll: true });
+        tree.getFocusedItem?.()?.getElement?.()?.focus();
       },
     },
   };
