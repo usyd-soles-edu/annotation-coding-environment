@@ -616,6 +616,14 @@ async def import_codebook(
             _get_undo_manager(request).record_codebook_import(
                 imported.code_ids, imported.created_folder_ids
             )
+        imported_count = len(imported.code_ids)
+        selected_count = len(codes_list)
+        if imported_count == 0:
+            status = "No new codes imported"
+        elif imported_count < selected_count:
+            status = f"Imported {imported_count} of {selected_count} selected codes"
+        else:
+            status = f"Imported {imported_count} code{'s' if imported_count != 1 else ''}"
         content = _render_code_sidebar(request, conn, coder_id, current_index)
         response = _render_codebook_mutation_response(
             request,
@@ -627,6 +635,7 @@ async def import_codebook(
             affected_code_ids=imported.code_ids,
             audit_reload=bool(imported.code_ids and current_code_id),
             folder_list_changed=bool(imported.created_folder_ids),
+            status_html=_oob_status(status, "ok").body.decode(),
         )
 
     # Clean up temp file

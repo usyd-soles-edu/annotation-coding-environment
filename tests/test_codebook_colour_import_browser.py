@@ -14,7 +14,8 @@ from ace.models.source import add_source
 
 @pytest.mark.slow
 @pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
-def test_import_dialog_maps_colour_column(tmp_path, engine):
+@pytest.mark.parametrize("import_case", ["fresh", "all_skipped", "partial"])
+def test_import_dialog_maps_colour_column(tmp_path, engine, import_case):
     sync_api = pytest.importorskip("playwright.sync_api")
     project = tmp_path / "codebook-colour.ace"
     conn = create_project(str(project), "Codebook colour")
@@ -22,7 +23,11 @@ def test_import_dialog_maps_colour_column(tmp_path, engine):
     add_source(conn, "S1", "One source.", "row")
     conn.close()
     csv_path = tmp_path / "codes.csv"
-    csv_path.write_text("Code Label,Tint\nAccess,#123abc\n", encoding="utf-8")
+    csv_path.write_text(
+        "Code Label,Tint\nAccess,#123abc\n"
+        + ("Participation,#654321\n" if import_case == "partial" else ""),
+        encoding="utf-8",
+    )
 
     app = create_app()
     with TestClient(app, base_url="http://127.0.0.1:8080") as client:
@@ -76,12 +81,32 @@ def test_import_dialog_maps_colour_column(tmp_path, engine):
                     return JSON.parse(button.dataset.codes)[0]?.colour === '#123abc';
                 }""")
                 assert "#123abc" in page.locator("#codebook-import-preview").inner_text()
+                existing_colour = None
+                if import_case != "fresh":
+                    # Another tab adds this code after the preview was prepared.
+                    assert client.post(
+                        "/api/codes", data={"name": "Access", "current_index": 0}
+                    ).status_code == 200
+                    with sqlite3.connect(project) as stored:
+                        existing_colour = stored.execute(
+                            "SELECT colour FROM codebook_code WHERE name = 'Access'"
+                        ).fetchone()[0]
                 with page.expect_response("**/api/codes/import"):
                     page.locator("#codebook-import-commit").click()
                 with sqlite3.connect(project) as stored:
                     row = stored.execute(
                         "SELECT colour FROM codebook_code WHERE name = 'Access' AND kind = 'code'"
                     ).fetchone()
-                    assert row[0] == "#123abc"
+                    assert row[0] == (existing_colour if import_case != "fresh" else "#123abc")
+                    if import_case == "partial":
+                        assert stored.execute(
+                            "SELECT colour FROM codebook_code WHERE name = 'Participation'"
+                        ).fetchone()[0] == "#654321"
+                expected = {
+                    "fresh": "Imported 1 code",
+                    "all_skipped": "No new codes imported",
+                    "partial": "Imported 1 of 2 selected codes",
+                }[import_case]
+                assert expected in page.locator("#ace-notification-receipt").inner_text()
             finally:
                 browser.close()
