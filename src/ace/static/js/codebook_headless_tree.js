@@ -2262,9 +2262,11 @@
     function codeApplicationDisabled() {
       return modePolicy().enterOnCode !== "apply";
     }
-    function denyCodebookEditing() {
+    function denyCodebookEditing(showGlobalStatus = false) {
       if (!codebookEditingDisabled()) return false;
-      setStatus(document.body.dataset.aceNavigating === "1" ? "Wait for source navigation to finish" : "Back to source to edit the codebook");
+      const message = document.body.dataset.aceNavigating === "1" ? "Wait for source navigation to finish" : "Back to source to edit the codebook";
+      setStatus(message);
+      if (showGlobalStatus) window._setStatus?.(message, "ok");
       return true;
     }
     function formParentId(parentId) {
@@ -2482,14 +2484,13 @@
       }
     }
     function persistRename(item, name) {
+      if (denyCodebookEditing(true)) return;
       const next = name.trim();
       if (!next || next === item.getItemData().name) return;
-      document.dispatchEvent(new CustomEvent("ace:rename-codebook-item", {
-        detail: {
-          itemId: item.getId(),
-          name: next
-        }
-      }));
+      htmxSwap("PUT", `/api/codes/${item.getId()}`, {
+        name: next,
+        current_index: currentIndex()
+      });
     }
     function deleteItem(item) {
       if (item.getId() === ROOT_ID) return;

@@ -87,5 +87,30 @@ def test_code_folder_and_new_wrapper_rename_use_tree_controller(tmp_path, browse
                 page.wait_for_function(
                     "() => [...document.querySelectorAll('.ace-ht-row--folder .ace-ht-label')].some(el => el.textContent === 'Bundle')"
                 )
+
+                page.goto(f"http://127.0.0.1:8080/code/{code_id}/view")
+                audit_code = page.locator(f'.ace-ht-row[data-item-id="{code_id}"]')
+                audit_code.wait_for()
+                audit_code.click()
+                page.wait_for_function(
+                    "id => window.__aceHeadlessTreePreview.tree.getFocusedItem()?.getId() === id",
+                    arg=code_id,
+                )
+                page.keyboard.press("F2")
+                audit_code.locator("input.ace-ht-rename").fill("Audit Beta")
+                with page.expect_response(
+                    lambda response: response.request.method == "PUT"
+                    and urlsplit(response.url).path == f"/api/codes/{code_id}"
+                ) as save:
+                    audit_code.locator("input.ace-ht-rename").press("Enter")
+                assert save.value.ok
+                page.wait_for_function(
+                    "id => document.querySelector(`.ace-ht-row[data-item-id='${id}'] .ace-ht-label`)?.textContent === 'Audit Beta'",
+                    arg=code_id,
+                )
+                page.reload()
+                audit_code.wait_for()
+                assert audit_code.locator(".ace-ht-label").inner_text() == "Audit Beta"
+                assert page.locator("#code-view").get_attribute("data-code-id") == code_id
             finally:
                 browser.close()
