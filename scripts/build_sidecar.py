@@ -70,6 +70,7 @@ def main() -> None:
     if macos:
         mode_args = ["--standalone", "--nofollow-import-to=tkinter", "--nofollow-import-to=_tkinter"]
     else:
+        # Windows locks a running onefile extraction; an upgrade needs its own directory.
         mode_args = ["--onefile", f"--onefile-tempdir-spec={{CACHE_DIR}}/ace-coder/{__version__}"]
 
     cmd = [

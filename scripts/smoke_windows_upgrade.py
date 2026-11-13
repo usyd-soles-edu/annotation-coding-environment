@@ -107,7 +107,12 @@ def process_alive(pid: int) -> bool:
             return False
         raise OSError(error, "Could not inspect packaged server process")
     try:
-        return wait(handle, 0) == 0x102  # WAIT_TIMEOUT
+        state = wait(handle, 0)
+        if state == 0x102:  # WAIT_TIMEOUT
+            return True
+        if state == 0:  # WAIT_OBJECT_0
+            return False
+        raise OSError(ctypes.get_last_error(), "Could not wait for packaged server process")
     finally:
         close(handle)
 
@@ -118,9 +123,8 @@ def stop_runtime(runtime_file: Path) -> None:
     try:
         runtime = json.loads(runtime_file.read_text(encoding="utf-8"))
         pid, port, token = int(runtime["pid"]), int(runtime["port"]), str(runtime["token"])
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
-        runtime_file.unlink(missing_ok=True)
-        return
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise RuntimeError("Could not read packaged runtime metadata for cleanup") from error
     try:
         opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
         with opener.open(f"http://127.0.0.1:{port}/launch?token={quote(token, safe='')}", timeout=5):
