@@ -41,6 +41,8 @@
 - **Large coding projects** — update only affected source and code counts after annotation changes, and reuse project-wide navigation data until the project changes in this or another runtime.
 - **Long highlights** — keep highlight painting responsive across sources with many text lines.
 - **Codebook actions** — make context menus keyboard accessible, show the create-code shortcut, warn before turning a code into a folder, keep the codebook visible during chord shortcuts, and keep the colour picker within the window.
+- **Codebook shortcuts** — keep single-key labels, accessible shortcut descriptions, and applied codes in sync after filtering or sidebar refresh; leave the existing folder alone if creating a nested folder fails.
+- **Audit codebook** — confirm context-menu deletion of the currently viewed code or a folder.
 - **Shortcut help** — explain two-letter code shortcuts, unify help dialogs, and clarify that applying a code stays on the current sentence.
 - **Agreement results** — identify coder and file provenance and clarify pooled results and pairwise differences.
 - **CSV exports** — stream large exports without blocking other requests.
