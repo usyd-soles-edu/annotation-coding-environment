@@ -1,5 +1,6 @@
 """Browser regression for code counts surviving headless-tree rerenders."""
 
+import asyncio
 import os
 import socket
 import subprocess
@@ -7,11 +8,15 @@ import sys
 import time
 from pathlib import Path
 from urllib.request import urlopen
+from urllib.parse import urlsplit
 
 import pytest
+from fastapi.testclient import TestClient
 
+from ace.app import create_app
 from ace.db.connection import create_project
 from ace.models.codebook import add_code
+from ace.models.project import list_coders
 from ace.models.source import add_source
 
 
@@ -147,3 +152,89 @@ def test_annotation_count_survives_focus_search_and_delete(tmp_path, engine):
     finally:
         server.terminate()
         server.wait(timeout=5)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_count_patches_survive_stale_tree_reload(tmp_path, engine):
+    async_api = pytest.importorskip("playwright.async_api")
+    path = tmp_path / "count-race.ace"
+    conn = create_project(str(path), "Count reload")
+    coder_id = list_coders(conn)[0]["id"]
+    add_source(conn, "S1", "One sentence.", "row")
+    alpha_id = add_code(conn, "Alpha", "#AA0000")
+    beta_id = add_code(conn, "Beta", "#00AA00")
+    conn.close()
+
+    app = create_app()
+    with TestClient(app, base_url="http://127.0.0.1:8080") as client:
+        app.state.project_path = str(path)
+        app.state.coder_id = coder_id
+
+        async def exercise():
+            hold_tree = False
+            stale_tree_ready = asyncio.Event()
+            release_tree = asyncio.Event()
+            async with async_api.async_playwright() as playwright:
+                browser = await getattr(playwright, engine).launch()
+                try:
+                    page = await browser.new_page()
+
+                    async def serve(route):
+                        request = route.request
+                        url = urlsplit(request.url)
+                        path_with_query = url.path + (f"?{url.query}" if url.query else "")
+                        headers = {
+                            key: value for key, value in request.headers.items()
+                            if key.lower() not in {"host", "content-length"}
+                        }
+                        response = client.request(
+                            request.method, path_with_query,
+                            content=request.post_data_buffer, headers=headers,
+                        )
+                        if hold_tree and url.path == "/api/codes/tree":
+                            stale_tree_ready.set()
+                            await release_tree.wait()
+                        await route.fulfill(
+                            status=response.status_code,
+                            headers=dict(response.headers), body=response.content,
+                        )
+
+                    await page.route("http://127.0.0.1:8080/**", serve)
+                    await page.goto("http://127.0.0.1:8080/code")
+                    await page.locator(f'.ace-ht-row[data-code-id="{alpha_id}"]').wait_for()
+                    hold_tree = True
+                    mutation = asyncio.create_task(page.evaluate("""() =>
+                        htmx.ajax('POST', '/api/codes', {
+                            target: '#code-sidebar', swap: 'outerHTML',
+                            values: {name: 'Gamma', current_index: 0}
+                        })"""))
+                    await asyncio.wait_for(stale_tree_ready.wait(), timeout=5)
+                    await page.evaluate("""id => htmx.ajax('POST', '/api/code/apply-sentence', {
+                        target: '#text-panel', swap: 'outerHTML',
+                        values: {code_id: id, sentence_index: 0, current_index: 0}
+                    })""", alpha_id)
+                    await page.wait_for_function("""id =>
+                        window.__aceHeadlessTreePreview?.items[id]?.count === 1
+                    """, arg=alpha_id)
+                    await page.evaluate("""id => htmx.ajax('POST', '/api/code/apply-sentence', {
+                        target: '#text-panel', swap: 'outerHTML',
+                        values: {code_id: id, sentence_index: 0, current_index: 0}
+                    })""", beta_id)
+                    await page.wait_for_function("""id =>
+                        window.__aceHeadlessTreePreview?.items[id]?.count === 1
+                    """, arg=beta_id)
+                    release_tree.set()
+                    await mutation
+                    await page.locator('.ace-ht-row[aria-label="Gamma"]').wait_for()
+                    for code_id in (alpha_id, beta_id):
+                        assert await page.locator(
+                            f'.ace-ht-row[data-code-id="{code_id}"] .ace-ht-count'
+                        ).inner_text() == "1"
+                        assert await page.evaluate("""id =>
+                            window.__aceHeadlessTreePreview.items[id].count""", code_id) == 1
+                finally:
+                    release_tree.set()
+                    await browser.close()
+
+        asyncio.run(exercise())
