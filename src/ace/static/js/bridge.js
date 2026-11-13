@@ -3353,6 +3353,42 @@
     return lines;
   }
 
+  /**
+   * Extend wrapped lines to their shared line boundaries. Range rectangles
+   * cover the glyphs, leaving a visible strip of background between lines at
+   * the coding view's generous line height. Keep paragraph breaks separate:
+   * their extra vertical space makes the next line farther than one line box.
+   */
+  function _fillWrappedLineGaps(lines, lineHeight, overlayTop) {
+    const halfGaps = [];
+    for (let i = 0; i < lines.length - 1; i++) {
+      const current = lines[i];
+      const next = lines[i + 1];
+      const gap = next.top - current.bottom;
+      const step = next.top - current.top;
+      halfGaps.push(Number.isFinite(lineHeight) && gap > 0 && step <= lineHeight + 2
+        ? gap / 2 : 0);
+    }
+    const filled = lines.map(function (line, i) {
+      const before = halfGaps[i - 1] || 0;
+      const after = halfGaps[i] || 0;
+      return {
+        ...line,
+        y: Math.floor(line.top - (before || after) - overlayTop),
+        bottom: Math.ceil(line.bottom + (after || before) - overlayTop),
+      };
+    });
+    // Quantise each shared boundary once. Independently flooring one rect's
+    // top and ceiling its neighbour's bottom double-paints fractional pixels.
+    for (let i = 0; i < halfGaps.length; i++) {
+      if (!halfGaps[i]) continue;
+      const boundary = Math.round((lines[i].bottom + lines[i + 1].top) / 2 - overlayTop);
+      filled[i].bottom = boundary;
+      filled[i + 1].y = boundary;
+    }
+    return filled;
+  }
+
   // ResizeObserver state — single observer re-attached after each paint.
   let _resizeObserver = null;
   let _paintRaf = null;
@@ -3384,6 +3420,7 @@
     const textIndex = _buildTextIndex(body);
     if (!textIndex.length) return;
     const paraBreakRects = _paraBreakRects(body);
+    const lineHeight = parseFloat(getComputedStyle(body).lineHeight);
     const overlayRect = svg.getBoundingClientRect();
 
     let firstRange = null;
@@ -3400,11 +3437,13 @@
         continue;
       }
       if (!firstRange) firstRange = range;
-      for (const line of _mergeRectsByLine(range.getClientRects(), paraBreakRects)) {
+      for (const line of _fillWrappedLineGaps(
+        _mergeRectsByLine(range.getClientRects(), paraBreakRects), lineHeight, overlayRect.top
+      )) {
         const x = Math.floor(line.left - overlayRect.left);
-        const y = Math.floor(line.top - overlayRect.top);
+        const y = line.y;
         const right = Math.ceil(line.right - overlayRect.left);
-        const bottom = Math.ceil(line.bottom - overlayRect.top);
+        const bottom = line.bottom;
         const el = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         el.setAttribute("class", "ace-flash ace-flash-" + ann.code_id);
         el.setAttribute("fill", "transparent");
@@ -3452,6 +3491,7 @@
     const textIndex = _buildTextIndex(body);
     if (!textIndex.length) return;
     const paraBreakRects = _paraBreakRects(body);
+    const lineHeight = parseFloat(getComputedStyle(body).lineHeight);
     const overlayRect = svg.getBoundingClientRect();
 
     for (const ann of annotations) {
@@ -3466,11 +3506,13 @@
       } catch (err) {
         continue;
       }
-      for (const line of _mergeRectsByLine(range.getClientRects(), paraBreakRects)) {
+      for (const line of _fillWrappedLineGaps(
+        _mergeRectsByLine(range.getClientRects(), paraBreakRects), lineHeight, overlayRect.top
+      )) {
         const x = Math.floor(line.left - overlayRect.left);
-        const y = Math.floor(line.top - overlayRect.top);
+        const y = line.y;
         const right = Math.ceil(line.right - overlayRect.left);
-        const bottom = Math.ceil(line.bottom - overlayRect.top);
+        const bottom = line.bottom;
         const el = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         el.setAttribute("class", "ace-code-preview ace-flash-" + ann.code_id);
         el.setAttribute("fill", "transparent");
@@ -3611,6 +3653,7 @@
     }
 
     const paraBreakRects = _paraBreakRects(body);
+    const lineHeight = parseFloat(getComputedStyle(body).lineHeight);
 
     for (const ann of annotations) {
       const startPos = _findDOMPosition(textIndex, ann.start);
@@ -3624,12 +3667,14 @@
       } catch (e) {
         continue;
       }
-      const lines = _mergeRectsByLine(range.getClientRects(), paraBreakRects);
+      const lines = _fillWrappedLineGaps(
+        _mergeRectsByLine(range.getClientRects(), paraBreakRects), lineHeight, overlayRect.top
+      );
       for (const line of lines) {
         const x = Math.floor(line.left - overlayRect.left);
-        const y = Math.floor(line.top - overlayRect.top);
+        const y = line.y;
         const right = Math.ceil(line.right - overlayRect.left);
-        const bottom = Math.ceil(line.bottom - overlayRect.top);
+        const bottom = line.bottom;
         const el = document.createElementNS("http://www.w3.org/2000/svg", "rect");
         el.setAttribute("fill", "transparent");
         el.setAttribute("class", "ace-hl-" + ann.code_id);
