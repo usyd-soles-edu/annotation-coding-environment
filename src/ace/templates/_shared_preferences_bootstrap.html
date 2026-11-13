@@ -1,0 +1,37 @@
+<script>
+  (function () {
+    // Use the server snapshot before CSS loads; keep older browser values for
+    // one-time migration, and give unsent local changes precedence for now.
+    var keys = [
+      "ace-sidebar-width", "ace-grid-height", "ace-coding-text-size",
+      "ace-coding-text-width", "ace-note-open", "ace-grid-collapsed",
+      "ace-applied-codes-collapsed", "ace-codebook-cues-enabled"
+    ];
+    var shared = {{ shared_preferences|tojson }};
+    var legacy = {};
+    var pending = {};
+    keys.forEach(function (key) {
+      try {
+        var change = JSON.parse(localStorage.getItem("ace-preference-pending:" + key));
+        if (change && (change.value === null || typeof change.value === "string")) {
+          pending[key] = change;
+        }
+      } catch (_) {}
+      try { legacy[key] = localStorage.getItem(key); } catch (_) { legacy[key] = null; }
+      if (!shared || !Object.prototype.hasOwnProperty.call(shared, key) ||
+          Object.prototype.hasOwnProperty.call(pending, key)) return;
+      try {
+        if (shared[key].value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, shared[key].value);
+      } catch (_) {}
+    });
+    window.__acePreferenceBootstrap = { shared: shared, legacy: legacy };
+    window.ACE_BOOTSTRAP_PREF = function (key) {
+      if (Object.prototype.hasOwnProperty.call(pending, key)) return pending[key].value;
+      if (shared && Object.prototype.hasOwnProperty.call(shared, key)) {
+        return shared[key].value;
+      }
+      try { return localStorage.getItem(key); } catch (_) { return null; }
+    };
+  }());
+</script>

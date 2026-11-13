@@ -31,6 +31,7 @@ from ace.models.source_note import get_note, source_ids_with_notes
 from ace.routes.api_project_import import _clear_folder_import_manifests
 from ace.services.coding_context_cache import CodingContextCache
 from ace.services.shared_recent_project import remember_recent_project
+from ace.services.shared_preferences import preferences_for_request
 
 router = APIRouter()
 
@@ -372,6 +373,7 @@ async def coding_page(
         )
         context["open_note_drawer"] = bool(note)
         context["codebook_mode"] = "coding"
+        context["shared_preferences"] = preferences_for_request(request)
     finally:
         db_gen.close()
 
@@ -423,5 +425,6 @@ async def code_view_page(request: Request, code_id: str):
             "version": __version__,
             "codebook_mode": "audit",
             "colour_palette": [hex_val for hex_val, _label in COLOUR_PALETTE],
+            "shared_preferences": preferences_for_request(request),
         },
     )

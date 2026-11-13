@@ -316,10 +316,10 @@
   function _setAppliedCollapsed(collapsed, opts) {
     if (collapsed) {
       document.documentElement.dataset.aceAppliedCodesCollapsed = "1";
-      try { localStorage.setItem(APPLIED_COLLAPSED_KEY, "1"); } catch (_) {}
+      window.ACE_PREFS.set(APPLIED_COLLAPSED_KEY, "1");
     } else {
       delete document.documentElement.dataset.aceAppliedCodesCollapsed;
-      try { localStorage.removeItem(APPLIED_COLLAPSED_KEY); } catch (_) {}
+      window.ACE_PREFS.remove(APPLIED_COLLAPSED_KEY);
     }
     _syncAppliedCollapseA11y();
     if (opts && opts.focus) _focusAppliedEntry();
@@ -1129,7 +1129,7 @@
     }
 
     function _persist(vh) {
-      try { localStorage.setItem("ace-grid-height", vh.toFixed(2) + "vh"); } catch (_) {}
+      window.ACE_PREFS.set("ace-grid-height", vh.toFixed(2) + "vh");
     }
 
     function _currentVh() {
@@ -1183,7 +1183,7 @@
       document.documentElement.style.removeProperty("--ace-grid-height");
       handle.setAttribute("aria-valuenow", DEFAULT_VH.toString());
       handle.setAttribute("aria-valuetext", DEFAULT_VH + " percent of viewport height");
-      try { localStorage.removeItem("ace-grid-height"); } catch (_) {}
+      window.ACE_PREFS.remove("ace-grid-height");
     }
     handle.addEventListener("dblclick", _resetGridHeight);
     document.getElementById("ace-layout-reset-btn")?.addEventListener("click", _resetGridHeight);
@@ -4535,7 +4535,7 @@
 
   function _currentCodingTextSize() {
     try {
-      return _normaliseCodingTextSize(localStorage.getItem(CODING_TEXT_SIZE_KEY));
+      return _normaliseCodingTextSize(window.ACE_PREFS.get(CODING_TEXT_SIZE_KEY));
     } catch (_) {
       return CODING_TEXT_DEFAULT_SIZE;
     }
@@ -4555,7 +4555,7 @@
 
   function _currentCodingTextWidth() {
     try {
-      return _normaliseCodingTextWidth(localStorage.getItem(CODING_TEXT_WIDTH_KEY));
+      return _normaliseCodingTextWidth(window.ACE_PREFS.get(CODING_TEXT_WIDTH_KEY));
     } catch (_) {
       return CODING_TEXT_DEFAULT_WIDTH;
     }
@@ -4605,7 +4605,7 @@
   function _setCodingTextSize(size) {
     const normalised = _normaliseCodingTextSize(size);
     try {
-      localStorage.setItem(CODING_TEXT_SIZE_KEY, String(normalised));
+      window.ACE_PREFS.set(CODING_TEXT_SIZE_KEY, String(normalised));
     } catch (_) {}
     _syncCodingTextControls();
     requestAnimationFrame(function () {
@@ -4616,7 +4616,7 @@
   function _setCodingTextWidth(width) {
     const normalised = _normaliseCodingTextWidth(width);
     try {
-      localStorage.setItem(CODING_TEXT_WIDTH_KEY, normalised);
+      window.ACE_PREFS.set(CODING_TEXT_WIDTH_KEY, normalised);
     } catch (_) {}
     _syncCodingTextControls();
     requestAnimationFrame(function () {
@@ -4705,7 +4705,7 @@
   let _codeCueRequestId = 0;
 
   function _codeCuesEnabled() {
-    return window.localStorage.getItem(CODE_CUES_ENABLED_KEY) === "1";
+    return window.ACE_PREFS.get(CODE_CUES_ENABLED_KEY) === "1";
   }
 
   function _syncCodeCuesMenuItem() {
@@ -4846,7 +4846,7 @@
   }
 
   function _setCodeCuesEnabled(enabled) {
-    window.localStorage.setItem(CODE_CUES_ENABLED_KEY, enabled ? "1" : "0");
+    window.ACE_PREFS.set(CODE_CUES_ENABLED_KEY, enabled ? "1" : "0");
     _syncCodeCuesMenuItem();
     if (enabled) {
       _scheduleCodeCues();
@@ -5665,7 +5665,7 @@
     const btn = document.getElementById("ace-grid-collapse-btn");
     if (wasCollapsed) {
       delete document.documentElement.dataset.aceGridCollapsed;
-      try { localStorage.removeItem("ace-grid-collapsed"); } catch (_) {}
+      window.ACE_PREFS.remove("ace-grid-collapsed");
       if (btn) btn.setAttribute("aria-expanded", "true");
       // Re-render so the ResizeObserver picks up the restored height.
       if (typeof window._aceRenderSourceGrid === "function") {
@@ -5673,7 +5673,7 @@
       }
     } else {
       document.documentElement.dataset.aceGridCollapsed = "1";
-      try { localStorage.setItem("ace-grid-collapsed", "1"); } catch (_) {}
+      window.ACE_PREFS.set("ace-grid-collapsed", "1");
       if (btn) btn.setAttribute("aria-expanded", "false");
     }
   }

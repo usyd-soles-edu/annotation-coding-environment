@@ -178,7 +178,7 @@ function aceOpenNoteRead() {
   if (pill) pill.setAttribute("aria-expanded", "true");
   _syncNoteDrawerA11y();
   _syncAppliedPanelForNoteState();
-  try { localStorage.setItem("ace-note-open", "1"); } catch (_) {}
+  window.ACE_PREFS.set("ace-note-open", "1");
   // No focus change — READ mode leaves focus where it was so shortcuts stay live.
 }
 
@@ -214,7 +214,7 @@ function aceCloseNote() {
   if (pill) pill.setAttribute("aria-expanded", "false");
   _syncNoteDrawerA11y();
   _syncAppliedPanelForNoteState();
-  try { localStorage.removeItem("ace-note-open"); } catch (_) {}
+  window.ACE_PREFS.remove("ace-note-open");
   _restoreDrawerFocus();
   _previouslyFocused = null;
 }

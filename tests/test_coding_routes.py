@@ -526,7 +526,9 @@ def test_coding_page_has_inline_collapse_restore_script(client_with_codes):
     r = client.get("/code?index=0")
     assert r.status_code == 200
     body = r.text
-    assert 'localStorage.getItem("ace-grid-collapsed")' in body
+    restore = 'ACE_BOOTSTRAP_PREF("ace-grid-collapsed")'
+    assert restore in body
+    assert body.index(restore) < body.index('<link rel="stylesheet" href="/static/css/coding.css">')
     assert "dataset.aceGridCollapsed" in body
 
 

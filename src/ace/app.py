@@ -31,6 +31,7 @@ from ace.services.browser_runtime import (
 )
 from ace.services.coding_context_cache import CodingContextCache
 from ace.services.shared_recent_project import SharedRecentProjectStore
+from ace.services.shared_preferences import SharedPreferencesStore
 
 _DATA_DIR = Path.home() / ".ace"
 _PKG_DIR = Path(__file__).parent
@@ -324,6 +325,11 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     runtime_file = app.state.browser_runtime_config.runtime_file
     app.state.shared_recent_project_store = (
         SharedRecentProjectStore(runtime_file)
+        if app.state.browser_runtime_config.enabled and runtime_file is not None
+        else None
+    )
+    app.state.shared_preferences_store = (
+        SharedPreferencesStore(runtime_file)
         if app.state.browser_runtime_config.enabled and runtime_file is not None
         else None
     )
