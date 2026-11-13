@@ -15,7 +15,10 @@ from ace.models.source import add_source
 
 @pytest.mark.slow
 @pytest.mark.parametrize("browser_name", ["chromium", "firefox", "webkit"])
-def test_failed_nested_wrap_does_not_rename_existing_parent(tmp_path, browser_name):
+@pytest.mark.parametrize("input_style", ["physical", "combined_event"])
+def test_failed_nested_wrap_does_not_rename_existing_parent(
+    tmp_path, browser_name, input_style,
+):
     sync_api = pytest.importorskip("playwright.sync_api")
     project = tmp_path / "failed-wrap.ace"
     conn = create_project(str(project), "Failed wrap")
@@ -24,7 +27,7 @@ def test_failed_nested_wrap_does_not_rename_existing_parent(tmp_path, browser_na
     parent_id = add_folder(conn, "Group")
     add_code(conn, "Alpha", "#336699", parent_id=parent_id)
     second_id = add_code(conn, "Beta", "#663399", parent_id=parent_id)
-    add_folder(conn, "New folder")
+    other_folder_id = add_folder(conn, "New folder")
     conn.close()
 
     app = create_app()
@@ -58,7 +61,15 @@ def test_failed_nested_wrap_does_not_rename_existing_parent(tmp_path, browser_na
                 page.goto("http://127.0.0.1:8080/code")
                 page.locator(f'.ace-ht-row[data-item-id="{second_id}"]').click()
                 with page.expect_response(f"**/api/codes/{second_id}/indent-promote") as result:
-                    page.keyboard.press("Alt+Shift+ArrowRight")
+                    if input_style == "physical":
+                        page.keyboard.press("Alt+Shift+ArrowRight")
+                    else:
+                        page.locator(f'.ace-ht-row[data-item-id="{second_id}"]').dispatch_event(
+                            "keydown", {
+                                "key": "ArrowRight", "altKey": True, "shiftKey": True,
+                                "bubbles": True, "cancelable": True,
+                            },
+                        )
                 assert result.value.status == 200
                 assert "already exists" in result.value.text()
                 page.wait_for_timeout(200)
@@ -66,10 +77,14 @@ def test_failed_nested_wrap_does_not_rename_existing_parent(tmp_path, browser_na
                 assert page.locator(
                     f'.ace-ht-row[data-item-id="{parent_id}"] .ace-ht-label'
                 ).inner_text() == "Group"
+                assert page.evaluate("document.activeElement?.dataset.itemId") == second_id
                 with sqlite3.connect(project) as saved:
                     assert saved.execute(
                         "SELECT parent_id FROM codebook_code WHERE id = ?", (second_id,)
                     ).fetchone()[0] == parent_id
+                    assert saved.execute(
+                        "SELECT parent_id FROM codebook_code WHERE id = ?", (other_folder_id,)
+                    ).fetchone()[0] is None
             finally:
                 browser.close()
 
