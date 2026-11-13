@@ -3,6 +3,7 @@
 {% block title %}ACE - {{ project_file_stem or project_name }}{% endblock %}
 
 {% block head %}
+{% include "_shared_preferences_bootstrap.html" %}
 <script>
   document.documentElement.dataset.aceProjectName = {{ project_file_stem|tojson }};
 </script>
@@ -19,7 +20,7 @@
 </script>
 <script>
   // Apply saved sidebar width + grid height before CSS loads to prevent layout glitch
-  var _sw = localStorage.getItem("ace-sidebar-width");
+  var _sw = window.ACE_BOOTSTRAP_PREF("ace-sidebar-width");
   if (_sw) {
     // Clamp to the 40%-of-viewport cap the resize drag enforces, so a width
     // saved on a large monitor doesn't crush the text on a smaller screen.
@@ -27,11 +28,11 @@
     var _swPx = Math.max(150, Math.min(parseInt(_sw, 10) || 360, _swCap));
     document.documentElement.style.setProperty("--ace-sidebar-width", _swPx + "px");
   }
-  var _gh = localStorage.getItem("ace-grid-height");
+  var _gh = window.ACE_BOOTSTRAP_PREF("ace-grid-height");
   if (_gh) document.documentElement.style.setProperty("--ace-grid-height", _gh);
-  var _ts = localStorage.getItem("ace-coding-text-size");
+  var _ts = window.ACE_BOOTSTRAP_PREF("ace-coding-text-size");
   if (_ts) document.documentElement.style.setProperty("--ace-coding-text-size", _ts + "px");
-  var _tw = localStorage.getItem("ace-coding-text-width");
+  var _tw = window.ACE_BOOTSTRAP_PREF("ace-coding-text-width");
   if (["64ch", "72ch", "88ch", "112ch"].indexOf(_tw) >= 0) {
     document.documentElement.style.setProperty("--ace-coding-text-width", _tw);
   }
@@ -40,9 +41,9 @@
   // Restore note drawer state before CSS loads to prevent flash on reload.
   // Also honour ?note=1 (set when arriving from /code/{id}/view via N key).
   try {
-    if ({{ open_note_drawer|default(false)|tojson }} || localStorage.getItem("ace-note-open") === "1") {
+    if ({{ open_note_drawer|default(false)|tojson }} || window.ACE_BOOTSTRAP_PREF("ace-note-open") === "1") {
       document.documentElement.dataset.aceNoteOpen = "1";
-      if ({{ open_note_drawer|default(false)|tojson }}) localStorage.setItem("ace-note-open", "1");
+      if ({{ open_note_drawer|default(false)|tojson }}) window.__acePreferenceForcedOpenNote = true;
     }
   } catch (_) {}
 </script>
@@ -50,7 +51,7 @@
   // Restore source-grid collapse state before CSS loads (matches the
   // ace-note-open pattern above — see CLAUDE.md).
   try {
-    if (localStorage.getItem("ace-grid-collapsed") === "1") {
+    if (window.ACE_BOOTSTRAP_PREF("ace-grid-collapsed") === "1") {
       document.documentElement.dataset.aceGridCollapsed = "1";
     }
   } catch (_) {}
@@ -58,7 +59,7 @@
 <script>
   // Restore applied-codes inspector collapse state before CSS loads.
   try {
-    if (localStorage.getItem("ace-applied-codes-collapsed") === "1") {
+    if (window.ACE_BOOTSTRAP_PREF("ace-applied-codes-collapsed") === "1") {
       document.documentElement.dataset.aceAppliedCodesCollapsed = "1";
     }
   } catch (_) {}

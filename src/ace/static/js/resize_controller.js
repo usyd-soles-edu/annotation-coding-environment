@@ -27,7 +27,7 @@
     }
 
     function savedPx() {
-      try { return parseInt(localStorage.getItem(STORAGE_KEY), 10) || DEFAULT_PX; }
+      try { return parseInt(window.ACE_PREFS.get(STORAGE_KEY), 10) || DEFAULT_PX; }
       catch (_) { return DEFAULT_PX; }
     }
 
@@ -40,7 +40,7 @@
       handle.setAttribute("aria-valuenow", String(Math.round(width)));
       handle.setAttribute("aria-valuetext", Math.round(width) + " pixels");
       if (persist) {
-        try { localStorage.setItem(STORAGE_KEY, String(Math.round(width))); }
+        try { window.ACE_PREFS.set(STORAGE_KEY, String(Math.round(width))); }
         catch (_) {}
       }
     }
@@ -74,7 +74,7 @@
     handle.addEventListener("lostpointercapture", endDrag);
 
     function reset() {
-      try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
+      try { window.ACE_PREFS.remove(STORAGE_KEY); } catch (_) {}
       setWidth(DEFAULT_PX, false);
     }
     handle.addEventListener("dblclick", reset);

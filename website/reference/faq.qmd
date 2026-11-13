@@ -22,6 +22,10 @@ ACE is designed for small teams, but it does not provide real-time collaborative
 
 ACE keeps the most recently opened project in a per-user history shared by desktop windows, even when they use different local ports. If two windows open projects at once, the last successful open becomes Quick resume. On first use after updating, ACE imports an older browser Quick resume entry only if no shared choice has been made; clearing Quick resume prevents another window from restoring an older entry. If the shared history is unavailable, that window uses its browser history until the shared history is available again.
 
+## Are layout settings shared between desktop windows?
+
+Yes. Sidebar width, source-grid height, coding text size and width, panel and note-drawer state, and codebook cues follow you when another desktop window opens on a different local port. ACE imports an older browser setting only when no shared choice exists. If the shared settings are temporarily unavailable, the current window keeps its browser setting and retries later. An already open window may need a reload to show a setting changed elsewhere. Last-viewed source positions are still stored separately for each project in each desktop runtime.
+
 ## Why do agreement results differ between codes?
 
 Agreement depends on how often a code is used, how clearly it is defined, and how similarly coders apply it. Low agreement is often a prompt to review the code definition and examples.

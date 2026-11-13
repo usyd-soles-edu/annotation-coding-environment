@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from ace.services.browser_runtime import BrowserSessionTracker
 from ace.services.shared_recent_project import SharedRecentProjectStore
+from ace.services.shared_preferences import SharedPreferencesStore
 
 router = APIRouter()
 
@@ -99,6 +100,52 @@ def change_recent_project(request: Request, change: RecentProjectChange):
         raise HTTPException(status_code=400, detail="Invalid recent project path") from None
     except (OSError, sqlite3.Error):
         raise HTTPException(status_code=503, detail="Recent project history unavailable") from None
+
+
+class PreferenceChange(BaseModel):
+    action: Literal["set", "migrate"]
+    key: str = Field(max_length=64)
+    value: str | None = Field(default=None, max_length=32)
+    revision: int | None = Field(default=None, ge=0)
+
+
+def _preferences_store(request: Request) -> SharedPreferencesStore | None:
+    _require_launcher_session(request)
+    return getattr(request.app.state, "shared_preferences_store", None)
+
+
+@router.get("/api/runtime/preferences")
+def preferences(request: Request):
+    store = _preferences_store(request)
+    if store is None:
+        return {"enabled": False, "preferences": {}}
+    try:
+        return {"enabled": True, "preferences": store.snapshot()}
+    except (OSError, sqlite3.Error):
+        raise HTTPException(status_code=503, detail="UI preferences unavailable") from None
+
+
+@router.post("/api/runtime/preferences")
+def change_preference(request: Request, change: PreferenceChange):
+    store = _preferences_store(request)
+    if store is None:
+        return {"enabled": False, "key": change.key, "entry": None}
+    try:
+        if change.action == "migrate":
+            if change.value is None:
+                raise ValueError("Missing preference value")
+            result = store.migrate(change.key, change.value)
+        else:
+            if change.revision is None:
+                raise HTTPException(status_code=422, detail="Preference revision required")
+            result = store.set(
+                change.key, change.value, expected_revision=change.revision
+            )
+        return {"enabled": True, **result}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid UI preference") from None
+    except (OSError, sqlite3.Error):
+        raise HTTPException(status_code=503, detail="UI preferences unavailable") from None
 
 
 @router.get("/launch")
