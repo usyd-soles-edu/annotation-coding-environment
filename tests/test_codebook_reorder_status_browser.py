@@ -22,6 +22,32 @@ from ace.models.source import add_source
 ROOT = Path(__file__).resolve().parents[1]
 
 
+async def _click_row_with_diagnostics(page, base, code_id, navigation, page_errors):
+    row = page.locator(f'.ace-ht-row[data-code-id="{code_id}"]')
+    try:
+        await row.click(timeout=10000)
+    except Exception as error:
+        try:
+            tree_response = await page.request.get(base + "/api/codes/tree", timeout=3000)
+            tree_status = tree_response.status
+        except Exception as request_error:
+            tree_status = type(request_error).__name__
+        state = await page.evaluate("""() => ({
+            ready: document.readyState,
+            title: document.title,
+            sidebar: !!document.querySelector('#code-sidebar'),
+            mount: !!document.querySelector('#ace-headless-tree-mount'),
+            rows: document.querySelectorAll('#ace-headless-tree-mount .ace-ht-row').length,
+            controller: !!window.__aceHeadlessTreeController,
+            previewError: window.__aceHeadlessTreePreviewError || null
+        })""")
+        raise AssertionError(
+            f"Codebook row missing: url={page.url!r}, "
+            f"navigation_status={navigation.status if navigation else None}, "
+            f"tree_status={tree_status}, state={state}, page_errors={page_errors}"
+        ) from error
+
+
 @pytest.fixture
 def reorder_server(tmp_path):
     project = tmp_path / "reorder.ace"
@@ -555,7 +581,7 @@ def test_reorder_refreshes_shortcuts_across_single_key_limit(reorder_server, eng
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+@pytest.mark.parametrize("engine", ["chromium", "webkit", *("firefox",) * 5])
 def test_shortcut_refresh_preserves_rename_draft(reorder_server, engine):
     async_api = pytest.importorskip("playwright.async_api")
     base, project, first, _second = reorder_server
@@ -567,11 +593,13 @@ def test_shortcut_refresh_preserves_rename_draft(reorder_server, engine):
             browser = await getattr(playwright, engine).launch()
             try:
                 page = await browser.new_page()
+                page_errors = []
+                page.on("pageerror", lambda error: page_errors.append(str(error)[:200]))
                 await page.goto(base + "/")
                 assert (await page.request.post(
                     base + "/api/project/open", form={"path": str(project)}
                 )).ok
-                await page.goto(base + "/code")
+                navigation = await page.goto(base + "/code")
 
                 async def hold_refresh(route):
                     response = await route.fetch()
@@ -580,7 +608,7 @@ def test_shortcut_refresh_preserves_rename_draft(reorder_server, engine):
                     await route.fulfill(response=response)
 
                 await page.route("**/api/codes/tree", hold_refresh)
-                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await _click_row_with_diagnostics(page, base, first, navigation, page_errors)
                 await page.keyboard.press("Alt+Shift+ArrowDown")
                 await asyncio.wait_for(refresh_started.wait(), timeout=5)
                 await page.keyboard.press("F2")
@@ -598,7 +626,7 @@ def test_shortcut_refresh_preserves_rename_draft(reorder_server, engine):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+@pytest.mark.parametrize("engine", ["chromium", "webkit", *("firefox",) * 5])
 def test_undo_invalidates_delayed_shortcut_refresh(reorder_server, engine):
     async_api = pytest.importorskip("playwright.async_api")
     base, project, _first, _second = reorder_server
@@ -620,11 +648,13 @@ def test_undo_invalidates_delayed_shortcut_refresh(reorder_server, engine):
             browser = await getattr(playwright, engine).launch()
             try:
                 page = await browser.new_page()
+                page_errors = []
+                page.on("pageerror", lambda error: page_errors.append(str(error)[:200]))
                 await page.goto(base + "/")
                 assert (await page.request.post(
                     base + "/api/project/open", form={"path": str(project)}
                 )).ok
-                await page.goto(base + "/code")
+                navigation = await page.goto(base + "/code")
 
                 async def hold_refresh(route):
                     nonlocal refresh_calls
@@ -638,7 +668,7 @@ def test_undo_invalidates_delayed_shortcut_refresh(reorder_server, engine):
                     await route.fulfill(response=response)
 
                 await page.route("**/api/codes/tree", hold_refresh)
-                await page.locator(f'.ace-ht-row[data-code-id="{last_single}"]').click()
+                await _click_row_with_diagnostics(page, base, last_single, navigation, page_errors)
                 await page.keyboard.press("Alt+Shift+ArrowDown")
                 await asyncio.wait_for(refresh_started.wait(), timeout=5)
                 await page.locator(".ace-sentence").first.click()
