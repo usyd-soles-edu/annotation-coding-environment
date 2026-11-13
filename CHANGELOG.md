@@ -12,6 +12,7 @@
 - **Spreadsheet imports** — show rows scanned while preparing the preview and processed-row progress during import; allow cancelling either step before adding sources from that batch.
 - **Audit review** — print the currently shown excerpts, including active source and text filters, without the editing controls.
 - **Development checks** — run fast Python, browser-engine, and Rust launcher tests on pull requests.
+- **Packaged checks** — smoke-test shipped macOS and Windows launchers, servers, and native file-picker dependencies before publishing builds; verify that servers from the previous and new Windows installers can run alongside each other.
 
 ### Fixes
 
@@ -21,7 +22,8 @@
 - **Multiple projects** — keep separate browser sessions for project runtimes opened on different local ports.
 - **Desktop continuity** — keep Quick resume and layout settings across desktop runtimes on different local ports, with first-use migration from browser settings and safe handling of concurrent changes.
 - **Source resume** — share the last viewed source for each project file and coder across desktop runtimes without mixing copied projects. Older browser positions keyed only by project ID reset once because they cannot be assigned safely to one file.
-- **Local startup** — report an occupied port without stopping another process or ACE runtime, and retain bounded diagnostics and a safe failure category when the launcher fails to start.
+- **Local startup** — report an occupied port without stopping another process or ACE runtime, and retain a bounded launcher failure record with safe categories and limited dependency or disk-full details.
+- **Windows packages** — extract each bundled server launch into a unique temporary directory so installed versions can run at the same time.
 - **Template safety** — restore safe JSON escaping when inserting project data into HTML.
 - **Codebook imports** — undo imported codes and the folders created with them without removing folders that were already in the project.
 - **Annotation exports** — preserve exact selected spans and memos, including every memo and the source whitespace in merged exports.
