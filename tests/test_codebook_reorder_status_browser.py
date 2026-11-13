@@ -22,6 +22,29 @@ from ace.models.source import add_source
 ROOT = Path(__file__).resolve().parents[1]
 
 
+async def _click_row_with_ci_diagnostics(page, base, code_id):
+    row = page.locator(f'.ace-ht-row[data-code-id="{code_id}"]')
+    try:
+        await row.click(timeout=10000)
+    except Exception as error:
+        try:
+            response = await page.request.get(base + "/api/codes/tree", timeout=3000)
+            tree_status = response.status
+        except Exception as request_error:
+            tree_status = type(request_error).__name__
+        state = await page.evaluate("""() => ({
+            ready: document.readyState,
+            sidebar: !!document.querySelector('#code-sidebar'),
+            rows: document.querySelectorAll('.ace-ht-row').length,
+            controller: !!window.__aceHeadlessTreeController,
+            previewError: window.__aceHeadlessTreePreviewError || null,
+            body: document.body.textContent.slice(0, 300)
+        })""")
+        raise AssertionError(
+            f"Codebook row missing: url={page.url!r}, tree_status={tree_status}, state={state}"
+        ) from error
+
+
 @pytest.fixture
 def reorder_server(tmp_path):
     project = tmp_path / "reorder.ace"
@@ -151,7 +174,7 @@ def test_reorder_waits_for_pending_server_response(reorder_server, engine):
                     await route.fulfill(response=response)
 
                 await page.route("**/api/codes/reorder-in-scope", hold_reorder)
-                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await _click_row_with_ci_diagnostics(page, base, first)
                 await page.keyboard.press("Alt+Shift+ArrowDown")
                 await asyncio.wait_for(request_started.wait(), timeout=5)
                 assert await page.locator(".ace-statusbar-event").text_content() != "Saved"
@@ -580,7 +603,7 @@ def test_shortcut_refresh_preserves_rename_draft(reorder_server, engine):
                     await route.fulfill(response=response)
 
                 await page.route("**/api/codes/tree", hold_refresh)
-                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await _click_row_with_ci_diagnostics(page, base, first)
                 await page.keyboard.press("Alt+Shift+ArrowDown")
                 await asyncio.wait_for(refresh_started.wait(), timeout=5)
                 await page.keyboard.press("F2")
@@ -638,7 +661,7 @@ def test_undo_invalidates_delayed_shortcut_refresh(reorder_server, engine):
                     await route.fulfill(response=response)
 
                 await page.route("**/api/codes/tree", hold_refresh)
-                await page.locator(f'.ace-ht-row[data-code-id="{last_single}"]').click()
+                await _click_row_with_ci_diagnostics(page, base, last_single)
                 await page.keyboard.press("Alt+Shift+ArrowDown")
                 await asyncio.wait_for(refresh_started.wait(), timeout=5)
                 await page.locator(".ace-sentence").first.click()
