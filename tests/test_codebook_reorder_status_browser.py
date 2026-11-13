@@ -572,6 +572,7 @@ def test_shortcut_refresh_preserves_rename_draft(reorder_server, engine):
                     base + "/api/project/open", form={"path": str(project)}
                 )).ok
                 await page.goto(base + "/code")
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').wait_for()
 
                 async def hold_refresh(route):
                     response = await route.fetch()
@@ -625,6 +626,7 @@ def test_undo_invalidates_delayed_shortcut_refresh(reorder_server, engine):
                     base + "/api/project/open", form={"path": str(project)}
                 )).ok
                 await page.goto(base + "/code")
+                await page.locator(f'.ace-ht-row[data-code-id="{last_single}"]').wait_for()
 
                 async def hold_refresh(route):
                     nonlocal refresh_calls
