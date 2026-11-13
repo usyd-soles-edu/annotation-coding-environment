@@ -108,6 +108,9 @@ def test_code_folder_and_new_wrapper_rename_use_tree_controller(tmp_path, browse
                     "id => document.querySelector(`.ace-ht-row[data-item-id='${id}'] .ace-ht-label`)?.textContent === 'Audit Beta'",
                     arg=code_id,
                 )
+                page.wait_for_function(
+                    "document.querySelector('.cv-code-name')?.textContent === 'Audit Beta'"
+                )
                 page.reload()
                 audit_code.wait_for()
                 assert audit_code.locator(".ace-ht-label").inner_text() == "Audit Beta"
