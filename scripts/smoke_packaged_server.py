@@ -129,6 +129,46 @@ def runtime_and_process_stopped(runtime_file: Path, port: int, pid: int) -> bool
     return runtime_stopped(runtime_file, port) and not process_alive(pid)
 
 
+def smoke_failed_startup(sidecar: Path, directory: Path, child_env: dict[str, str]) -> None:
+    """A shipped server must leave a bounded report and no running process."""
+    report_path = directory / "failed-startup.json"
+    runtime_file = directory / "failed-runtime.json"
+    report_path.write_text("{}", encoding="utf-8")
+    test_token = "private-packaged-smoke-token"
+    failed = subprocess.Popen(
+        [
+            str(sidecar), "--port", "65536", "--launcher-token", test_token,
+            "--runtime-file", str(runtime_file),
+            "--startup-report", str(report_path),
+        ],
+        cwd=directory,
+        env=child_env,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        failed.wait(timeout=60)
+    finally:
+        if failed.poll() is None:
+            if sys.platform.startswith("win"):
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(failed.pid)],
+                    capture_output=True, timeout=10, check=False,
+                )
+            else:
+                failed.kill()
+            failed.wait(timeout=10)
+
+    if failed.returncode == 0 or process_alive(failed.pid) or runtime_file.exists():
+        raise RuntimeError("Packaged server did not clean up after failed startup")
+    report_text = report_path.read_text(encoding="utf-8")
+    report = json.loads(report_text)
+    if report != {"stage": "serve", "reason": "unexpected_error"}:
+        raise RuntimeError(f"Packaged startup report was not bounded: {report!r}")
+    if test_token in report_text or str(runtime_file) in report_text:
+        raise RuntimeError("Packaged startup report retained launch credentials or paths")
+
+
 def smoke() -> None:
     with tempfile.TemporaryDirectory(prefix="ace-packaged-smoke-") as directory:
         temp = Path(directory)
@@ -159,6 +199,8 @@ def smoke() -> None:
                 "Packaged server cannot load native picker runtime: "
                 f"{picker_check.stderr.strip()}"
             )
+
+        smoke_failed_startup(sidecar, temp, child_env)
 
         port: int | None = None
         pid: int | None = None
