@@ -257,3 +257,192 @@ def test_completed_clear_is_not_replayed_by_another_tab(tmp_path, engine):
                     assert store.read()["path"] == "/new.ace"
                 finally:
                     browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_failed_clear_on_one_port_cannot_erase_newer_open_on_another(tmp_path, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    base_a = "http://127.0.0.1:18105"
+    base_b = "http://127.0.0.1:18106"
+    store = SharedRecentProjectStore(tmp_path / "runtime-a.json")
+    store.set("/old.ace")
+    with ExitStack() as stack:
+        clients = []
+        for port, token in ((18105, "token-a"), (18106, "token-b")):
+            env = {
+                "ACE_LAUNCHER_TOKEN": token,
+                "ACE_RUNTIME_FILE": str(tmp_path / f"runtime-{port}.json"),
+                "ACE_IDLE_TIMEOUT_SECONDS": "300",
+            }
+            with patch.dict(os.environ, env, clear=False):
+                clients.append(stack.enter_context(TestClient(
+                    create_app(), base_url=f"http://127.0.0.1:{port}"
+                )))
+
+        with sync_api.sync_playwright() as playwright:
+            browser = getattr(playwright, engine).launch()
+            try:
+                page = browser.new_page()
+                page.route(base_a + "/**", _route_to(clients[0]))
+                page.route(base_b + "/**", _route_to(clients[1]))
+                page.goto(base_a + "/launch?token=token-a")
+                page.evaluate("() => window.ACE_RECENTS.ready")
+                page.get_by_role("link", name="old.ace").wait_for()
+
+                def fail_clear(route):
+                    if (route.request.method == "POST" and
+                            '"action":"clear"' in (route.request.post_data or "")):
+                        route.fulfill(status=503, body="unavailable")
+                    else:
+                        route.fallback()
+
+                page.route(base_a + "/api/runtime/recent-project", fail_clear, times=1)
+                with page.expect_response(
+                    lambda response: response.url.endswith("/api/runtime/recent-project")
+                    and response.request.method == "POST" and response.status == 503
+                ):
+                    page.locator("#resume-clear-btn").click()
+                assert store.read()["path"] == "/old.ace"
+
+                page.goto(base_b + "/launch?token=token-b")
+                page.evaluate("() => window.ACE_RECENTS.ready")
+                with page.expect_response(
+                    lambda response: response.url.endswith("/api/runtime/recent-project")
+                    and response.request.method == "POST"
+                ):
+                    page.evaluate("() => window.ACE_RECENTS.add('/new.ace')")
+                page.wait_for_function("!localStorage.getItem('ace-recent-pending')")
+                assert store.read()["path"] == "/new.ace"
+
+                page.goto(base_a + "/")
+                page.evaluate("() => window.ACE_RECENTS.ready")
+                page.get_by_role("link", name="new.ace").wait_for()
+                assert store.read()["path"] == "/new.ace"
+                assert page.evaluate(
+                    "() => localStorage.getItem('ace-recent-pending')"
+                ) is None
+            finally:
+                browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_new_choice_after_inflight_clear_uses_updated_revision(tmp_path, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    base = "http://127.0.0.1:18107"
+    runtime_file = tmp_path / "runtime.json"
+    store = SharedRecentProjectStore(runtime_file)
+    store.set("/old.ace")
+    env = {
+        "ACE_LAUNCHER_TOKEN": "test-token",
+        "ACE_RUNTIME_FILE": str(runtime_file),
+        "ACE_IDLE_TIMEOUT_SECONDS": "300",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        with TestClient(create_app(), base_url=base) as client:
+            with sync_api.sync_playwright() as playwright:
+                browser = getattr(playwright, engine).launch()
+                try:
+                    page = browser.new_page()
+                    page.route(base + "/**", _route_to(client))
+                    page.goto(base + "/launch?token=test-token")
+                    page.evaluate("() => window.ACE_RECENTS.ready")
+                    page.get_by_role("link", name="old.ace").wait_for()
+                    page.evaluate("""() => {
+                      const originalFetch = window.fetch.bind(window);
+                      window.fetch = (url, options) => {
+                        const response = originalFetch(url, options);
+                        if (url !== '/api/runtime/recent-project' ||
+                            options?.method !== 'POST' ||
+                            JSON.parse(options.body).action !== 'clear') return response;
+                        return response.then(async result => {
+                          const body = await result.text();
+                          await new Promise(resolve => { window.__releaseClear = resolve; });
+                          return new Response(body, {
+                            status: result.status,
+                            headers: { 'Content-Type': 'application/json' },
+                          });
+                        });
+                      };
+                      window.ACE_RECENTS.clear();
+                    }""")
+                    page.wait_for_function("typeof window.__releaseClear === 'function'")
+                    assert store.read() is None
+                    page.evaluate("() => window.ACE_RECENTS.add('/new.ace')")
+                    page.evaluate("() => window.__releaseClear()")
+                    page.wait_for_function("!localStorage.getItem('ace-recent-pending')")
+                    assert store.read()["path"] == "/new.ace"
+                    page.reload()
+                    page.evaluate("() => window.ACE_RECENTS.ready")
+                    page.get_by_role("link", name="new.ace").wait_for()
+                finally:
+                    browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_clear_during_successful_retry_uses_updated_revision(tmp_path, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    base = "http://127.0.0.1:18108"
+    runtime_file = tmp_path / "runtime.json"
+    store = SharedRecentProjectStore(runtime_file)
+    store.set("/old.ace")
+    env = {
+        "ACE_LAUNCHER_TOKEN": "test-token",
+        "ACE_RUNTIME_FILE": str(runtime_file),
+        "ACE_IDLE_TIMEOUT_SECONDS": "300",
+    }
+    with patch.dict(os.environ, env, clear=False):
+        with TestClient(create_app(), base_url=base) as client:
+            with sync_api.sync_playwright() as playwright:
+                browser = getattr(playwright, engine).launch()
+                try:
+                    page = browser.new_page()
+                    page.route(base + "/**", _route_to(client))
+                    page.goto(base + "/launch?token=test-token")
+                    page.evaluate("() => window.ACE_RECENTS.ready")
+                    page.get_by_role("link", name="old.ace").wait_for()
+
+                    def fail_first_set(route):
+                        if (route.request.method == "POST" and
+                                '"action":"set"' in (route.request.post_data or "")):
+                            route.fulfill(status=503, body="unavailable")
+                        else:
+                            route.fallback()
+
+                    page.route(base + "/api/runtime/recent-project", fail_first_set, times=1)
+                    with page.expect_response(
+                        lambda response: response.url.endswith("/api/runtime/recent-project")
+                        and response.request.method == "POST" and response.status == 503
+                    ):
+                        page.evaluate("() => window.ACE_RECENTS.add('/retry.ace')")
+                    assert store.read()["path"] == "/old.ace"
+
+                    page.evaluate("""() => {
+                      const originalFetch = window.fetch.bind(window);
+                      window.fetch = (url, options) => {
+                        const response = originalFetch(url, options);
+                        if (url !== '/api/runtime/recent-project' ||
+                            options?.method !== 'POST' ||
+                            JSON.parse(options.body).action !== 'set') return response;
+                        return response.then(async result => {
+                          const body = await result.text();
+                          await new Promise(resolve => { window.__releaseRetry = resolve; });
+                          return new Response(body, {
+                            status: result.status,
+                            headers: { 'Content-Type': 'application/json' },
+                          });
+                        });
+                      };
+                      window.dispatchEvent(new Event('focus'));
+                    }""")
+                    page.wait_for_function("typeof window.__releaseRetry === 'function'")
+                    assert store.read()["path"] == "/retry.ace"
+                    page.evaluate("() => window.ACE_RECENTS.clear()")
+                    page.evaluate("() => window.__releaseRetry()")
+                    page.wait_for_function("!localStorage.getItem('ace-recent-pending')")
+                    assert store.read() is None
+                    assert page.locator("#resume-link").is_hidden()
+                finally:
+                    browser.close()

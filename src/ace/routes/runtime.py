@@ -57,6 +57,7 @@ class RecentProjectChange(BaseModel):
     action: Literal["set", "migrate", "remove", "clear"]
     path: str = Field(default="", max_length=32768)
     opened_at: int = Field(default=0, ge=0, le=2**63 - 1)
+    revision: int | None = Field(default=None, ge=0)
 
 
 def _recent_store(request: Request) -> SharedRecentProjectStore | None:
@@ -70,7 +71,7 @@ def recent_project(request: Request):
     if store is None:
         return {"enabled": False, "recent": None}
     try:
-        return {"enabled": True, "recent": store.read()}
+        return {"enabled": True, **store.snapshot()}
     except (OSError, sqlite3.Error):
         raise HTTPException(status_code=503, detail="Recent project history unavailable") from None
 
@@ -81,17 +82,19 @@ def change_recent_project(request: Request, change: RecentProjectChange):
     if store is None:
         return {"enabled": False, "recent": None}
     try:
+        if change.action != "migrate" and change.revision is None:
+            raise HTTPException(status_code=422, detail="Recent project revision required")
         if change.action == "set":
-            store.set(change.path)
+            result = store.set(change.path, expected_revision=change.revision)
         elif change.action == "migrate":
-            store.migrate(change.path, opened_at=change.opened_at)
+            result = store.migrate(change.path, opened_at=change.opened_at)
         elif change.action == "remove":
             if not change.path:
                 raise ValueError("Invalid recent project path")
-            store.clear(if_path=change.path)
+            result = store.clear(if_path=change.path, expected_revision=change.revision)
         else:
-            store.clear()
-        return {"enabled": True, "recent": store.read()}
+            result = store.clear(expected_revision=change.revision)
+        return {"enabled": True, **result}
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid recent project path") from None
     except (OSError, sqlite3.Error):

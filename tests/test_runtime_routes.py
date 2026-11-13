@@ -246,16 +246,24 @@ def test_shared_recent_project_is_private_and_survives_runtime_ports(tmp_path):
             "action": "migrate", "path": "/old.ace", "opened_at": 123,
         }).json()["recent"] == {"path": "/old.ace", "openedAt": 123}
         assert b.get(endpoint).json()["recent"]["path"] == "/old.ace"
-        assert b.post(endpoint, json={"action": "set", "path": "/new.ace"}).status_code == 200
+        assert b.post(endpoint, json={
+            "action": "set", "path": "/new.ace", "revision": 1,
+        }).status_code == 200
         assert a.get(endpoint).json()["recent"]["path"] == "/new.ace"
-        assert a.post(endpoint, json={"action": "remove", "path": "/old.ace"}).json()[
+        assert a.post(endpoint, json={
+            "action": "remove", "path": "/old.ace", "revision": 2,
+        }).json()[
             "recent"
         ]["path"] == "/new.ace"
-        assert b.post(endpoint, json={"action": "clear"}).json()["recent"] is None
+        assert b.post(endpoint, json={"action": "clear", "revision": 2}).json()[
+            "recent"
+        ] is None
         assert a.post(endpoint, json={
             "action": "migrate", "path": "/stale.ace",
         }).json()["recent"] is None
-        assert a.post(endpoint, json={"action": "set", "path": ""}).status_code == 400
+        assert a.post(endpoint, json={
+            "action": "set", "path": "", "revision": 3,
+        }).status_code == 400
 
         project = tmp_path / "opened.ace"
         conn = create_project(str(project), "Opened")
@@ -284,3 +292,13 @@ def test_recent_project_store_keeps_clear_tombstone_across_instances(tmp_path):
     assert first.read() is None
     first.set("/chosen.ace", opened_at=30)
     assert second.read() == {"path": "/chosen.ace", "openedAt": 30}
+
+
+def test_stale_retry_cannot_clear_a_newer_project_from_another_port(tmp_path):
+    first = SharedRecentProjectStore(tmp_path / "runtime-a.json")
+    second = SharedRecentProjectStore(tmp_path / "runtime-b.json")
+    first.set("/old.ace")
+    stale_revision = first.snapshot()["revision"]
+    second.set("/new.ace")
+    assert first.clear(expected_revision=stale_revision)["applied"] is False
+    assert first.read()["path"] == "/new.ace"

@@ -35,57 +35,76 @@ class SharedRecentProjectStore:
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS recent_project ("
                 "singleton INTEGER PRIMARY KEY CHECK (singleton = 1), "
-                "path TEXT NOT NULL, opened_at INTEGER NOT NULL)"
+                "path TEXT NOT NULL, opened_at INTEGER NOT NULL, "
+                "revision INTEGER NOT NULL DEFAULT 0)"
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO recent_project "
+                "(singleton, path, opened_at, revision) VALUES (1, '', 0, 0)"
             )
             yield conn
             conn.commit()
         finally:
             conn.close()
 
-    def read(self) -> dict[str, str | int] | None:
+    def snapshot(self) -> dict[str, object]:
         with self._connection() as conn:
-            row = conn.execute(
-                "SELECT path, opened_at FROM recent_project WHERE singleton = 1"
-            ).fetchone()
-        return {"path": row[0], "openedAt": row[1]} if row and row[0] else None
+            return self._snapshot(conn)
 
-    def set(self, path: str, *, opened_at: int | None = None) -> None:
+    @staticmethod
+    def _snapshot(conn: sqlite3.Connection) -> dict[str, object]:
+        row = conn.execute(
+            "SELECT path, opened_at, revision FROM recent_project WHERE singleton = 1"
+        ).fetchone()
+        return {
+            "recent": {"path": row[0], "openedAt": row[1]} if row[0] else None,
+            "revision": row[2],
+        }
+
+    def read(self) -> dict[str, str | int] | None:
+        return self.snapshot()["recent"]
+
+    def set(
+        self, path: str, *, opened_at: int | None = None,
+        expected_revision: int | None = None,
+    ) -> dict[str, object]:
         _check_path(path)
         stamp = int(time.time() * 1000) if opened_at is None else max(0, opened_at)
         with self._connection() as conn:
-            conn.execute(
-                "INSERT INTO recent_project (singleton, path, opened_at) VALUES (1, ?, ?) "
-                "ON CONFLICT (singleton) DO UPDATE SET path = excluded.path, "
-                "opened_at = excluded.opened_at",
-                (path, stamp),
+            updated = conn.execute(
+                "UPDATE recent_project SET path = ?, opened_at = ?, "
+                "revision = revision + 1 WHERE singleton = 1 "
+                "AND (? IS NULL OR revision = ?)",
+                (path, stamp, expected_revision, expected_revision),
             )
+            return {"applied": updated.rowcount == 1, **self._snapshot(conn)}
 
-    def migrate(self, path: str, *, opened_at: int = 0) -> None:
+    def migrate(self, path: str, *, opened_at: int = 0) -> dict[str, object]:
         """Import legacy browser storage only before any shared choice or clear."""
         _check_path(path)
         with self._connection() as conn:
-            conn.execute(
-                "INSERT OR IGNORE INTO recent_project (singleton, path, opened_at) "
-                "VALUES (1, ?, ?)",
+            updated = conn.execute(
+                "UPDATE recent_project SET path = ?, opened_at = ?, "
+                "revision = revision + 1 WHERE singleton = 1 AND revision = 0",
                 (path, max(0, opened_at)),
             )
+            return {"applied": updated.rowcount == 1, **self._snapshot(conn)}
 
-    def clear(self, *, if_path: str | None = None) -> None:
+    def clear(
+        self, *, if_path: str | None = None,
+        expected_revision: int | None = None,
+    ) -> dict[str, object]:
         with self._connection() as conn:
-            if if_path is None:
-                # Keep a tombstone so a different port cannot reimport stale
-                # localStorage after the user explicitly clears history.
-                conn.execute(
-                    "INSERT INTO recent_project (singleton, path, opened_at) "
-                    "VALUES (1, '', 0) ON CONFLICT (singleton) DO UPDATE "
-                    "SET path = '', opened_at = 0"
-                )
-            else:
-                conn.execute(
-                    "UPDATE recent_project SET path = '', opened_at = 0 "
-                    "WHERE singleton = 1 AND path = ?",
-                    (if_path,),
-                )
+            # Retain the row as a tombstone; a different port must not reimport
+            # a stale localStorage value after an explicit clear.
+            updated = conn.execute(
+                "UPDATE recent_project SET path = '', opened_at = 0, "
+                "revision = revision + 1 WHERE singleton = 1 "
+                "AND (? IS NULL OR revision = ?) "
+                "AND (? IS NULL OR path = ?)",
+                (expected_revision, expected_revision, if_path, if_path),
+            )
+            return {"applied": updated.rowcount == 1, **self._snapshot(conn)}
 
 
 def _check_path(path: str) -> None:

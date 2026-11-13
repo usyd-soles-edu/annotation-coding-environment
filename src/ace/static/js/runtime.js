@@ -12,11 +12,13 @@
   let launcherAuthenticated = false;
   let sharedRecentsEnabled = false;
   let sharedRecent = null;
+  let sharedRevision = 0;
   let recentVersion = 0;
   let recentNetworkQueue = Promise.resolve();
   let runtimeInitPromise = null;
   let pendingRecentChange = readPendingRecent();
   let pendingRecentStored = !!pendingRecentChange;
+  const localRecentTokens = new Set();
 
   function randomTabId() {
     try {
@@ -99,7 +101,7 @@
     window.dispatchEvent(new Event("ace:recents-changed"));
   }
 
-  async function postSharedRecent(action, recent) {
+  async function postSharedRecent(action, recent, revision) {
     const response = await window.fetch("/api/runtime/recent-project", {
       method: "POST",
       credentials: "same-origin",
@@ -109,12 +111,17 @@
         action: action,
         path: recent?.path || "",
         opened_at: recent?.openedAt || 0,
+        revision: revision,
       }),
     });
     if (!response.ok) throw new Error("Shared recent project update failed");
     const result = await response.json();
     if (result.enabled !== true) throw new Error("Shared recent project is unavailable");
-    return migrateRecent([result.recent])[0] || null;
+    return {
+      recent: migrateRecent([result.recent])[0] || null,
+      revision: result.revision,
+      applied: result.applied === true,
+    };
   }
 
   function parsePendingRecent(raw) {
@@ -125,6 +132,7 @@
       if (change.action !== "clear" &&
           (typeof change.recent?.path !== "string" || !change.recent.path ||
            change.recent.path.length > 32768)) return null;
+      if (!Number.isSafeInteger(change.revision) || change.revision < 0) return null;
       return change;
     } catch (_err) {
       return null;
@@ -153,7 +161,11 @@
   }
 
   function rememberPendingRecent(action, recent) {
-    const change = { token: randomTabId(), action: action, recent: recent };
+    const change = {
+      token: randomTabId(), action: action, recent: recent,
+      revision: sharedRevision,
+    };
+    localRecentTokens.add(change.token);
     pendingRecentChange = change;
     try {
       window.localStorage.setItem(PENDING_RECENT_KEY, JSON.stringify(change));
@@ -166,6 +178,7 @@
   }
 
   function forgetPendingRecent(change) {
+    localRecentTokens.delete(change.token);
     if (currentPendingRecent()?.token !== change.token) return;
     pendingRecentChange = null;
     pendingRecentStored = false;
@@ -176,6 +189,20 @@
     } catch (_err) {}
   }
 
+  function advanceLocalPendingAfter(change, revision) {
+    const pending = currentPendingRecent();
+    if (!pending || pending.token === change.token ||
+        !localRecentTokens.has(pending.token) ||
+        pending.revision !== change.revision) return;
+    pending.revision = revision;
+    if (!pendingRecentStored) return;
+    try {
+      window.localStorage.setItem(PENDING_RECENT_KEY, JSON.stringify(pending));
+    } catch (_err) {
+      pendingRecentStored = false;
+    }
+  }
+
   function queueRecentNetwork(work) {
     recentNetworkQueue = recentNetworkQueue.catch(function () {}).then(work);
     return recentNetworkQueue;
@@ -183,16 +210,27 @@
 
   function queueSharedRecent(change, version) {
     void queueRecentNetwork(async function () {
-      if (currentPendingRecent()?.token !== change.token) return;
+      const pending = currentPendingRecent();
+      if (pending?.token !== change.token) {
+        localRecentTokens.delete(change.token);
+        return;
+      }
       try {
-        const saved = await postSharedRecent(change.action, change.recent);
-        forgetPendingRecent(change);
+        const saved = await postSharedRecent(
+          pending.action, pending.recent, pending.revision
+        );
+        if (saved.applied) advanceLocalPendingAfter(pending, saved.revision);
+        sharedRevision = saved.revision;
+        forgetPendingRecent(pending);
         if (version !== recentVersion) return;
-        sharedRecent = saved;
+        sharedRecent = saved.recent;
         sharedRecentsEnabled = true;
-        mirrorRecentToLocal(saved);
+        mirrorRecentToLocal(saved.recent);
         notifyRecentChanged();
       } catch (_err) {
+        if (currentPendingRecent()?.token !== change.token) {
+          localRecentTokens.delete(change.token);
+        }
         if (version !== recentVersion) return;
         sharedRecentsEnabled = false;
         notifyRecentChanged();
@@ -231,7 +269,11 @@
       try {
         const pending = currentPendingRecent();
         if (pending) {
-          await postSharedRecent(pending.action, pending.recent);
+          const replayed = await postSharedRecent(
+            pending.action, pending.recent, pending.revision
+          );
+          if (replayed.applied) advanceLocalPendingAfter(pending, replayed.revision);
+          sharedRevision = replayed.revision;
           forgetPendingRecent(pending);
           if (version !== recentVersion) return;
         }
@@ -244,12 +286,16 @@
         if (result.enabled !== true) throw new Error("Shared recent project is unavailable");
         const saved = legacy
           ? await postSharedRecent("migrate", legacy)
-          : migrateRecent([result.recent])[0] || null;
+          : {
+              recent: migrateRecent([result.recent])[0] || null,
+              revision: result.revision,
+            };
         // A focus refresh that began before Clear must not restore old data.
         if (version !== recentVersion) return;
-        sharedRecent = saved;
+        sharedRecent = saved.recent;
+        sharedRevision = saved.revision;
         sharedRecentsEnabled = true;
-        mirrorRecentToLocal(saved);
+        mirrorRecentToLocal(saved.recent);
         notifyRecentChanged();
       } catch (_err) {
         if (version !== recentVersion) return;
