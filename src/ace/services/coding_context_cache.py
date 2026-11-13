@@ -7,8 +7,9 @@ from collections.abc import Callable
 from hashlib import sha256
 from pathlib import Path
 
-_MAX_SENTENCE_CHARS = 250_000
-_MAX_SENTENCE_UNITS = 10_000
+# Retain a working set of long transcripts while bounding the copied units.
+_MAX_SENTENCE_CHARS = 1_000_000
+_MAX_SENTENCE_UNITS = 20_000
 
 
 class CodingContextCache:
