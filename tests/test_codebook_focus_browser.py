@@ -126,6 +126,19 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                     "!document.getElementById('ace-headless-tree-mount').contains(document.activeElement)",
                     timeout=2000,
                 )
+                focus(second_folder)
+                folder_b.focus()
+                source_focus = page.evaluate("""() => {
+                    const press = key => document.activeElement.dispatchEvent(
+                        new KeyboardEvent('keydown', {key, bubbles: true, cancelable: true})
+                    );
+                    press('ArrowDown');
+                    press('ArrowRight');
+                    return document.activeElement?.id;
+                }""")
+                assert source_focus == "text-panel"
+                page.wait_for_timeout(100)
+                assert page.evaluate("document.activeElement?.id") == "text-panel"
                 focus(second_code)
                 beta.focus()
 
