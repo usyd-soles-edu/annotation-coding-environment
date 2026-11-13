@@ -10,6 +10,7 @@ created in a temporary directory and the runtime is shut down afterward.
 from __future__ import annotations
 
 import http.cookiejar
+import ctypes
 import json
 import os
 import shutil
@@ -84,6 +85,50 @@ def runtime_stopped(runtime_file: Path, port: int) -> bool:
         return True
 
 
+def process_alive(pid: int) -> bool:
+    """Check the packaged server PID, including Nuitka's Windows bootloader."""
+    if not sys.platform.startswith("win"):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            pass
+        return True
+
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    open_process = kernel32.OpenProcess
+    open_process.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    open_process.restype = wintypes.HANDLE
+    wait = kernel32.WaitForSingleObject
+    wait.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    wait.restype = wintypes.DWORD
+    close = kernel32.CloseHandle
+    close.argtypes = [wintypes.HANDLE]
+    close.restype = wintypes.BOOL
+    handle = open_process(0x00100000, False, pid)  # SYNCHRONIZE
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87:  # ERROR_INVALID_PARAMETER: process has exited.
+            return False
+        raise OSError(error, "Could not inspect packaged server process")
+    try:
+        state = wait(handle, 0)
+        if state == 0x102:  # WAIT_TIMEOUT
+            return True
+        if state == 0:  # WAIT_OBJECT_0
+            return False
+        raise OSError(ctypes.get_last_error(), "Could not wait for packaged server process")
+    finally:
+        close(handle)
+
+
+def runtime_and_process_stopped(runtime_file: Path, port: int, pid: int) -> bool:
+    return runtime_stopped(runtime_file, port) and not process_alive(pid)
+
+
 def smoke() -> None:
     with tempfile.TemporaryDirectory(prefix="ace-packaged-smoke-") as directory:
         temp = Path(directory)
@@ -119,17 +164,33 @@ def smoke() -> None:
         pid: int | None = None
         opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
         try:
-            try:
-                launched = subprocess.run(
-                    [str(launcher), str(project)],
-                    cwd=temp,
-                    env=child_env,
-                    capture_output=True,
-                    text=True,
-                    timeout=90,
-                )
-            except subprocess.TimeoutExpired:
-                raise RuntimeError("Packaged launcher timed out during startup") from None
+            # A onefile descendant can inherit PIPE handles on Windows.
+            # File-backed output lets us wait for the launcher itself, while
+            # polling retains the bootloader PID if metadata later disappears.
+            with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as output:
+                with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as errors:
+                    launched = subprocess.Popen(
+                        [str(launcher), str(project)],
+                        cwd=temp,
+                        env=child_env,
+                        stdout=output,
+                        stderr=errors,
+                    )
+                    deadline = time.monotonic() + 90
+                    while launched.poll() is None:
+                        if runtime_file.is_file():
+                            try:
+                                observed = json.loads(runtime_file.read_text(encoding="utf-8"))
+                                pid, port = int(observed["pid"]), int(observed["port"])
+                            except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+                                pass
+                        if time.monotonic() >= deadline:
+                            launched.kill()
+                            launched.wait(timeout=10)
+                            raise RuntimeError("Packaged launcher timed out during startup")
+                        time.sleep(0.05)
+                    output.seek(0)
+                    launch_stdout = output.read()
             if launched.returncode != 0:
                 raise RuntimeError("Packaged launcher failed to start its bundled server")
             if not runtime_file.is_file():
@@ -139,7 +200,7 @@ def smoke() -> None:
             port = int(runtime["port"])
             token = str(runtime["token"])
 
-            lines = launched.stdout.strip().splitlines()
+            lines = launch_stdout.strip().splitlines()
             launch_url = lines[-1] if lines else ""
             parsed = urlparse(launch_url)
             query = parse_qs(parsed.query)
@@ -191,9 +252,9 @@ def smoke() -> None:
             request_json(opener, base + "/api/runtime/quit", data={})
 
             deadline = time.monotonic() + 15
-            while time.monotonic() < deadline and not runtime_stopped(runtime_file, port):
+            while time.monotonic() < deadline and not runtime_and_process_stopped(runtime_file, port, pid):
                 time.sleep(0.1)
-            if not runtime_stopped(runtime_file, port):
+            if not runtime_and_process_stopped(runtime_file, port, pid):
                 raise RuntimeError("Bundled runtime did not shut down cleanly")
 
             # A missing packaged payload must fail even if this checkout has
@@ -220,14 +281,20 @@ def smoke() -> None:
                     port = int(remaining["port"])
                 except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
                     pass
-            if pid is not None and port is not None and not runtime_stopped(runtime_file, port):
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except OSError:
-                    pass
+            if pid is not None and port is not None and not runtime_and_process_stopped(runtime_file, port, pid):
+                if sys.platform.startswith("win"):
+                    subprocess.run(
+                        ["taskkill", "/T", "/F", "/PID", str(pid)],
+                        capture_output=True, timeout=10, check=False,
+                    )
+                else:
+                    try:
+                        os.kill(pid, signal.SIGTERM)
+                    except OSError:
+                        pass
                 runtime_file.unlink(missing_ok=True)
                 deadline = time.monotonic() + 10
-                while time.monotonic() < deadline and not runtime_stopped(runtime_file, port):
+                while time.monotonic() < deadline and not runtime_and_process_stopped(runtime_file, port, pid):
                     time.sleep(0.1)
             runtime_file.unlink(missing_ok=True)
 
