@@ -1,6 +1,7 @@
 """Codebook mutations keep keyboard focus when the sidebar is replaced."""
 
 import asyncio
+import sqlite3
 from urllib.parse import urlsplit
 
 import pytest
@@ -203,3 +204,69 @@ def test_typing_during_tree_reload_is_preserved(tmp_path, engine):
                     await browser.close()
 
         asyncio.run(exercise())
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_shortcut_does_not_use_stale_tree_after_failed_sidebar_reload(tmp_path, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    project = tmp_path / "failed-tree-reload.ace"
+    conn = create_project(project, "Failed tree reload")
+    coder_id = list_coders(conn)[0]["id"]
+    add_source(conn, "S1", "One sentence.", "row")
+    add_code(conn, "Alpha", "#336699")
+    conn.close()
+
+    app = create_app()
+    with TestClient(app, base_url="http://127.0.0.1:8080") as client:
+        app.state.project_path = str(project)
+        app.state.coder_id = coder_id
+        with sync_api.sync_playwright() as playwright:
+            browser = getattr(playwright, engine).launch()
+            try:
+                page = browser.new_page()
+                tree_requests = 0
+
+                def serve(route):
+                    nonlocal tree_requests
+                    request = route.request
+                    url = urlsplit(request.url)
+                    if url.path == "/api/codes/tree":
+                        tree_requests += 1
+                        if tree_requests == 2:
+                            route.fulfill(status=503, body="tree unavailable")
+                            return
+                    path = url.path + (f"?{url.query}" if url.query else "")
+                    headers = {
+                        key: value for key, value in request.headers.items()
+                        if key.lower() not in {"host", "content-length"}
+                    }
+                    response = client.request(
+                        request.method, path,
+                        content=request.post_data_buffer, headers=headers,
+                    )
+                    route.fulfill(
+                        status=response.status_code,
+                        headers=dict(response.headers),
+                        body=response.content,
+                    )
+
+                page.route("http://127.0.0.1:8080/**", serve)
+                page.goto("http://127.0.0.1:8080/code")
+                page.locator('.ace-ht-row[aria-label="Alpha"]').wait_for()
+                page.evaluate("""async () => {
+                    await htmx.ajax('POST', '/api/codes', {
+                        target: '#code-sidebar', swap: 'outerHTML',
+                        values: {name: 'Beta', current_index: 0}
+                    });
+                }""")
+                page.get_by_text("Could not load the preview.").wait_for()
+                page.locator(".ace-sentence").first.click()
+                page.keyboard.press("1")
+                page.wait_for_load_state("networkidle")
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT COUNT(*) FROM annotation WHERE deleted_at IS NULL"
+                    ).fetchone()[0] == 0
+            finally:
+                browser.close()

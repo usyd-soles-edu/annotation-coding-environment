@@ -81,6 +81,34 @@ def test_two_codebook_tabs_warn_until_one_closes(tmp_path, browser_name):
                 first.get_by_text("New folder", exact=True).wait_for()
                 assert warning.is_visible()
 
+                search = second.locator("#code-search-input")
+                search.fill("New folder")
+                with second.expect_response("**/api/codes/folder") as duplicate_folder:
+                    search.press("Shift+Enter")
+                assert "already exists" in duplicate_folder.value.text()
+                second.wait_for_function(
+                    "expected => document.querySelector('#ace-statusbar-event')?.textContent === expected",
+                    arg="A folder named 'New folder' already exists.",
+                )
+                assert second.locator("#text-panel").count() == 1
+                assert second.locator("#code-sidebar").count() == 1
+
+                first.evaluate("""() => htmx.ajax('POST', '/api/codes', {
+                    target: '#code-sidebar', swap: 'outerHTML',
+                    values: { name: 'New code', current_index: 0 }
+                })""")
+                first.get_by_text("New code", exact=True).wait_for()
+                search.fill("New code")
+                with second.expect_response("**/api/codes") as duplicate_code:
+                    search.press("Control+Enter")
+                assert "already exists" in duplicate_code.value.text()
+                second.wait_for_function(
+                    "expected => document.querySelector('#ace-statusbar-event')?.textContent === expected",
+                    arg="A code named 'New code' already exists.",
+                )
+                assert second.locator("#text-panel").count() == 1
+                assert second.locator("#code-sidebar").count() == 1
+
                 second.close()
                 first.reload()
                 warning.wait_for(state="hidden")
