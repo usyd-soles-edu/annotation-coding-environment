@@ -98,6 +98,37 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                 assert "ace-ht-row--path-parent" not in folder_a.get_attribute("class")
                 assert "ace-ht-row--path-parent" in folder_b.get_attribute("class")
 
+                beta.focus()
+                page.keyboard.press("Control+Home")
+                assert beta.get_attribute("tabindex") == "0"
+                page.keyboard.press("Control+ArrowRight")
+                assert page.evaluate(
+                    "document.getElementById('ace-headless-tree-mount').contains(document.activeElement)"
+                )
+
+                def wait_focused(item_id):
+                    page.wait_for_function(
+                        "id => document.querySelector(`.ace-ht-row[data-item-id='${id}']`)?.tabIndex === 0",
+                        arg=str(item_id),
+                        timeout=2000,
+                    )
+
+                page.keyboard.press("Home")
+                wait_focused(first_folder)
+                page.keyboard.press("End")
+                wait_focused(second_code)
+                page.keyboard.press("ArrowUp")
+                wait_focused(second_folder)
+                page.keyboard.press("ArrowDown")
+                wait_focused(second_code)
+                page.keyboard.press("ArrowRight")
+                page.wait_for_function(
+                    "!document.getElementById('ace-headless-tree-mount').contains(document.activeElement)",
+                    timeout=2000,
+                )
+                focus(second_code)
+                beta.focus()
+
                 search = page.locator("#code-search-input")
                 search.fill("Beta")
                 assert alpha.count() == 0

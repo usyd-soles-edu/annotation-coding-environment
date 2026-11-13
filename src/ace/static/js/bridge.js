@@ -4285,88 +4285,6 @@
       return;
     }
 
-    const items = _getTreeItems();
-    const idx = items.indexOf(active);
-    if (key === "ArrowRight" && !alt && !shift && !_isFolderRow(active)) {
-      e.preventDefault();
-      if (typeof window.aceCodingKeyboard?.returnToSource === "function") {
-        window.aceCodingKeyboard.returnToSource();
-      }
-      return;
-    }
-
-    const plainNavigationKey = !alt && !shift && !e.ctrlKey && !e.metaKey
-      && (key === "ArrowDown"
-          || key === "ArrowUp"
-          || key === "ArrowLeft"
-          || key === "ArrowRight"
-          || key === "Home"
-          || key === "End");
-    if (plainNavigationKey && active.classList.contains("ace-ht-row")) {
-      return;
-    }
-
-    // ↓ — Next visible treeitem
-    if (key === "ArrowDown" && !alt && !shift) {
-      e.preventDefault();
-      if (idx < items.length - 1) _focusTreeItem(items[idx + 1]);
-      return;
-    }
-
-    // ↑ — Previous visible treeitem
-    if (key === "ArrowUp" && !alt && !shift) {
-      e.preventDefault();
-      if (idx > 0) _focusTreeItem(items[idx - 1]);
-      return;
-    }
-
-    // → — Expand folder or move to first child
-    if (key === "ArrowRight" && !alt && !shift) {
-      e.preventDefault();
-      if (_isFolderRow(active)) {
-        if (active.getAttribute("aria-expanded") === "false") {
-          _expandFolder(active);
-        } else {
-          const firstChild = controller && typeof controller.firstChildOfFolderRow === "function"
-            ? controller.firstChildOfFolderRow(active)
-            : active.nextElementSibling?.querySelector?.('[role="treeitem"]');
-          if (firstChild) _focusTreeItem(firstChild);
-        }
-      }
-      return;
-    }
-
-    // ← — Collapse folder or move to parent folder
-    if (key === "ArrowLeft" && !alt && !shift) {
-      e.preventDefault();
-      if (_isFolderRow(active)) {
-        if (active.getAttribute("aria-expanded") === "true") {
-          _collapseFolder(active);
-        } else {
-          const parent = _parentFolderRow(active);
-          if (parent) _focusTreeItem(parent);
-        }
-      } else {
-        const folderRow = _parentFolderRow(active);
-        if (folderRow) _focusTreeItem(folderRow);
-      }
-      return;
-    }
-
-    // Home — First treeitem
-    if (key === "Home") {
-      e.preventDefault();
-      if (items.length > 0) _focusTreeItem(items[0]);
-      return;
-    }
-
-    // End — Last treeitem
-    if (key === "End") {
-      e.preventDefault();
-      if (items.length > 0) _focusTreeItem(items[items.length - 1]);
-      return;
-    }
-
     // Escape — Cancel pending cut state first; otherwise return to text panel.
     if (key === "Escape" && !alt && !shift) {
       if (!document.getElementById("text-panel")) return;
@@ -4417,23 +4335,6 @@
     try { sessionStorage.setItem("cv-restore-codebook-focus", "1"); } catch (_) {}
     window.location.href = `/code/${codeId}/view`;
   });
-
-  // --- Folder expand / collapse ---
-  //
-  // Folder rows are <div class="ace-code-folder-row" aria-expanded="\u2026"
-  function _expandFolder(folderRow) {
-    const controller = _getSidebarTreeController();
-    if (controller) {
-      controller.expandFolder(folderRow);
-    }
-  }
-
-  function _collapseFolder(folderRow) {
-    const controller = _getSidebarTreeController();
-    if (controller) {
-      controller.collapseFolder(folderRow);
-    }
-  }
 
   /* ================================================================
    * 17b. Coding text size
