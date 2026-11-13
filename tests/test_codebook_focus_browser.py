@@ -101,14 +101,97 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                 assert "ace-ht-row--path-parent" not in folder_a.get_attribute("class")
                 assert "ace-ht-row--path-parent" in folder_b.get_attribute("class")
 
+                beta.focus()
+                page.keyboard.press("Control+Home")
+                assert beta.get_attribute("tabindex") == "0"
+                page.keyboard.press("Control+ArrowRight")
+                assert page.evaluate(
+                    "document.getElementById('ace-headless-tree-mount').contains(document.activeElement)"
+                )
+
+                def wait_focused(item_id):
+                    page.wait_for_function(
+                        "id => document.querySelector(`.ace-ht-row[data-item-id='${id}']`)?.tabIndex === 0",
+                        arg=str(item_id),
+                        timeout=2000,
+                    )
+
+                page.keyboard.press("Home")
+                wait_focused(first_folder)
+                page.keyboard.press("End")
+                wait_focused(second_code)
+                page.keyboard.press("ArrowUp")
+                wait_focused(second_folder)
+                page.keyboard.press("ArrowDown")
+                wait_focused(second_code)
+                page.keyboard.press("ArrowRight")
+                page.wait_for_function(
+                    "!document.getElementById('ace-headless-tree-mount').contains(document.activeElement)",
+                    timeout=2000,
+                )
+                focus(second_folder)
+                folder_b.focus()
+                source_focus = page.evaluate("""() => {
+                    const press = key => {
+                        const target = document.activeElement;
+                        target.dispatchEvent(new KeyboardEvent('keydown', {
+                            key, bubbles: true, cancelable: true,
+                        }));
+                        target.dispatchEvent(new KeyboardEvent('keyup', {key, bubbles: true}));
+                    };
+                    press('ArrowDown');
+                    press('ArrowRight');
+                    return {
+                        activeId: document.activeElement?.id,
+                        focusedItemId: window.__aceHeadlessTreePreview.tree.getFocusedItem()?.getId(),
+                    };
+                }""")
+                assert source_focus == {
+                    "activeId": "text-panel",
+                    "focusedItemId": str(second_code),
+                }
+                page.wait_for_timeout(100)
+                assert page.evaluate("document.activeElement?.id") == "text-panel"
+                focus(first_folder)
+                folder_a.focus()
+                page.evaluate("""() => {
+                    const mount = document.getElementById('ace-headless-tree-mount');
+                    mount.style.cssText = 'height: 48px; flex: 0 0 48px; overflow: auto';
+                    mount.scrollTop = 0;
+                    mount.addEventListener('keydown', event => {
+                        if (event.key === 'End') event.preventDefault();
+                    }, {capture: true, once: true});
+                }""")
+                page.keyboard.press("End")
+                wait_focused(second_code)
+                assert page.evaluate(
+                    "document.getElementById('ace-headless-tree-mount').scrollTop"
+                ) > 0
+                page.evaluate("document.getElementById('ace-headless-tree-mount').removeAttribute('style')")
+                focus(second_code)
+                beta.focus()
+
                 search = page.locator("#code-search-input")
                 search.fill("Beta")
+                page.wait_for_function(
+                    "id => !document.querySelector(`.ace-ht-row[data-code-id='${id}']`)",
+                    arg=str(first_code),
+                    timeout=2000,
+                )
                 assert alpha.count() == 0
-                assert beta.locator(".ace-ht-chip").text_content() == "1"
+                page.wait_for_function(
+                    "id => document.querySelector(`.ace-ht-row[data-code-id='${id}'] .ace-ht-chip`)?.textContent === '1'",
+                    arg=str(second_code),
+                    timeout=2000,
+                )
                 assert beta.locator(".ace-ht-chip").get_attribute("title") == "Press 1 or Enter to apply Beta"
                 assert beta.get_attribute("aria-keyshortcuts") == "1 Shift+F10 ContextMenu"
                 search.fill("")
-                assert beta.locator(".ace-ht-chip").text_content() == "2"
+                page.wait_for_function(
+                    "id => document.querySelector(`.ace-ht-row[data-code-id='${id}'] .ace-ht-chip`)?.textContent === '2'",
+                    arg=str(second_code),
+                    timeout=2000,
+                )
                 assert beta.get_attribute("aria-keyshortcuts") == "2 Shift+F10 ContextMenu"
                 folder_a.locator(".ace-ht-toggle").click()
                 assert folder_a.get_attribute("aria-expanded") == "false"

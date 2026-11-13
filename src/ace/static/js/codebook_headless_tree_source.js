@@ -1396,6 +1396,20 @@ import {
     updateDndAnnouncement();
   }
 
+  const aceDomFocusFeature = {
+    key: "ace-dom-focus",
+    treeInstance: {
+      updateDomFocus: function ({ tree }) {
+        // The library defers this focus, which can pull it back into the tree
+        // after ArrowRight has returned the user to the source text.
+        if (!mountedElement?.isConnected ||
+            !mountedElement.contains(document.activeElement) ||
+            tree.getRenamingItem?.()) return;
+        tree.getFocusedItem?.()?.getElement?.()?.focus();
+      },
+    },
+  };
+
   function buildTree(focusedItemId) {
     tree = createTree({
       rootItemId: ROOT_ID,
@@ -1438,6 +1452,7 @@ import {
         dragAndDropFeature,
         keyboardDragAndDropFeature,
         renamingFeature,
+        aceDomFocusFeature,
       ],
     });
   }
