@@ -3167,6 +3167,13 @@
           current_index: currentIndex()
         });
       }
+      function moveItemToParent(itemId, parentId) {
+        if (!itemId || codebookEditingDisabled()) return;
+        return htmxSwap("PUT", `/api/codes/${itemId}/parent`, {
+          parent_id: formParentId(parentId),
+          current_index: currentIndex()
+        });
+      }
       document.addEventListener("htmx:afterRequest", function(event) {
         const detail = event.detail;
         if (!detail?.successful || detail.requestConfig?.path !== "/api/codes/cut-paste" || detail.requestConfig.parameters?.code_id !== cutItemId) return;
@@ -3234,6 +3241,7 @@
         },
         setCutItemId,
         pasteCutItem,
+        moveItemToParent,
         folderOptions,
         itemLabel,
         setCodeCounts,
