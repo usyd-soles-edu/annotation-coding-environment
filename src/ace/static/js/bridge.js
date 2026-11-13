@@ -70,15 +70,6 @@
     return _getSidebarTreeController().mutationValues(values);
   }
 
-  function _codebookMutationQueryString(values) {
-    const params = new URLSearchParams();
-    Object.entries(_codebookMutationValues(values)).forEach(([key, value]) => {
-      if (value === undefined || value === null || value === "") return;
-      params.set(key, value);
-    });
-    return params.toString();
-  }
-
   // Warn while another codebook page is open in this browser origin. A
   // per-document ID avoids sessionStorage IDs copied by Duplicate Tab.
   let _codebookTabChannel = null;
@@ -2469,20 +2460,6 @@
     _closeColourPopover();
   }
 
-  function _executeDelete(codeId) {
-    if (_denyCodebookEditing()) return;
-    // Route the response through HTMX so the OOB fragments carrying the [Z]
-    // undo affordance update the page. current_index goes in the URL — htmx.ajax's
-    // `values` ride in the request body for DELETE, but the route reads
-    // current_index via Query, so a body-borne value would be ignored.
-    const query = _codebookMutationQueryString({
-      current_index: window.__aceCurrentIndex || 0,
-    });
-    htmx.ajax("DELETE", `/api/codes/${codeId}?${query}`, {
-      ..._codebookMutationSwapOptions(),
-    });
-  }
-
   /* ================================================================
    * 14. Right-click context menu (Task 12)
    * ----------------------------------------------------------------
@@ -2499,7 +2476,7 @@
    * no nested floating panel \u2014 keeps positioning logic trivial.
    *
    * Each menu item delegates to existing helpers (`_startCodebookRename`,
-   * `_setCut`, `_openColourPopover`, `_executeDelete`, etc.) so behaviour
+   * `_setCut`, `_openColourPopover`, etc.) so behaviour
    * matches the keyboard gestures exactly: same API endpoints, same
    * undo entries.
    * ================================================================ */
@@ -2715,7 +2692,7 @@
     items.push({
       label: "Delete",
       shortcut: "\u232b",
-      handler: function () { _executeDelete(codeId); },
+      handler: function () { _getSidebarTreeController()?.deleteItemById(codeId); },
     });
     return items;
   }
@@ -2749,7 +2726,7 @@
       {
         label: "Delete folder",
         shortcut: "\u232b",
-        handler: function () { _executeDelete(folderId); },
+        handler: function () { _getSidebarTreeController()?.deleteItemById(folderId); },
       },
     ];
   }
@@ -2909,13 +2886,6 @@
     if (_codeApplicationDisabled()) return;
     _clearSearchFilter();
     _applyCode(codeId);
-  });
-
-  document.addEventListener("ace:delete-codebook-item", function (event) {
-    if (_denyCodebookEditing()) return;
-    const detail = event.detail || {};
-    if (!detail.itemId) return;
-    _executeDelete(detail.itemId);
   });
 
   // Code-chip click: apply code to focused sentence/selection
@@ -4312,19 +4282,6 @@
     if (key === "F2" && !alt && !shift) {
       e.preventDefault();
       _startCodebookRename(active);
-      return;
-    }
-
-    // Delete / Backspace — Soft-delete (acts immediately; status bar shows
-    // an inline [Z] undo keycap that's clickable for ~7 s). On a folder row
-    // this cascades to descendants in one transaction (children lifted to
-    // root by the undo handler). No confirm dialog per spec §8 — undo is
-    // the safety net.
-    if ((key === "Delete" || key === "Backspace") && !alt && !shift) {
-      e.preventDefault();
-      if (_denyCodebookEditing()) return;
-      const itemId = _itemIdFromTreeElement(active);
-      if (itemId) _executeDelete(itemId);
       return;
     }
 

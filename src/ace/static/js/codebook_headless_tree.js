@@ -2298,7 +2298,9 @@
         source,
         target: document.getElementById("text-panel") ? "#text-panel" : "#code-sidebar",
         swap: document.getElementById("text-panel") ? "outerHTML" : "none",
-        values: codebookMutationValues(values)
+        // DELETE carries its Query fields in the URL; adding them here would
+        // duplicate them because HTMX serialises DELETE values as URL params.
+        values: method === "DELETE" ? values : codebookMutationValues(values)
       });
     }
     let dragRequestSource = null;
@@ -2495,9 +2497,18 @@
     function deleteItem(item) {
       if (item.getId() === ROOT_ID) return;
       if (!confirmDelete(item)) return;
-      document.dispatchEvent(new CustomEvent("ace:delete-codebook-item", {
-        detail: { itemId: item.getId() }
-      }));
+      const query = new URLSearchParams();
+      Object.entries(codebookMutationValues({ current_index: currentIndex() })).forEach(function([key, value]) {
+        if (value !== void 0 && value !== null && value !== "") {
+          query.set(key, value);
+        }
+      });
+      htmxSwap("DELETE", `/api/codes/${item.getId()}?${query}`, {});
+    }
+    function deleteItemById(itemId) {
+      if (denyCodebookEditing(true)) return;
+      const item = itemId && tree?.getItemInstance(itemId);
+      if (item) deleteItem(item);
     }
     function requiresDeleteConfirmation(item) {
       if (!item || !isAuditMode()) return false;
@@ -3294,6 +3305,7 @@
         setCutItemId,
         pasteCutItem,
         moveItemToParent,
+        deleteItemById,
         folderOptions,
         itemLabel,
         syncCodeCounts,

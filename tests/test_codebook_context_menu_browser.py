@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from urllib.request import urlopen
 
 import pytest
@@ -113,6 +113,7 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
     coder_id = list_coders(conn)[0]["id"]
     alpha_id = add_code(conn, "Alpha", "#AA0000")
     add_code(conn, "Beta", "#00AA00")
+    gamma_id = add_code(conn, "Gamma", "#0000AA")
     add_folder(conn, "Group")
     add_annotation(conn, source_id, coder_id, alpha_id, 0, 3, "One")
     conn.close()
@@ -312,6 +313,49 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                 audit_palette.get_by_role("button").first.wait_for()
                 page.keyboard.press("Escape")
                 assert audit_row.evaluate("el => el === document.activeElement")
+                assert page.url == f"{base}/code/{alpha_id}/view"
+
+                audit_row.press("Shift+F10")
+                confirmations = []
+
+                def dismiss_delete(dialog):
+                    confirmations.append(dialog.message)
+                    dialog.dismiss()
+
+                page.once("dialog", dismiss_delete)
+                page.get_by_role("menuitem", name="Delete ⌫").click()
+                assert confirmations == ['Delete "Alpha"? You can undo this.']
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT deleted_at FROM codebook_code WHERE id = ?", (alpha_id,)
+                    ).fetchone()[0] is None
+
+                audit_row.focus()
+                page.once("dialog", dismiss_delete)
+                audit_row.press("Delete")
+                assert confirmations == ['Delete "Alpha"? You can undo this.'] * 2
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT deleted_at FROM codebook_code WHERE id = ?", (alpha_id,)
+                    ).fetchone()[0] is None
+
+                gamma_row = page.locator(f'.ace-ht-row[data-code-id="{gamma_id}"]')
+                gamma_row.press("Shift+F10")
+                with page.expect_response(
+                    lambda response: response.request.method == "DELETE"
+                    and urlsplit(response.url).path == f"/api/codes/{gamma_id}"
+                ) as deleted:
+                    page.get_by_role("menuitem", name="Delete ⌫").click()
+                assert deleted.value.ok
+                assert parse_qs(urlsplit(deleted.value.url).query) == {
+                    "current_index": ["0"],
+                    "codebook_mode": ["audit"],
+                    "current_code_id": [alpha_id],
+                }
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT deleted_at FROM codebook_code WHERE id = ?", (gamma_id,)
+                    ).fetchone()[0] is not None
                 assert page.url == f"{base}/code/{alpha_id}/view"
 
                 audit_row.press("Shift+F10")
