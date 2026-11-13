@@ -2038,48 +2038,11 @@
 
   // Patch per-row code-count chips from #ace-ann-data so annotation-only
   // updates don't need to re-render the full sidebar.
-  let _lastCodeCountPayload = "";
-  let _lastCodeCountPatchEl = null;
   function _syncCodeCounts() {
     const dataEl = document.getElementById("ace-ann-data");
     if (!dataEl) return;
-    if (dataEl.dataset.codePatchId) {
-      if (dataEl === _lastCodeCountPatchEl) return;
-      _lastCodeCountPatchEl = dataEl;
-      // The next full snapshot must be applied even if it matches the last
-      // snapshot seen before this patch (another tab may have undone it).
-      _lastCodeCountPayload = "";
-      const controller = _getSidebarTreeController();
-      if (controller && typeof controller.patchCodeCount === "function") {
-        controller.patchCodeCount(
-          dataEl.dataset.codePatchId, dataEl.dataset.codePatchCount
-        );
-      }
-      return;
-    }
-    const countPayload = dataEl.dataset.codeCounts || "";
-    if (!countPayload || countPayload === _lastCodeCountPayload) return;
-    let parsedCounts;
-    try {
-      parsedCounts = JSON.parse(countPayload);
-    } catch (_) {
-      return;
-    }
-    if (!parsedCounts || typeof parsedCounts !== "object" ||
-        Array.isArray(parsedCounts)) return;
-
     const controller = _getSidebarTreeController();
-    if (!controller || typeof controller.setCodeCounts !== "function") return;
-
-    // The server's global snapshot includes all sources. The annotations in
-    // this element are only the current source's highlight data.
-    const counts = new Map();
-    Object.entries(parsedCounts).forEach(function ([codeId, value]) {
-      const n = Number(value);
-      counts.set(String(codeId), Number.isFinite(n) ? n : 0);
-    });
-    controller.setCodeCounts(counts);
-    _lastCodeCountPayload = countPayload;
+    controller?.syncCodeCounts(dataEl);
   }
 
   // Re-bind sidebar event wiring after an HTMX swap replaces sidebar DOM.

@@ -116,6 +116,17 @@ def test_annotation_count_survives_focus_search_and_delete(tmp_path, engine):
                 assert count_state() == {"shown": "1", "cached": 1}
                 rerender_after(lambda: search.fill(""))
 
+                # A codebook mutation replaces the sidebar and reloads the
+                # tree while the project-wide count snapshot is unchanged.
+                page.evaluate("""async () => {
+                  await htmx.ajax('POST', '/api/codes', {
+                    target: '#code-sidebar', swap: 'outerHTML',
+                    values: {name: 'Gamma', current_index: 0}
+                  });
+                }""")
+                page.locator('.ace-ht-row[aria-label="Gamma"]').wait_for()
+                assert count_state() == {"shown": "1", "cached": 1}
+
                 annotation_id = page.locator("#ace-ann-data").evaluate(
                     "el => JSON.parse(el.dataset.annotations)[0].id"
                 )

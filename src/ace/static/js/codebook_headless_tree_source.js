@@ -1417,6 +1417,10 @@ import {
   }
 
   function createController() {
+    let lastCountPayload = "";
+    let lastCountPatchEl = null;
+    let lastCountGeneration = -1;
+
     function rootElement() {
       return mountedElement?.isConnected ? mountedElement : null;
     }
@@ -1610,6 +1614,41 @@ import {
       if (chip) chip.textContent = item.count ? String(item.count) : "";
     }
 
+    function syncCodeCounts(dataEl) {
+      if (dataEl.dataset.codePatchId) {
+        if (dataEl === lastCountPatchEl) return;
+        lastCountPatchEl = dataEl;
+        // A full snapshot must still apply after a patch, even when its
+        // payload matches the snapshot seen before the patch.
+        lastCountPayload = "";
+        patchCodeCount(dataEl.dataset.codePatchId, dataEl.dataset.codePatchCount);
+        return;
+      }
+
+      const payload = dataEl.dataset.codeCounts || "";
+      if (!payload || (payload === lastCountPayload &&
+          lastCountGeneration === initGeneration)) return;
+      let parsedCounts;
+      try {
+        parsedCounts = JSON.parse(payload);
+      } catch (_) {
+        return;
+      }
+      if (!parsedCounts || typeof parsedCounts !== "object" ||
+          Array.isArray(parsedCounts)) return;
+
+      // This snapshot covers all sources; this element's annotation data
+      // describes only the currently selected source.
+      const counts = new Map();
+      Object.entries(parsedCounts).forEach(function ([codeId, value]) {
+        const n = Number(value);
+        counts.set(String(codeId), Number.isFinite(n) ? n : 0);
+      });
+      setCodeCounts(counts);
+      lastCountPayload = payload;
+      lastCountGeneration = initGeneration;
+    }
+
     const api = {
       kind: "headless",
       refresh,
@@ -1644,8 +1683,7 @@ import {
       moveItemToParent,
       folderOptions,
       itemLabel,
-      setCodeCounts,
-      patchCodeCount,
+      syncCodeCounts,
       mutationContext: codebookMutationContext,
       mutationValues: codebookMutationValues,
     };
