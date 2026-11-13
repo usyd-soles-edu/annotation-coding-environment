@@ -1,6 +1,13 @@
 import argparse
+import errno
 import json
 import os
+
+
+_SAFE_MISSING_MODULES = frozenset({
+    "fastapi", "uvicorn", "jinja2", "jinja2_fragments", "multipart",
+    "openpyxl", "pysbd", "itsdangerous", "tkinter", "_tkinter",
+})
 
 
 def _startup_reason(error: BaseException) -> str:
@@ -16,6 +23,15 @@ def _startup_reason(error: BaseException) -> str:
     return "unexpected_error"
 
 
+def _startup_detail(error: BaseException) -> str | None:
+    """Keep only fixed, non-user-supplied details useful for support."""
+    if isinstance(error, ModuleNotFoundError) and error.name in _SAFE_MISSING_MODULES:
+        return error.name
+    if isinstance(error, OSError) and error.errno == errno.ENOSPC:
+        return "disk_full"
+    return None
+
+
 def _write_startup_report(path: str | None, stage: str, error: BaseException) -> None:
     """Write only fixed diagnostic codes to a launcher-owned temporary file."""
     if not path:
@@ -24,7 +40,11 @@ def _write_startup_report(path: str | None, stage: str, error: BaseException) ->
         flags = os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
         descriptor = os.open(path, flags)
         with os.fdopen(descriptor, "w", encoding="utf-8") as report:
-            json.dump({"stage": stage, "reason": _startup_reason(error)}, report)
+            data = {"stage": stage, "reason": _startup_reason(error)}
+            detail = _startup_detail(error)
+            if detail is not None:
+                data["detail"] = detail
+            json.dump(data, report)
     except OSError:
         # The launcher may have removed the file after successful readiness.
         pass

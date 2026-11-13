@@ -46,6 +46,7 @@ struct LaunchedServer {
 struct StartupReport {
     stage: String,
     reason: String,
+    detail: Option<String>,
 }
 
 struct StartupLock {
@@ -131,7 +132,17 @@ fn startup_report_detail(bytes: &[u8]) -> Option<String> {
         "unexpected_error" => "unexpected error",
         _ => return None,
     };
-    Some(format!("server failed while {stage}: {reason}"))
+    let detail = match (report.reason.as_str(), report.detail.as_deref()) {
+        ("missing_dependency", Some(module))
+            if matches!(
+                module,
+                "fastapi" | "uvicorn" | "jinja2" | "jinja2_fragments" | "multipart"
+                    | "openpyxl" | "pysbd" | "itsdangerous" | "tkinter" | "_tkinter"
+            ) => format!(" ({module})"),
+        ("os_error", Some("disk_full")) => " (disk full)".to_string(),
+        _ => String::new(),
+    };
+    Some(format!("server failed while {stage}: {reason}{detail}"))
 }
 
 fn show_startup_error(message: &str) {
@@ -880,6 +891,18 @@ mod tests {
         let report = br#"{"stage":"import","reason":"missing_dependency","private":"SECRET"}"#;
         assert_eq!(
             startup_report_detail(report).as_deref(),
+            Some("server failed while loading application code: missing packaged dependency"),
+        );
+        assert_eq!(
+            startup_report_detail(br#"{"stage":"import","reason":"missing_dependency","detail":"fastapi"}"#).as_deref(),
+            Some("server failed while loading application code: missing packaged dependency (fastapi)"),
+        );
+        assert_eq!(
+            startup_report_detail(br#"{"stage":"serve","reason":"os_error","detail":"disk_full"}"#).as_deref(),
+            Some("server failed while starting the server: operating system error (disk full)"),
+        );
+        assert_eq!(
+            startup_report_detail(br#"{"stage":"import","reason":"missing_dependency","detail":"SECRET"}"#).as_deref(),
             Some("server failed while loading application code: missing packaged dependency"),
         );
         assert!(startup_report_detail(br#"{"stage":"SECRET","reason":"os_error"}"#).is_none());
