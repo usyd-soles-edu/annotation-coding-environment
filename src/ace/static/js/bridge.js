@@ -4255,29 +4255,6 @@
       return;
     }
 
-    // Enter — Apply focused code to current sentence, return focus to text panel
-    if (key === "Enter" && !alt && !shift) {
-      e.preventDefault();
-      if (!_isFolderRow(active)) {
-        const codeId3 = _itemIdFromTreeElement(active);
-        if (codeId3) {
-          _clearSearchFilter();
-          const applied = _applyCode(codeId3);
-          if (applied && typeof applied.then === "function") {
-            applied.then(function () {
-              window.aceCodingKeyboard?.returnToSource?.();
-            });
-          } else if (applied) {
-            window.aceCodingKeyboard?.returnToSource?.();
-          }
-        }
-      } else {
-        // On a folder row: toggle expand/collapse
-        _toggleFolderCollapse(active);
-      }
-      return;
-    }
-
     // F2 — Rename through the shared tree controller.
     if (key === "F2" && !alt && !shift) {
       e.preventDefault();
