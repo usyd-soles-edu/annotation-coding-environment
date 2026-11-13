@@ -139,13 +139,21 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                 page.goto(base + "/code")
                 row = page.locator(f'.ace-ht-row[data-code-id="{alpha_id}"]')
                 row.wait_for()
+                mount = page.locator("#ace-headless-tree-mount")
+                assert mount.get_attribute("data-codebook-readonly") is None
+                mount.evaluate("el => el.dataset.codebookMode = 'readonly'")
+                row.click(button="right")
+                menu = page.get_by_role("menu", name="Codebook actions")
+                assert menu.get_by_role("menuitem").count() == 1
+                menu.get_by_role("menuitem", name="View coded text V").wait_for()
+                page.keyboard.press("Escape")
+                mount.evaluate("el => el.dataset.codebookMode = 'coding'")
                 assert row.get_attribute("aria-haspopup") == "menu"
                 shortcuts = row.get_attribute("aria-keyshortcuts")
                 assert "Shift+F10" in shortcuts and "ContextMenu" in shortcuts
 
                 row.focus()
                 row.press("Shift+F10")
-                menu = page.get_by_role("menu", name="Codebook actions")
                 menu.wait_for()
                 first = menu.get_by_role("menuitem", name="Move to folder")
                 assert first.evaluate("el => el === document.activeElement")
