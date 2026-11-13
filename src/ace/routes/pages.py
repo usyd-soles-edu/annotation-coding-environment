@@ -30,6 +30,7 @@ from ace.models.source import (
 from ace.models.source_note import get_note, source_ids_with_notes
 from ace.routes.api_project_import import _clear_folder_import_manifests
 from ace.services.coding_context_cache import CodingContextCache
+from ace.services.shared_recent_project import remember_recent_project
 
 router = APIRouter()
 
@@ -348,6 +349,7 @@ async def coding_page(
         if coders:
             request.app.state.coder_id = coders[0]["id"]
         request.app.state.active_projects.add(str(open_path))
+        remember_recent_project(request, str(open_path))
 
     project_path: str | None = getattr(request.app.state, "project_path", None)
     if project_path is None or not Path(project_path).exists():

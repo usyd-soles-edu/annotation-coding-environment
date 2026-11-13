@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from typing import Literal
 from urllib.parse import quote
+import sqlite3
 
 from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, Field
 
 from ace.services.browser_runtime import BrowserSessionTracker
+from ace.services.shared_recent_project import SharedRecentProjectStore
 
 router = APIRouter()
 
@@ -47,6 +51,51 @@ def _authenticated(request: Request) -> bool:
 def _require_launcher_session(request: Request) -> None:
     if _runtime_enabled(request) and not _session_authenticated(request):
         raise HTTPException(status_code=403)
+
+
+class RecentProjectChange(BaseModel):
+    action: Literal["set", "migrate", "remove", "clear"]
+    path: str = Field(default="", max_length=32768)
+    opened_at: int = Field(default=0, ge=0, le=2**63 - 1)
+
+
+def _recent_store(request: Request) -> SharedRecentProjectStore | None:
+    _require_launcher_session(request)
+    return getattr(request.app.state, "shared_recent_project_store", None)
+
+
+@router.get("/api/runtime/recent-project")
+def recent_project(request: Request):
+    store = _recent_store(request)
+    if store is None:
+        return {"enabled": False, "recent": None}
+    try:
+        return {"enabled": True, "recent": store.read()}
+    except (OSError, sqlite3.Error):
+        raise HTTPException(status_code=503, detail="Recent project history unavailable") from None
+
+
+@router.post("/api/runtime/recent-project")
+def change_recent_project(request: Request, change: RecentProjectChange):
+    store = _recent_store(request)
+    if store is None:
+        return {"enabled": False, "recent": None}
+    try:
+        if change.action == "set":
+            store.set(change.path)
+        elif change.action == "migrate":
+            store.migrate(change.path, opened_at=change.opened_at)
+        elif change.action == "remove":
+            if not change.path:
+                raise ValueError("Invalid recent project path")
+            store.clear(if_path=change.path)
+        else:
+            store.clear()
+        return {"enabled": True, "recent": store.read()}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid recent project path") from None
+    except (OSError, sqlite3.Error):
+        raise HTTPException(status_code=503, detail="Recent project history unavailable") from None
 
 
 @router.get("/launch")

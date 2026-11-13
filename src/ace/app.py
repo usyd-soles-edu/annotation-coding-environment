@@ -30,6 +30,7 @@ from ace.services.browser_runtime import (
     BrowserSessionTracker,
 )
 from ace.services.coding_context_cache import CodingContextCache
+from ace.services.shared_recent_project import SharedRecentProjectStore
 
 _DATA_DIR = Path.home() / ".ace"
 _PKG_DIR = Path(__file__).parent
@@ -320,6 +321,12 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.active_projects = set()
     app.state.coding_context_cache = CodingContextCache()
     app.state.browser_runtime_config = _runtime_config_from_env()
+    runtime_file = app.state.browser_runtime_config.runtime_file
+    app.state.shared_recent_project_store = (
+        SharedRecentProjectStore(runtime_file)
+        if app.state.browser_runtime_config.enabled and runtime_file is not None
+        else None
+    )
     app.state.browser_runtime = None
     app.state.browser_runtime_monitor = None
     app.state.browser_runtime_shutdown = runtime_shutdown

@@ -18,6 +18,10 @@ ACE does not upload project data automatically, but you still need to follow you
 
 ACE is designed for small teams, but it does not provide real-time collaborative editing. In most workflows, coders work on separate project files and then compare agreement.
 
+## How does Quick resume work across desktop windows?
+
+ACE keeps the most recently opened project in a per-user history shared by desktop windows, even when they use different local ports. If two windows open projects at once, the last successful open becomes Quick resume. On first use after updating, ACE imports an older browser Quick resume entry only if no shared choice has been made; clearing Quick resume prevents another window from restoring an older entry. If the shared history is unavailable, that window uses its browser history until the shared history is available again.
+
 ## Why do agreement results differ between codes?
 
 Agreement depends on how often a code is used, how clearly it is defined, and how similarly coders apply it. Low agreement is often a prompt to review the code definition and examples.

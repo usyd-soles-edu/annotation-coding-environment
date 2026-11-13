@@ -26,6 +26,7 @@ from fastapi.responses import (
     JSONResponse,
     Response,
 )
+from ace.services.shared_recent_project import remember_recent_project
 
 if TYPE_CHECKING:
     from ace.services.importer import FolderImportManifest, FolderImportPreview
@@ -395,6 +396,7 @@ async def project_create(
         if coder_id:
             request.app.state.coder_id = coder_id
         request.app.state.active_projects.add(project_path)
+        remember_recent_project(request, project_path)
 
         return Response(
             status_code=200,
@@ -451,6 +453,7 @@ async def project_open(request: Request, path: str = Form(...)):
     if coder_id:
         request.app.state.coder_id = coder_id
     request.app.state.active_projects.add(str(file_path))
+    remember_recent_project(request, str(file_path))
 
     redirect = "/code" if sources else "/import"
     return Response(
