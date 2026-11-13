@@ -4069,14 +4069,23 @@
     const activeRoot = controller && typeof controller.rootElement === "function"
       ? controller.rootElement()
       : null;
-    if (!activeRoot || !activeRoot.contains(document.activeElement)) return;
-    const active = document.activeElement;
+    if (!activeRoot || !activeRoot.contains(e.target)) return;
+    const active = e.target;
     if (!active || active.getAttribute("role") !== "treeitem") return;
     if (active.querySelector('[contenteditable="true"]')) return;
 
     const key = e.key;
     const alt = e.altKey;
     const shift = e.shiftKey;
+    const ownedArrow = alt && (
+      (shift && (key === "ArrowUp" || key === "ArrowDown" || key === "ArrowRight"))
+      || (!shift && (key === "ArrowRight" || key === "ArrowLeft"))
+    );
+    // The tree may have moved focus while this event bubbled. The command
+    // belongs to the row that received the key, so restore that row first.
+    if (ownedArrow && active !== document.activeElement) {
+      _focusTreeItem(active, { activate: false });
+    }
 
     // Alt+Shift+↑/↓ — Reorder the focused code or folder.
     if ((key === "ArrowUp" || key === "ArrowDown") && alt && shift) {
