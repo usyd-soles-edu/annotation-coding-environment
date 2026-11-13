@@ -1420,6 +1420,7 @@ import {
     let lastCountPayload = "";
     let lastCountPatchEl = null;
     let lastCountGeneration = -1;
+    let pendingCountReload = null;
 
     function rootElement() {
       return mountedElement?.isConnected ? mountedElement : null;
@@ -1621,6 +1622,9 @@ import {
         // A full snapshot must still apply after a patch, even when its
         // payload matches the snapshot seen before the patch.
         lastCountPayload = "";
+        pendingCountReload?.patches.set(
+          dataEl.dataset.codePatchId, dataEl.dataset.codePatchCount
+        );
         patchCodeCount(dataEl.dataset.codePatchId, dataEl.dataset.codePatchCount);
         return;
       }
@@ -1645,8 +1649,27 @@ import {
         counts.set(String(codeId), Number.isFinite(n) ? n : 0);
       });
       setCodeCounts(counts);
+      if (pendingCountReload) {
+        pendingCountReload.snapshot = counts;
+        pendingCountReload.patches.clear();
+      }
       lastCountPayload = payload;
       lastCountGeneration = initGeneration;
+    }
+
+    function beginCountReload(generation) {
+      pendingCountReload = { generation, snapshot: null, patches: new Map() };
+    }
+
+    function finishCountReload(generation, apply) {
+      const pending = pendingCountReload;
+      if (!pending || pending.generation !== generation) return;
+      pendingCountReload = null;
+      if (!apply) return;
+      if (pending.snapshot) setCodeCounts(pending.snapshot);
+      pending.patches.forEach(function (count, id) {
+        patchCodeCount(id, count);
+      });
     }
 
     const api = {
@@ -1684,6 +1707,8 @@ import {
       folderOptions,
       itemLabel,
       syncCodeCounts,
+      beginCountReload,
+      finishCountReload,
       mutationContext: codebookMutationContext,
       mutationValues: codebookMutationValues,
     };
@@ -1698,6 +1723,7 @@ import {
     if (!mount) return;
     if (mount === mountedElement && tree) return;
     const generation = ++initGeneration;
+    controller.beginCountReload(generation);
     const fetchStartedVersion = reorderResolutionVersion;
     const restore = pendingSidebarState;
     mountedElement = mount;
@@ -1717,6 +1743,7 @@ import {
       }
       items = payload.items || {};
       reconcileFetchedReorders(fetchStartedVersion);
+      controller.finishCountReload(generation, true);
       searchRaw = search?.value.trim() || "";
       searchText = searchRaw.toLowerCase();
       buildTree(restore?.zone === "tree" ? restore.itemId : null);
@@ -1749,6 +1776,7 @@ import {
         },
       };
     } catch (error) {
+      controller.finishCountReload(generation, false);
       setStatus("Unavailable");
       mount.textContent = "Could not load the preview.";
       window.__aceHeadlessTreePreviewError = String(error && error.message || error);

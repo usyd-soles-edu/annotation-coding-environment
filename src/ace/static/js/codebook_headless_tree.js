@@ -3043,6 +3043,7 @@
       let lastCountPayload = "";
       let lastCountPatchEl = null;
       let lastCountGeneration = -1;
+      let pendingCountReload = null;
       function rootElement() {
         return mountedElement?.isConnected ? mountedElement : null;
       }
@@ -3210,6 +3211,10 @@
           if (dataEl === lastCountPatchEl) return;
           lastCountPatchEl = dataEl;
           lastCountPayload = "";
+          pendingCountReload?.patches.set(
+            dataEl.dataset.codePatchId,
+            dataEl.dataset.codePatchCount
+          );
           patchCodeCount(dataEl.dataset.codePatchId, dataEl.dataset.codePatchCount);
           return;
         }
@@ -3228,8 +3233,25 @@
           counts.set(String(codeId), Number.isFinite(n) ? n : 0);
         });
         setCodeCounts(counts);
+        if (pendingCountReload) {
+          pendingCountReload.snapshot = counts;
+          pendingCountReload.patches.clear();
+        }
         lastCountPayload = payload;
         lastCountGeneration = initGeneration;
+      }
+      function beginCountReload(generation) {
+        pendingCountReload = { generation, snapshot: null, patches: /* @__PURE__ */ new Map() };
+      }
+      function finishCountReload(generation, apply) {
+        const pending = pendingCountReload;
+        if (!pending || pending.generation !== generation) return;
+        pendingCountReload = null;
+        if (!apply) return;
+        if (pending.snapshot) setCodeCounts(pending.snapshot);
+        pending.patches.forEach(function(count, id) {
+          patchCodeCount(id, count);
+        });
       }
       const api = {
         kind: "headless",
@@ -3274,6 +3296,8 @@
         folderOptions,
         itemLabel,
         syncCodeCounts,
+        beginCountReload,
+        finishCountReload,
         mutationContext: codebookMutationContext,
         mutationValues: codebookMutationValues
       };
@@ -3285,6 +3309,7 @@
       if (!mount) return;
       if (mount === mountedElement && tree) return;
       const generation = ++initGeneration;
+      controller.beginCountReload(generation);
       const fetchStartedVersion = reorderResolutionVersion;
       const restore = pendingSidebarState;
       mountedElement = mount;
@@ -3304,6 +3329,7 @@
         }
         items = payload.items || {};
         reconcileFetchedReorders(fetchStartedVersion);
+        controller.finishCountReload(generation, true);
         searchRaw = search?.value.trim() || "";
         searchText = searchRaw.toLowerCase();
         buildTree(restore?.zone === "tree" ? restore.itemId : null);
@@ -3348,6 +3374,7 @@
           }
         };
       } catch (error) {
+        controller.finishCountReload(generation, false);
         setStatus("Unavailable");
         mount.textContent = "Could not load the preview.";
         window.__aceHeadlessTreePreviewError = String(error && error.message || error);
