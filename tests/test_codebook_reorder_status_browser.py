@@ -497,8 +497,13 @@ def test_reorder_reconciles_after_sidebar_rebuild(reorder_server):
                 await page.locator(f'.ace-ht-row[data-code-id="{first}"]').get_by_text("Renamed").wait_for()
                 assert _stored_order(project) == [first, second]
                 release_reorder.set()
+                # The save status can clear before the tree reload reconciles
+                # a sidebar rebuilt during the pending request.
                 await page.wait_for_function(
-                    "document.querySelector('[data-headless-tree-status]')?.textContent === ''"
+                    """expected => document.querySelector('[data-headless-tree-status]')?.textContent === '' &&
+                        [...document.querySelectorAll('#ace-headless-tree-mount .ace-ht-row[data-code-id]')]
+                          .map(row => row.dataset.codeId).join(',') === expected.join(',')""",
+                    arg=[str(second), str(first)],
                 )
                 assert _stored_order(project) == [second, first]
                 assert await page.locator(
