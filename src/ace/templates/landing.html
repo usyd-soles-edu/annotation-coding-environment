@@ -293,7 +293,8 @@
   });
 
   // --- Init ---
-  renderResume();
+  window.addEventListener("ace:recents-changed", renderResume);
+  Promise.resolve(window.ACE_RECENTS && window.ACE_RECENTS.ready).then(renderResume);
 })();
 </script>
 {% endblock %}

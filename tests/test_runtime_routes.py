@@ -1,5 +1,6 @@
 import json
 import os
+from contextlib import ExitStack
 from unittest.mock import patch
 from urllib.parse import quote
 
@@ -7,6 +8,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ace.app import create_app
+from ace.db.connection import create_project
+from ace.services.shared_recent_project import SharedRecentProjectStore
 
 
 _RUNTIME_ENV = {
@@ -213,3 +216,89 @@ def test_two_runtimes_keep_independent_browser_sessions():
                 assert client.post("/api/runtime/disconnect", data={"tab_id": tab}).status_code == 200
                 assert client.post("/api/runtime/quit").status_code == 200
     assert shutdowns == ["a", "b"]
+
+
+def test_shared_recent_project_is_private_and_survives_runtime_ports(tmp_path):
+    env_a = {
+        "ACE_LAUNCHER_TOKEN": "token-a",
+        "ACE_RUNTIME_FILE": str(tmp_path / "runtime-a.json"),
+    }
+    env_b = {
+        "ACE_LAUNCHER_TOKEN": "token-b",
+        "ACE_RUNTIME_FILE": str(tmp_path / "runtime-b.json"),
+    }
+    with ExitStack() as stack:
+        with patch.dict(os.environ, env_a, clear=False):
+            a = stack.enter_context(TestClient(
+                create_app(), base_url="http://127.0.0.1:18101"
+            ))
+        with patch.dict(os.environ, env_b, clear=False):
+            b = stack.enter_context(TestClient(
+                create_app(), base_url="http://127.0.0.1:18102"
+            ))
+        endpoint = "/api/runtime/recent-project"
+        assert a.get(endpoint).status_code == 403
+        assert b.post(endpoint, json={"action": "set", "path": "/private.ace"}).status_code == 403
+        assert a.get("/launch?token=token-a", follow_redirects=False).status_code == 302
+        assert b.get("/launch?token=token-b", follow_redirects=False).status_code == 302
+
+        assert a.post(endpoint, json={
+            "action": "migrate", "path": "/old.ace", "opened_at": 123,
+        }).json()["recent"] == {"path": "/old.ace", "openedAt": 123}
+        assert b.get(endpoint).json()["recent"]["path"] == "/old.ace"
+        assert b.post(endpoint, json={
+            "action": "set", "path": "/new.ace", "revision": 1,
+        }).status_code == 200
+        assert a.get(endpoint).json()["recent"]["path"] == "/new.ace"
+        assert a.post(endpoint, json={
+            "action": "remove", "path": "/old.ace", "revision": 2,
+        }).json()[
+            "recent"
+        ]["path"] == "/new.ace"
+        assert b.post(endpoint, json={"action": "clear", "revision": 2}).json()[
+            "recent"
+        ] is None
+        assert a.post(endpoint, json={
+            "action": "migrate", "path": "/stale.ace",
+        }).json()["recent"] is None
+        assert a.post(endpoint, json={
+            "action": "set", "path": "", "revision": 3,
+        }).status_code == 400
+
+        project = tmp_path / "opened.ace"
+        conn = create_project(str(project), "Opened")
+        conn.close()
+        opened = a.post("/api/project/open", data={"path": str(project)})
+        assert opened.headers["HX-Redirect"] == "/import"
+        assert b.get(endpoint).json()["recent"]["path"] == str(project)
+
+        created = tmp_path / "created.ace"
+        result = b.post("/api/project/create", data={"name": "Created", "path": str(created)})
+        assert result.headers["HX-Redirect"] == "/import"
+        assert a.get(endpoint).json()["recent"]["path"] == str(created)
+
+        direct = a.get(f"/code?open={quote(str(project), safe='')}")
+        assert direct.status_code == 200
+        assert b.get(endpoint).json()["recent"]["path"] == str(project)
+
+
+def test_recent_project_store_keeps_clear_tombstone_across_instances(tmp_path):
+    first = SharedRecentProjectStore(tmp_path / "runtime-a.json")
+    second = SharedRecentProjectStore(tmp_path / "runtime-b.json")
+    first.migrate("/old.ace", opened_at=10)
+    assert second.read() == {"path": "/old.ace", "openedAt": 10}
+    second.clear()
+    first.migrate("/older-port.ace", opened_at=20)
+    assert first.read() is None
+    first.set("/chosen.ace", opened_at=30)
+    assert second.read() == {"path": "/chosen.ace", "openedAt": 30}
+
+
+def test_stale_retry_cannot_clear_a_newer_project_from_another_port(tmp_path):
+    first = SharedRecentProjectStore(tmp_path / "runtime-a.json")
+    second = SharedRecentProjectStore(tmp_path / "runtime-b.json")
+    first.set("/old.ace")
+    stale_revision = first.snapshot()["revision"]
+    second.set("/new.ace")
+    assert first.clear(expected_revision=stale_revision)["applied"] is False
+    assert first.read()["path"] == "/new.ace"
