@@ -1870,6 +1870,12 @@
     function folderIds() {
       return Object.values(items).filter((item) => item.kind === "folder" && item.id !== ROOT_ID).map((item) => item.id);
     }
+    function folderOptions() {
+      return childrenOf(ROOT_ID).filter((id) => itemData(id)?.kind === "folder").map((id) => ({ id, name: itemData(id).name || "(folder)" }));
+    }
+    function itemLabel(id) {
+      return itemData(id)?.name || "";
+    }
     function keyLabel(index) {
       const labels = [];
       for (let n = 1; n <= 9; n += 1) labels.push(String(n));
@@ -3217,6 +3223,8 @@
         },
         setCutItemId,
         pasteCutItem,
+        folderOptions,
+        itemLabel,
         setCodeCounts,
         patchCodeCount,
         mutationContext: codebookMutationContext,
