@@ -9,11 +9,15 @@
 </script>
 <script>
   // Resume this project's last viewed source unless an index is explicit.
-  if (!new URLSearchParams(window.location.search).has("index")) {
-    var saved = localStorage.getItem({{ source_index_storage_key|tojson }});
+  if (!{{ source_position_from_store|tojson }} &&
+      !new URLSearchParams(window.location.search).has("index")) {
+    var saved = null;
+    try { saved = localStorage.getItem({{ source_index_storage_key|tojson }}); }
+    catch (_) {}
     if (saved && parseInt(saved, 10) > 0) {
       var params = new URLSearchParams(window.location.search);
       params.set("index", saved);
+      params.set("legacy_resume", "1");
       window.location.replace("/code?" + params.toString());
     }
   }
@@ -429,10 +433,44 @@ rect.ace-flash-{{ code["id"] }} {
   window.__aceColourPalette = {{ colour_palette | tojson }};
   window.__aceLastCodeId = null;
   // Save this project's current index for resume on return
-  localStorage.setItem(
-    {{ source_index_storage_key|tojson }},
-    {{ current_index|tojson }}
-  );
+  try {
+    localStorage.setItem(
+      {{ source_index_storage_key|tojson }},
+      {{ current_index|tojson }}
+    );
+  } catch (_) {}
+  (function () {
+    const enabled = {{ source_position_enabled|tojson }};
+    const projectKey = {{ source_position_key|tojson }};
+    const currentIndex = {{ current_index|tojson }};
+    const legacyResume = {{ source_position_legacy_resume|tojson }};
+    if (legacyResume) {
+      const params = new URLSearchParams(window.location.search);
+      params.delete("legacy_resume");
+      params.set("index", String(currentIndex));
+      history.replaceState({}, "", "/code?" + params.toString());
+    }
+    if (enabled && legacyResume && !{{ source_position_has_record|tojson }}) {
+      fetch("/api/runtime/source-position", {
+        method: "POST",
+        credentials: "same-origin",
+        keepalive: true,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_key: projectKey,
+          source_index: currentIndex,
+          migrate: true,
+        }),
+      }).then(function (response) {
+        if (!response.ok) throw new Error("Source position unavailable");
+        return response.json();
+      }).then(function (result) {
+        if (!result.applied && window.__aceCurrentIndex === currentIndex) {
+          window.location.replace("/code");
+        }
+      }).catch(() => {});
+    }
+  })();
   // Kick off the client-rendered source grid once bridge.js is available
   document.addEventListener("DOMContentLoaded", function () {
     if (typeof window._aceRenderSourceGrid === "function") {

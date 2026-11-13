@@ -3,6 +3,7 @@
 import html
 import hashlib
 import json
+import logging
 import sqlite3
 from pathlib import Path
 
@@ -32,8 +33,10 @@ from ace.routes.api_project_import import _clear_folder_import_manifests
 from ace.services.coding_context_cache import CodingContextCache
 from ace.services.shared_recent_project import remember_recent_project
 from ace.services.shared_preferences import preferences_for_request
+from ace.services.shared_source_position import position_key, remember_source_position
 
 router = APIRouter()
+_LOG = logging.getLogger(__name__)
 
 
 def _sources_snapshot_version(sources_json: list[dict]) -> str:
@@ -227,7 +230,10 @@ def _global_coding_context(
     return {
         "project_name": project["name"],
         "project_file_stem": project_file_stem,
-        "source_index_storage_key": f"ace-source-index:{project['id']}",
+        "source_index_storage_key": (
+            f"ace-source-index:{position_key(project_path, project['id'], coder_id)}"
+            if project_path else f"ace-source-index:{project['id']}"
+        ),
         "total_sources": total_sources,
         "colour_palette": [hex_val for hex_val, _label in COLOUR_PALETTE],
         "annotation_counts": annotation_counts,
@@ -324,9 +330,10 @@ async def agreement_page(request: Request):
 @router.get("/code", response_class=HTMLResponse)
 async def coding_page(
     request: Request,
-    index: int = Query(default=0),
+    index: int | None = Query(default=None),
     open_path: str | None = Query(default=None, alias="open"),
     note: int = Query(default=0),
+    legacy_resume: bool = Query(default=False),
 ):
     # Launcher/browser file association: open a project before rendering the coding page
     if open_path:
@@ -367,10 +374,50 @@ async def coding_page(
         if not sources:
             raise HtmxRedirect("/import")
 
+        global_context = _global_coding_context(conn, coder_id, project_path)
+        key = position_key(project_path, get_project(conn)["id"], coder_id)
+        store = getattr(request.app.state, "shared_source_position_store", None)
+        shared_enabled = store is not None and request.session.get(
+            "ace_launcher_authenticated"
+        ) is True
+        saved_position = None
+        if shared_enabled:
+            try:
+                saved_position = store.read(key)
+            except (OSError, sqlite3.Error):
+                _LOG.warning("Could not read shared source position")
+                shared_enabled = False
+        saved_index = next(
+            (i for i, row in enumerate(global_context["assignments"])
+             if saved_position and row["source_id"] == saved_position["source_id"]),
+            None,
+        )
+        requested_index = (
+            saved_index if legacy_resume and saved_index is not None
+            else 0 if legacy_resume and saved_position is not None
+            else index if index is not None
+            else saved_index if saved_index is not None
+            else 0
+        )
         context = _coding_context(
-            conn, coder_id, index, project_path=project_path,
+            conn, coder_id, requested_index, project_path=project_path,
+            global_context=global_context,
             sentence_cache=request.app.state.coding_context_cache,
         )
+        context["source_position_key"] = key
+        context["source_position_enabled"] = shared_enabled
+        context["source_position_has_record"] = saved_position is not None
+        context["source_position_from_store"] = (
+            (index is None or legacy_resume) and saved_position is not None
+        )
+        context["source_position_legacy_resume"] = legacy_resume
+        if shared_enabled and context["current_source"] is not None:
+            if (index is not None and not legacy_resume) or (
+                saved_position is not None and saved_index is None
+            ):
+                remember_source_position(
+                    request, conn, coder_id, context["current_source"]["id"]
+                )
         context["open_note_drawer"] = bool(note)
         context["codebook_mode"] = "coding"
         context["shared_preferences"] = preferences_for_request(request)

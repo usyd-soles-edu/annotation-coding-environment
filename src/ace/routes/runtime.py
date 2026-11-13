@@ -10,9 +10,13 @@ from fastapi import APIRouter, BackgroundTasks, Form, HTTPException, Query, Requ
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
+from ace.db.connection import open_project
+from ace.models.assignment import get_assignments_for_coder
+from ace.models.project import get_project
 from ace.services.browser_runtime import BrowserSessionTracker
 from ace.services.shared_recent_project import SharedRecentProjectStore
 from ace.services.shared_preferences import SharedPreferencesStore
+from ace.services.shared_source_position import SharedSourcePositionStore, position_key
 
 router = APIRouter()
 
@@ -59,6 +63,12 @@ class RecentProjectChange(BaseModel):
     path: str = Field(default="", max_length=32768)
     opened_at: int = Field(default=0, ge=0, le=2**63 - 1)
     revision: int | None = Field(default=None, ge=0)
+
+
+class SourcePositionChange(BaseModel):
+    project_key: str = Field(min_length=64, max_length=64)
+    source_index: int = Field(ge=0)
+    migrate: bool = False
 
 
 def _recent_store(request: Request) -> SharedRecentProjectStore | None:
@@ -146,6 +156,43 @@ def change_preference(request: Request, change: PreferenceChange):
         raise HTTPException(status_code=400, detail="Invalid UI preference") from None
     except (OSError, sqlite3.Error):
         raise HTTPException(status_code=503, detail="UI preferences unavailable") from None
+
+
+@router.post("/api/runtime/source-position")
+def change_source_position(request: Request, change: SourcePositionChange):
+    _require_launcher_session(request)
+    store: SharedSourcePositionStore | None = getattr(
+        request.app.state, "shared_source_position_store", None
+    )
+    if store is None:
+        return {"enabled": False}
+
+    project_path = getattr(request.app.state, "project_path", None)
+    coder_id = getattr(request.app.state, "coder_id", None)
+    if not project_path or not coder_id:
+        raise HTTPException(status_code=409, detail="No project is open")
+    try:
+        conn = open_project(project_path)
+        try:
+            project = get_project(conn)
+            assignments = get_assignments_for_coder(conn, coder_id)
+        finally:
+            conn.close()
+    except (OSError, sqlite3.Error, ValueError):
+        raise HTTPException(status_code=409, detail="Project is unavailable") from None
+
+    if change.project_key != position_key(project_path, project["id"], coder_id):
+        raise HTTPException(status_code=409, detail="Project changed")
+    if change.source_index >= len(assignments):
+        raise HTTPException(status_code=400, detail="Source index is out of range")
+    try:
+        result = store.set(
+            change.project_key, assignments[change.source_index]["source_id"],
+            migrate=change.migrate,
+        )
+    except (OSError, sqlite3.Error, ValueError):
+        raise HTTPException(status_code=503, detail="Source position unavailable") from None
+    return {"enabled": True, **result}
 
 
 @router.get("/launch")

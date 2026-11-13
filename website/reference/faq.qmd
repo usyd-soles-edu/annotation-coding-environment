@@ -24,7 +24,11 @@ ACE keeps the most recently opened project in a per-user history shared by deskt
 
 ## Are layout settings shared between desktop windows?
 
-Yes. Sidebar width, source-grid height, coding text size and width, panel and note-drawer state, and codebook cues follow you when another desktop window opens on a different local port. ACE imports an older browser setting only when no shared choice exists. If the shared settings are temporarily unavailable, the current window keeps its browser setting and retries later. An already open window may need a reload to show a setting changed elsewhere. Last-viewed source positions are still stored separately for each project in each desktop runtime.
+Yes. Sidebar width, source-grid height, coding text size and width, panel and note-drawer state, and codebook cues follow you when another desktop window opens on a different local port. ACE imports an older browser setting only when no shared choice exists. If the shared settings are temporarily unavailable, the current window keeps its browser setting and retries later. An already open window may need a reload to show a setting changed elsewhere.
+
+## Does ACE remember which source I was reading?
+
+Desktop windows share the last viewed source for each project file and coder, even when their local ports differ. A copy of a project starts with its own position. If two windows navigate in the same project, the last saved position is used next time. When the shared store is unavailable, each window uses its own browser position. Older positions saved only against a project ID reset once because ACE cannot tell which copy of that project they belonged to.
 
 ## Why do agreement results differ between codes?
 
