@@ -257,8 +257,16 @@ def test_failed_server_startup_reports_bounded_persistent_diagnostic(
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize(
+    ("module_name", "expected"),
+    [
+        ("secret_module", "loading application code: missing packaged dependency"),
+        ("fastapi", "loading application code: missing packaged dependency (fastapi)"),
+    ],
+)
 def test_safe_server_startup_report_reaches_launcher_diagnostic(
-    launcher_bin: Path, runtime_file: Path, tmp_path: Path
+    launcher_bin: Path, runtime_file: Path, tmp_path: Path,
+    module_name: str, expected: str,
 ) -> None:
     script = tmp_path / "failed_startup.py"
     script.write_text(
@@ -267,7 +275,7 @@ def test_safe_server_startup_report_reaches_launcher_diagnostic(
         "args = sys.argv[1:]\n"
         "path = args[args.index('--startup-report') + 1]\n"
         "_write_startup_report(path, 'import', ModuleNotFoundError("
-        "'PRIVATE_SENTINEL', name='secret_module'))\n"
+        f"'PRIVATE_SENTINEL', name={module_name!r}))\n"
         "print('PRIVATE_SENTINEL', file=sys.stderr)\n"
         "sys.exit(23)\n",
         encoding="utf-8",
@@ -289,7 +297,7 @@ def test_safe_server_startup_report_reaches_launcher_diagnostic(
     proc = _run_launcher(launcher_bin, failing_server, runtime_file)
     diagnostic = runtime_file.with_name("launcher-startup.log").read_text(encoding="utf-8")
     assert proc.returncode != 0
-    assert "loading application code: missing packaged dependency" in diagnostic
+    assert expected in diagnostic
     assert "PRIVATE_SENTINEL" not in diagnostic
     assert "PRIVATE_SENTINEL" not in proc.stderr
     assert not list(tmp_path.glob("server-startup-*.json"))
