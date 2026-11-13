@@ -1615,6 +1615,7 @@ import {
       isCodingMode,
       isAuditMode,
       isReadonlyMode,
+      editingDisabled: codebookEditingDisabled,
       getTreeItems,
       focusTreeItem,
       getActiveTreeItem,

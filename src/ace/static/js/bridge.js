@@ -48,7 +48,7 @@
   }
 
   function _codebookEditingDisabled() {
-    return _navigationInFlight || document.querySelector("#ace-headless-tree-mount[data-codebook-readonly='1']") !== null;
+    return _getSidebarTreeController()?.editingDisabled() ?? true;
   }
 
   function _codeApplicationDisabled() {
@@ -132,7 +132,9 @@
     if (!_codebookEditingDisabled()) return false;
     if (typeof window._setStatus === "function") {
       window._setStatus(
-        _navigationInFlight ? "Wait for source navigation to finish" : "Back to source to edit the codebook",
+        document.body.dataset.aceNavigating === "1"
+          ? "Wait for source navigation to finish"
+          : "Back to source to edit the codebook",
         "ok"
       );
     }
