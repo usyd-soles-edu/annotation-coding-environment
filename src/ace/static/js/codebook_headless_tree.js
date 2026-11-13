@@ -1871,7 +1871,17 @@
       return Object.values(items).filter((item) => item.kind === "folder" && item.id !== ROOT_ID).map((item) => item.id);
     }
     function folderOptions() {
-      return childrenOf(ROOT_ID).filter((id) => itemData(id)?.kind === "folder").map((id) => ({ id, name: itemData(id).name || "(folder)" }));
+      const options = [];
+      function visit(parentId) {
+        for (const id of childrenOf(parentId)) {
+          const folder = itemData(id);
+          if (folder?.kind !== "folder") continue;
+          options.push({ id, name: folder.name || "(folder)" });
+          visit(id);
+        }
+      }
+      visit(ROOT_ID);
+      return options;
     }
     function itemLabel(id) {
       return itemData(id)?.name || "";

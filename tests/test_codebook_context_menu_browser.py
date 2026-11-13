@@ -33,7 +33,8 @@ def test_filtered_code_menu_keeps_all_folder_destinations(tmp_path, engine):
     add_source(conn, "Sample", "One sentence.", "row")
     coder_id = list_coders(conn)[0]["id"]
     code_id = add_code(conn, "Target Code", "#AA0000")
-    destination_id = add_folder(conn, "Research Themes")
+    outer_id = add_folder(conn, "Research Themes")
+    destination_id = add_folder(conn, "Methods", parent_id=outer_id)
     add_folder(conn, "Review State")
     conn.close()
 
@@ -73,9 +74,10 @@ def test_filtered_code_menu_keeps_all_folder_destinations(tmp_path, engine):
                 menu = page.get_by_role("menu", name="Codebook actions")
                 menu.wait_for()
                 menu.get_by_role("menuitem", name="Move to folder").click()
+                assert menu.get_by_role("menuitem", name="Research Themes").is_visible()
                 assert menu.get_by_role("menuitem", name="Review State").is_visible()
                 with page.expect_response(f"**/api/codes/{code_id}/parent"):
-                    menu.get_by_role("menuitem", name="Research Themes").click()
+                    menu.get_by_role("menuitem", name="Methods").click()
             finally:
                 browser.close()
 
