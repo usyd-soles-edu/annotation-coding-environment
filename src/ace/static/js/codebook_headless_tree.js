@@ -1801,6 +1801,9 @@
     let activeKeyboardReorderId = null;
     let reorderFailureVisible = false;
     const RESERVED_SINGLE_KEYS = /* @__PURE__ */ new Set(["q", "x", "z", "n", "v"]);
+    const SINGLE_KEY_LABELS = Array.from("1234567890abcdefghijklmnopqrstuvwxyz").filter(function(label) {
+      return !RESERVED_SINGLE_KEYS.has(label);
+    });
     const MODE_POLICIES = Object.freeze({
       coding: Object.freeze({
         enterOnCode: "apply",
@@ -1887,14 +1890,7 @@
       return itemData(id)?.name || "";
     }
     function keyLabel(index) {
-      const labels = [];
-      for (let n = 1; n <= 9; n += 1) labels.push(String(n));
-      labels.push("0");
-      for (let code = 97; code <= 121; code += 1) {
-        const letter = String.fromCharCode(code);
-        if (!RESERVED_SINGLE_KEYS.has(letter)) labels.push(letter);
-      }
-      return labels[index] || "";
+      return SINGLE_KEY_LABELS[index] || "";
     }
     function itemMatchesSearch(id) {
       if (!searchText) return true;
@@ -1914,6 +1910,14 @@
       return visibleTreeItems().filter(function(item) {
         return item.getItemData().kind === "code";
       });
+    }
+    function lookupSingleKey(key) {
+      const position = SINGLE_KEY_LABELS.indexOf(key.toLowerCase());
+      if (position < 0 || codeApplicationDisabled() || !tree || initializedGeneration !== initGeneration || mountedElement !== document.getElementById("ace-headless-tree-mount")) return null;
+      const codes = visibleCodeItems().filter(function(item) {
+        return !item.getItemData().chord;
+      });
+      return { codeId: codes[position]?.getId() || null, availableCount: codes.length };
     }
     function firstVisibleCodeItem() {
       return visibleCodeItems()[0] || null;
@@ -2641,6 +2645,7 @@
     }
     function rowForItem(item, context) {
       const data = item.getItemData();
+      const singleKeyLabel = data.kind === "code" && !data.chord && !codeApplicationDisabled() ? keyLabel(context.codeRanks.get(item.getId())) : "";
       const row = document.createElement("div");
       const dropReceiverId = dropReceiverFolderId();
       const itemProps = { ...item.getProps() };
@@ -2748,7 +2753,7 @@
       row.classList.add(data.kind === "folder" ? "ace-ht-row--folder" : "ace-ht-row--code");
       if (data.kind === "code" || !modePolicy().editingDisabled) {
         row.setAttribute("aria-haspopup", "menu");
-        row.setAttribute("aria-keyshortcuts", "Shift+F10 ContextMenu");
+        row.setAttribute("aria-keyshortcuts", singleKeyLabel ? `${singleKeyLabel} Shift+F10 ContextMenu` : "Shift+F10 ContextMenu");
       }
       if (data.chord && !codeApplicationDisabled()) {
         row.setAttribute("aria-description", `Shortcut: press semicolon, then ${data.chord.split("").join(" then ")}.`);
@@ -2893,7 +2898,7 @@
         chip.className = data.chord ? "ace-ht-chip ace-ht-chip--chord" : "ace-ht-chip";
         chip.setAttribute("aria-hidden", "true");
         if (!codeApplicationDisabled()) {
-          const label2 = data.chord || keyLabel(context.codeRanks.get(item.getId()));
+          const label2 = data.chord || singleKeyLabel;
           chip.textContent = label2;
           chip.setAttribute(
             "title",
@@ -2925,7 +2930,8 @@
       const focusedId = tree.getFocusedItem?.()?.getId?.() || "";
       const codeRanks = /* @__PURE__ */ new Map();
       for (const item of visibleItems) {
-        if (item.getItemData().kind === "code") codeRanks.set(item.getId(), codeRanks.size);
+        const data = item.getItemData();
+        if (data.kind === "code" && !data.chord) codeRanks.set(item.getId(), codeRanks.size);
       }
       const context = {
         parents,
@@ -3294,6 +3300,7 @@
         setCutItemId,
         pasteCutItem,
         moveItemToParent,
+        lookupSingleKey,
         folderOptions,
         itemLabel,
         syncCodeCounts,

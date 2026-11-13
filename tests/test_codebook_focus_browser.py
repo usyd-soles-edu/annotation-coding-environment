@@ -1,6 +1,7 @@
 """Focus-only codebook navigation keeps rows mounted and accessible."""
 
 import os
+import sqlite3
 import socket
 import subprocess
 import sys
@@ -73,6 +74,8 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                 alpha.wait_for()
                 assert alpha.locator(".ace-ht-chip").text_content() == "1"
                 assert beta.locator(".ace-ht-chip").text_content() == "2"
+                assert alpha.get_attribute("aria-keyshortcuts") == "1 Shift+F10 ContextMenu"
+                assert beta.get_attribute("aria-keyshortcuts") == "2 Shift+F10 ContextMenu"
 
                 def focus(item_id):
                     page.evaluate(
@@ -102,11 +105,16 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                 search.fill("Beta")
                 assert alpha.count() == 0
                 assert beta.locator(".ace-ht-chip").text_content() == "1"
+                assert beta.locator(".ace-ht-chip").get_attribute("title") == "Press 1 or Enter to apply Beta"
+                assert beta.get_attribute("aria-keyshortcuts") == "1 Shift+F10 ContextMenu"
                 search.fill("")
                 assert beta.locator(".ace-ht-chip").text_content() == "2"
+                assert beta.get_attribute("aria-keyshortcuts") == "2 Shift+F10 ContextMenu"
                 folder_a.locator(".ace-ht-toggle").click()
                 assert folder_a.get_attribute("aria-expanded") == "false"
                 assert alpha.count() == 0
+                assert beta.locator(".ace-ht-chip").text_content() == "1"
+                assert beta.get_attribute("aria-keyshortcuts") == "1 Shift+F10 ContextMenu"
 
                 folder_a.focus()
                 page.evaluate("document.getElementById('ace-live-region').textContent = ''")
@@ -123,6 +131,21 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                 page.wait_for_function(
                     "document.querySelector('.ace-statusbar-event')?.textContent === 'Saved'"
                 )
+                page.locator(".ace-sentence").first.click()
+                page.keyboard.press("1")
+                page.wait_for_function(
+                    "document.querySelectorAll('.ace-applied-code-row').length === 1"
+                )
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT code_id FROM annotation WHERE deleted_at IS NULL"
+                    ).fetchone()[0] == second_code
+
+                page.goto(f"{base}/code/{second_code}/view")
+                audit_beta = page.locator(f'.ace-ht-row[data-code-id="{second_code}"]')
+                audit_beta.wait_for()
+                assert audit_beta.locator(".ace-ht-chip").text_content() == ""
+                assert audit_beta.get_attribute("aria-keyshortcuts") == "Shift+F10 ContextMenu"
             finally:
                 browser.close()
     finally:

@@ -389,75 +389,11 @@
   });
 
   /* ================================================================
-   * 4. Keymap — dynamic keycap assignment per tab
+   * 4. Keymap — source-side shortcut dispatch
    * ================================================================ */
 
   function _keymapRoot() {
     return document.getElementById("ace-headless-tree-mount");
-  }
-
-  function _updateKeycaps() {
-    const tree = _keymapRoot();
-    if (!tree) return [];
-    const rows = tree.querySelectorAll(".ace-ht-row--code[data-code-id]");
-    const menuKeys = "Shift+F10 ContextMenu";
-    const keyMap = [];
-    if (_codeApplicationDisabled()) {
-      rows.forEach(function (row) {
-        row.setAttribute("aria-keyshortcuts", menuKeys);
-        const keycap = row.querySelector(".ace-ht-chip");
-        if (keycap) {
-          keycap.textContent = "";
-          keycap.removeAttribute("title");
-        }
-      });
-      return keyMap;
-    }
-    let labelIdx = 0; // Counter that only increments for non-chord rows
-    rows.forEach(function (row) {
-      // Also skip rows hidden by search filter
-      if (row.hidden || row.style.display === "none") return;
-
-      if (row.dataset.chord) {
-        // Chord row — has a chord cap rendered server-side. Don't include in
-        // the single-key map (else hotkey index would target the wrong row if
-        // a chord code is reordered into the first 31 positions).
-        // The chord sequence is omitted because aria-keyshortcuts uses spaces for
-        // alternatives, not sequences. The chord cap's title describes the chord.
-        row.setAttribute("aria-keyshortcuts", menuKeys);
-        return;
-      }
-
-      keyMap.push(row.getAttribute("data-code-id"));
-
-      const label = _keylabel(labelIdx);
-      const keycap = row.querySelector(".ace-ht-chip:not(.ace-ht-chip--chord)");
-      if (keycap) keycap.textContent = label;
-      row.setAttribute("aria-keyshortcuts", label ? label + " " + menuKeys : menuKeys);
-      labelIdx++;
-    });
-    return keyMap;
-  }
-
-  // Reserved letters: q (repeat), x (delete), z (undo), n (open note panel),
-  //                   v (open coded text view)
-  const _KEYCAP_LABELS = [
-    "1","2","3","4","5","6","7","8","9","0",
-    "a","b","c","d","e","f","g","h","i","j","k","l","m","o","p",
-    "r","s","t","u","w","y"
-  ];
-
-  function _keylabel(i) {
-    return i < _KEYCAP_LABELS.length ? _KEYCAP_LABELS[i] : "";
-  }
-
-  const _KEYCAP_POSITIONS = {};
-  _KEYCAP_LABELS.forEach(function (label, i) { _KEYCAP_POSITIONS[label] = i; });
-
-  function _keyToPosition(key) {
-    const k = key.toLowerCase();
-    const pos = _KEYCAP_POSITIONS[k];
-    return pos !== undefined ? pos : -1;
   }
 
   /* ================================================================
@@ -844,19 +780,17 @@
       return;
     }
 
-    // 1-9, 0, a-z — Apply code at keymap position
+    // 1-9, 0, a-z — Apply the code shown by the tree's single-key label.
     // Guard: only single-character keys (skip ArrowLeft, ArrowRight, etc.)
     if (!shift && key.length === 1) {
-      const pos = _keyToPosition(key);
-      const keyMap = pos >= 0 ? _updateKeycaps() : [];
-      if (pos >= 0 && pos < keyMap.length) {
+      const shortcut = _getSidebarTreeController()?.lookupSingleKey(key);
+      if (shortcut?.codeId) {
         e.preventDefault();
-        const codeId = keyMap[pos];
         if (!window.__aceLastSelection && window.__aceFocusIndex < 0) {
           _focusSentence(0);
         }
-        _applyCode(codeId);
-      } else if (pos >= 0 && keyMap.length === 0) {
+        _applyCode(shortcut.codeId);
+      } else if (shortcut && shortcut.availableCount === 0) {
         _maybeNoCodeHint();
       }
     }
@@ -2051,7 +1985,6 @@
   function _syncSidebarAfterSwap(opts) {
     opts = opts || {};
     _restoreCollapseState();
-    _updateKeycaps();
     if (opts.gridResize) _initGridResize();
     if (_codeCuesEnabled()) {
       _scheduleCodeCues();
