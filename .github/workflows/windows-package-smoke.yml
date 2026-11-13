@@ -1,0 +1,55 @@
+name: Windows packaged smoke
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/windows-package-smoke.yml'
+      - '.github/workflows/release.yml'
+      - 'scripts/build_sidecar.py'
+      - 'scripts/build_launcher_package.py'
+      - 'scripts/smoke_packaged_server.py'
+      - 'desktop/launcher/**'
+      - 'src/ace/__init__.py'
+      - 'src/ace/__main__.py'
+      - 'src/ace/routes/api_support.py'
+      - 'pyproject.toml'
+      - 'uv.lock'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-package-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-packaged:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v8.1.0
+        with:
+          python-version: '3.12'
+          enable-cache: true
+      - name: Install Python dependencies
+        run: uv sync --locked
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/launcher -> target
+      - name: Install cargo-packager
+        run: cargo install cargo-packager --version 0.11.8 --locked
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\Nuitka
+            ~\AppData\Local\ccache
+          key: nuitka-Windows-${{ hashFiles('uv.lock', 'pyproject.toml', 'src/ace/**/*.py', 'src/ace/static/**', 'src/ace/templates/**', 'scripts/build_sidecar.py') }}
+          restore-keys: |
+            nuitka-Windows-
+      - name: Build Windows launcher package
+        run: uv run python scripts/build_launcher_package.py
+      - name: Smoke-test packaged launcher and server
+        run: uv run python scripts/smoke_packaged_server.py
