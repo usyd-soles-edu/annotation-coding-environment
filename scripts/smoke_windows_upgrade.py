@@ -1,26 +1,37 @@
 #!/usr/bin/env python3
-"""Keep the previous packaged Windows server alive while starting this build.
+"""Check that the previous packaged Windows server survives a new version.
 
-The old MSI is supplied by CI from the last published release. Both installers
-are extracted into temporary directories, without installing either version.
+CI supplies the previous release MSI. The installers are extracted into
+temporary directories; neither is installed or published by this check.
 """
 
 from __future__ import annotations
 
 import argparse
-import ctypes
 import http.cookiejar
 import json
 import os
+import secrets
+import socket
 import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
-from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
+from urllib.error import HTTPError, URLError
+from urllib.parse import quote
+from urllib.request import HTTPCookieProcessor, OpenerDirector, Request, build_opener, urlopen
 
-from smoke_packaged_server import request_json, runtime_stopped, stage_package
+from smoke_packaged_server import request_json, stage_package
+
+
+@dataclass
+class PackagedServer:
+    process: subprocess.Popen
+    port: int
+    token: str
+    opener: OpenerDirector
 
 
 def stage_previous_msi(installer: Path, directory: Path) -> Path:
@@ -36,120 +47,118 @@ def stage_previous_msi(installer: Path, directory: Path) -> Path:
     sidecars = list(directory.rglob("ace-server-*-windows-msvc.exe"))
     if len(launchers) != 1 or len(sidecars) != 1:
         raise RuntimeError("Previous MSI has no unique launcher and server")
-    return launchers[0]
+    return sidecars[0]
 
 
-def start_runtime(launcher: Path, runtime_file: Path, directory: Path) -> tuple[int, int]:
-    child_env = os.environ.copy()
-    for key in ("PYTHONPATH", "PYTHONHOME", "ACE_TEST_SERVER_BINARY", "ACE_LAUNCHER_TOKEN", "ACE_RUNTIME_FILE"):
-        child_env.pop(key, None)
-    child_env.update({
-        "ACE_TEST_RUNTIME_FILE": str(runtime_file),
-        "ACE_TEST_SUPPRESS_BROWSER": "1",
-        "ACE_TEST_IDLE_TIMEOUT": "120",
-    })
-    launched = subprocess.run(
-        [str(launcher)], cwd=directory, env=child_env,
-        capture_output=True, text=True, timeout=90,
-    )
-    if launched.returncode != 0 or not runtime_file.is_file():
-        raise RuntimeError("Packaged launcher failed to start its server")
-
-    runtime = json.loads(runtime_file.read_text(encoding="utf-8"))
-    pid, port, token = int(runtime["pid"]), int(runtime["port"]), str(runtime["token"])
-    lines = launched.stdout.strip().splitlines()
-    launch_url = lines[-1] if lines else ""
-    parsed = urlparse(launch_url)
-    if (
-        parsed.scheme != "http"
-        or parsed.hostname != "127.0.0.1"
-        or parsed.port != port
-        or parsed.path != "/launch"
-        or parse_qs(parsed.query).get("token") != [token]
-    ):
-        raise RuntimeError("Packaged launcher returned an invalid launch URL")
-    opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
-    with opener.open(launch_url, timeout=10):
-        pass
-    assert_runtime_alive(port, token)
-    return pid, port
+def free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
-def assert_runtime_alive(port: int, token: str) -> None:
+def port_closed(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+            return False
+    except OSError:
+        return True
+
+
+def force_stop(process: subprocess.Popen) -> None:
+    if process.poll() is None:
+        if sys.platform.startswith("win"):
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(process.pid)],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+        else:
+            process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError("Packaged server process tree did not stop") from error
+
+
+def assert_alive(server: PackagedServer) -> None:
     request = Request(
-        f"http://127.0.0.1:{port}/api/runtime/status",
-        headers={"X-ACE-Launcher-Token": token},
+        f"http://127.0.0.1:{server.port}/api/runtime/status",
+        headers={"X-ACE-Launcher-Token": server.token},
     )
-    with urlopen(request, timeout=5) as response:
-        status = json.load(response)
+    try:
+        with urlopen(request, timeout=2) as response:
+            status = json.load(response)
+    except (OSError, ValueError):
+        raise RuntimeError("Packaged server stopped responding") from None
     if status.get("enabled") is not True or status.get("authenticated") is not True:
-        raise RuntimeError("Packaged server stopped responding to its launcher")
+        raise RuntimeError("Packaged server did not authenticate its token")
 
 
-def process_alive(pid: int) -> bool:
-    from ctypes import wintypes
-
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    open_process = kernel32.OpenProcess
-    open_process.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    open_process.restype = wintypes.HANDLE
-    wait = kernel32.WaitForSingleObject
-    wait.argtypes = [wintypes.HANDLE, wintypes.DWORD]
-    wait.restype = wintypes.DWORD
-    close = kernel32.CloseHandle
-    close.argtypes = [wintypes.HANDLE]
-    close.restype = wintypes.BOOL
-
-    handle = open_process(0x00100000, False, pid)  # SYNCHRONIZE
-    if not handle:
-        error = ctypes.get_last_error()
-        if error == 87:  # ERROR_INVALID_PARAMETER: the process has exited.
-            return False
-        raise OSError(error, "Could not inspect packaged server process")
+def start_server(binary: Path, directory: Path) -> PackagedServer:
+    port = free_port()
+    token = secrets.token_urlsafe(24)
+    child_env = os.environ.copy()
+    for key in (
+        "PYTHONPATH", "PYTHONHOME", "ACE_TEST_SERVER_BINARY", "ACE_LAUNCHER_TOKEN",
+        "ACE_RUNTIME_FILE", "ACE_TEST_RUNTIME_FILE",
+    ):
+        child_env.pop(key, None)
+    process = subprocess.Popen(
+        [
+            str(binary), "--port", str(port), "--launcher-token", token,
+            "--idle-timeout-seconds", "120", "--no-kill-stale",
+        ],
+        cwd=directory,
+        env=child_env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
+    server = PackagedServer(process, port, token, opener)
     try:
-        state = wait(handle, 0)
-        if state == 0x102:  # WAIT_TIMEOUT
-            return True
-        if state == 0:  # WAIT_OBJECT_0
-            return False
-        raise OSError(ctypes.get_last_error(), "Could not wait for packaged server process")
-    finally:
-        close(handle)
+        deadline = time.monotonic() + 60
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise RuntimeError("Packaged server exited before readiness")
+            try:
+                assert_alive(server)
+                break
+            except RuntimeError:
+                time.sleep(0.1)
+        else:
+            raise RuntimeError("Packaged server did not become ready")
+        try:
+            with opener.open(
+                f"http://127.0.0.1:{port}/launch?token={quote(token, safe='')}",
+                timeout=5,
+            ):
+                pass
+        except (HTTPError, URLError, OSError):
+            raise RuntimeError("Packaged server did not establish a launch session") from None
+        return server
+    except BaseException:
+        force_stop(process)
+        raise
 
 
-def stop_runtime(runtime_file: Path) -> None:
-    if not runtime_file.is_file():
-        return
+def stop_server(server: PackagedServer) -> None:
     try:
-        runtime = json.loads(runtime_file.read_text(encoding="utf-8"))
-        pid, port, token = int(runtime["pid"]), int(runtime["port"]), str(runtime["token"])
-    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as error:
-        raise RuntimeError("Could not read packaged runtime metadata for cleanup") from error
-    try:
-        opener = build_opener(HTTPCookieProcessor(http.cookiejar.CookieJar()))
-        with opener.open(f"http://127.0.0.1:{port}/launch?token={quote(token, safe='')}", timeout=5):
-            pass
-        request_json(opener, f"http://127.0.0.1:{port}/api/runtime/quit", data={})
+        request_json(
+            server.opener, f"http://127.0.0.1:{server.port}/api/runtime/quit", data={}
+        )
     except OSError:
         pass
-
-    def stopped() -> bool:
-        return runtime_stopped(runtime_file, port) and not process_alive(pid)
-
-    deadline = time.monotonic() + 15
-    while time.monotonic() < deadline and not stopped():
+    try:
+        server.process.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        force_stop(server.process)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline and not port_closed(server.port):
         time.sleep(0.1)
-    if not stopped():
-        subprocess.run(
-            ["taskkill", "/T", "/F", "/PID", str(pid)],
-            capture_output=True, timeout=10, check=False,
-        )
-        runtime_file.unlink(missing_ok=True)
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline and not stopped():
-            time.sleep(0.1)
-    if not stopped():
-        raise RuntimeError("Packaged server did not stop before MSI cleanup")
+    if not port_closed(server.port):
+        raise RuntimeError("Packaged server listener remained open after shutdown")
 
 
 def smoke(previous_msi: Path) -> None:
@@ -157,22 +166,25 @@ def smoke(previous_msi: Path) -> None:
         raise RuntimeError("The packaged upgrade smoke requires Windows")
     with tempfile.TemporaryDirectory(prefix="ace-windows-upgrade-") as directory:
         temp = Path(directory)
-        old_launcher = stage_previous_msi(previous_msi, temp / "previous")
+        previous_binary = stage_previous_msi(previous_msi, temp / "previous")
         (temp / "current").mkdir()
-        new_launcher, _ = stage_package(temp / "current")
-        old_file, new_file = temp / "old-runtime.json", temp / "new-runtime.json"
+        _, current_binary = stage_package(temp / "current")
+        previous: PackagedServer | None = None
+        current: PackagedServer | None = None
         try:
-            old_pid, old_port = start_runtime(old_launcher, old_file, temp)
-            new_pid, new_port = start_runtime(new_launcher, new_file, temp)
-            if old_pid == new_pid or old_port == new_port:
-                raise RuntimeError("Packaged runtimes did not start independently")
-            old_token = json.loads(old_file.read_text(encoding="utf-8"))["token"]
-            assert_runtime_alive(old_port, old_token)
+            previous = start_server(previous_binary, temp)
+            current = start_server(current_binary, temp)
+            if previous.process.pid == current.process.pid or previous.port == current.port:
+                raise RuntimeError("Packaged servers did not start independently")
+            assert_alive(previous)
+            assert_alive(current)
         finally:
             try:
-                stop_runtime(new_file)
+                if current is not None:
+                    stop_server(current)
             finally:
-                stop_runtime(old_file)
+                if previous is not None:
+                    stop_server(previous)
 
 
 if __name__ == "__main__":

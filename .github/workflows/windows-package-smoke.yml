@@ -8,6 +8,7 @@ on:
       - 'scripts/build_sidecar.py'
       - 'scripts/build_launcher_package.py'
       - 'scripts/smoke_packaged_server.py'
+      - 'scripts/smoke_windows_upgrade.py'
       - 'desktop/launcher/**'
       - 'src/ace/__init__.py'
       - 'src/ace/__main__.py'
@@ -53,3 +54,16 @@ jobs:
         run: uv run python scripts/build_launcher_package.py
       - name: Smoke-test packaged launcher and server
         run: uv run python scripts/smoke_packaged_server.py
+      - name: Download previous Windows MSI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $oldDir = Join-Path $env:RUNNER_TEMP 'ace-previous-msi'
+          New-Item -ItemType Directory -Path $oldDir | Out-Null
+          gh release download v1.7.0 --repo $env:GITHUB_REPOSITORY --pattern '*.msi' --dir $oldDir
+          $oldMsi = @(Get-ChildItem $oldDir -Filter '*.msi')
+          if ($oldMsi.Count -ne 1) { throw 'Expected one previous Windows MSI' }
+          "ACE_PREVIOUS_MSI=$($oldMsi[0].FullName)" >> $env:GITHUB_ENV
+      - name: Smoke-test concurrent packaged upgrade
+        run: uv run python scripts/smoke_windows_upgrade.py "$env:ACE_PREVIOUS_MSI"
