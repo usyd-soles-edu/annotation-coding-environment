@@ -122,6 +122,24 @@ import {
       .map((item) => item.id);
   }
 
+  function folderOptions() {
+    const options = [];
+    function visit(parentId) {
+      for (const id of childrenOf(parentId)) {
+        const folder = itemData(id);
+        if (folder?.kind !== "folder") continue;
+        options.push({ id, name: folder.name || "(folder)" });
+        visit(id);
+      }
+    }
+    visit(ROOT_ID);
+    return options;
+  }
+
+  function itemLabel(id) {
+    return itemData(id)?.name || "";
+  }
+
   function keyLabel(index) {
     const labels = [];
     for (let n = 1; n <= 9; n += 1) labels.push(String(n));
@@ -1614,6 +1632,8 @@ import {
       getCutItemId: function () { return cutItemId; },
       setCutItemId,
       pasteCutItem,
+      folderOptions,
+      itemLabel,
       setCodeCounts,
       patchCodeCount,
       mutationContext: codebookMutationContext,

@@ -2350,17 +2350,6 @@
     );
   }
 
-  function _codebookRowLabel(row) {
-    const label = row?.querySelector?.(".ace-code-name, .ace-folder-label, .ace-ht-label");
-    return label ? label.textContent.trim() : "";
-  }
-
-  function _codebookFolderRows() {
-    return Array.from(
-      document.querySelectorAll(".ace-code-folder-row, .ace-ht-row[data-kind='folder']")
-    );
-  }
-
   function _startCodebookRename(row) {
     if (_denyCodebookEditing()) return;
     if (!row) return;
@@ -2703,14 +2692,7 @@
       }];
     }
     const inFolder = !!_parentFolderRow(row);
-    const folders = _codebookFolderRows()
-      .map(function (f) {
-        return {
-          id: _itemIdFromTreeElement(f),
-          name: _codebookRowLabel(f) || "(folder)",
-        };
-      })
-      .filter(function (f) { return f.id; });
+    const folders = _getSidebarTreeController()?.folderOptions?.() || [];
 
     const items = [];
 
@@ -2751,7 +2733,7 @@
       shortcut: "\u2318X",
       handler: function () {
         _setCut(codeId);
-        const name = _codebookRowLabel(row) || "code";
+        const name = _getSidebarTreeController()?.itemLabel?.(codeId) || "code";
         _announce(`Cut ${name}.`);
         window._setStatus(`Cut: ${name} \u00b7 \u2318V to paste \u00b7 Esc to cancel`, "ok-sticky");
       },
@@ -2791,7 +2773,7 @@
   function _buildFolderRowMenu(folderRow) {
     if (_codebookEditingDisabled()) return [];
     const folderId = _itemIdFromTreeElement(folderRow);
-    const name = _codebookRowLabel(folderRow) || "folder";
+    const name = _getSidebarTreeController()?.itemLabel?.(folderId) || "folder";
     return [
       {
         label: "Rename folder",

@@ -7,10 +7,13 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 import pytest
+from fastapi.testclient import TestClient
 
+from ace.app import create_app
 from ace.db.connection import create_project
 from ace.models.annotation import add_annotation
 from ace.models.codebook import add_code, add_folder
@@ -19,6 +22,70 @@ from ace.models.source import add_source
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_filtered_code_menu_keeps_all_folder_destinations(tmp_path, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    project = tmp_path / "filtered-menu.ace"
+    conn = create_project(str(project), "Filtered menu")
+    add_source(conn, "Sample", "One sentence.", "row")
+    coder_id = list_coders(conn)[0]["id"]
+    code_id = add_code(conn, "Target Code", "#AA0000")
+    outer_id = add_folder(conn, "Research Themes")
+    destination_id = add_folder(conn, "Methods", parent_id=outer_id)
+    add_folder(conn, "Review State")
+    conn.close()
+
+    app = create_app()
+    with TestClient(app, base_url="http://127.0.0.1:8080") as client:
+        app.state.project_path = str(project)
+        app.state.coder_id = coder_id
+        with sync_api.sync_playwright() as playwright:
+            browser = getattr(playwright, engine).launch()
+            try:
+                page = browser.new_page()
+
+                def serve(route):
+                    request = route.request
+                    url = urlsplit(request.url)
+                    path = url.path + (f"?{url.query}" if url.query else "")
+                    headers = {
+                        key: value for key, value in request.headers.items()
+                        if key.lower() not in {"host", "content-length"}
+                    }
+                    response = client.request(
+                        request.method, path,
+                        content=request.post_data_buffer, headers=headers,
+                    )
+                    route.fulfill(
+                        status=response.status_code,
+                        headers=dict(response.headers), body=response.content,
+                    )
+
+                page.route("http://127.0.0.1:8080/**", serve)
+                page.goto("http://127.0.0.1:8080/code")
+                page.locator("#code-search-input").fill("Target Code")
+                row = page.locator(f'.ace-ht-row[data-code-id="{code_id}"]')
+                row.wait_for()
+                assert page.locator('.ace-ht-row[data-kind="folder"]').count() == 0
+                row.click(button="right")
+                menu = page.get_by_role("menu", name="Codebook actions")
+                menu.wait_for()
+                menu.get_by_role("menuitem", name="Move to folder").click()
+                assert menu.get_by_role("menuitem", name="Research Themes").is_visible()
+                assert menu.get_by_role("menuitem", name="Review State").is_visible()
+                with page.expect_response(f"**/api/codes/{code_id}/parent"):
+                    menu.get_by_role("menuitem", name="Methods").click()
+            finally:
+                browser.close()
+
+    with sqlite3.connect(project) as stored:
+        parent_id = stored.execute(
+            "SELECT parent_id FROM codebook_code WHERE id = ?", (code_id,)
+        ).fetchone()[0]
+    assert parent_id == destination_id
 
 
 @pytest.mark.slow
