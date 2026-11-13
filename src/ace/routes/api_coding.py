@@ -16,6 +16,8 @@ from fastapi.responses import (
     Response,
 )
 
+from ace.services.shared_source_position import remember_source_position
+
 
 router = APIRouter(prefix="/api")
 
@@ -266,6 +268,9 @@ async def navigation_route(
                 client_source_snapshot=request.headers.get("x-ace-sources-snapshot"),
                 global_context=global_context,
             )
+            remember_source_position(
+                request, conn, coder_id, assignments[to_index]["source_id"]
+            )
             trigger = {"ace-navigate": {
                 "index": to_index,
                 "total": len(assignments),
@@ -276,6 +281,10 @@ async def navigation_route(
                 "HX-Trigger": json.dumps(trigger),
                 "HX-Retarget": "#text-panel",
             })
+
+        remember_source_position(
+            request, conn, coder_id, assignments[to_index]["source_id"]
+        )
 
     return Response(status_code=204)
 

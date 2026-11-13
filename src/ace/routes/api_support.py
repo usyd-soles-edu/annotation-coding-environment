@@ -1493,6 +1493,8 @@ def _build_undo_response(
             notification += suffix
         elif idx != current_index:
             target_index = idx
+            from ace.services.shared_source_position import remember_source_position
+            remember_source_position(request, conn, coder_id, source_id)
             headers["HX-Trigger"] = json.dumps(
                 {"ace-navigate": {"index": target_index, "total": len(assignments)}}
             )
