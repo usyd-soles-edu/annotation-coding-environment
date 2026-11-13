@@ -2911,21 +2911,6 @@
     _applyCode(codeId);
   });
 
-  document.addEventListener("ace:rename-codebook-item", function (event) {
-    if (_denyCodebookEditing()) return;
-    const detail = event.detail || {};
-    const itemId = detail.itemId;
-    const name = (detail.name || "").trim();
-    if (!itemId || !name) return;
-    htmx.ajax("PUT", `/api/codes/${itemId}`, {
-      ..._codebookMutationSwapOptions(),
-      values: _codebookMutationValues({
-        name: name,
-        current_index: window.__aceCurrentIndex || 0,
-      }),
-    });
-  });
-
   document.addEventListener("ace:delete-codebook-item", function (event) {
     if (_denyCodebookEditing()) return;
     const detail = event.detail || {};
