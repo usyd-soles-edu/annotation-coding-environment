@@ -30,21 +30,28 @@ async def _click_row_with_diagnostics(page, base, code_id, navigation, page_erro
         try:
             tree_response = await page.request.get(base + "/api/codes/tree", timeout=3000)
             tree_status = tree_response.status
+            tree_payload = await tree_response.json()
+            tree_items = len(tree_payload.get("items", {}))
         except Exception as request_error:
             tree_status = type(request_error).__name__
+            tree_items = None
         state = await page.evaluate("""() => ({
             ready: document.readyState,
             title: document.title,
             sidebar: !!document.querySelector('#code-sidebar'),
             mount: !!document.querySelector('#ace-headless-tree-mount'),
+            mountText: document.querySelector('#ace-headless-tree-mount')?.textContent.slice(0, 100),
             rows: document.querySelectorAll('#ace-headless-tree-mount .ace-ht-row').length,
             controller: !!window.__aceHeadlessTreeController,
+            preview: !!window.__aceHeadlessTreePreview,
+            snapshot: window.__aceHeadlessTreePreview?.snapshot?.() || null,
             previewError: window.__aceHeadlessTreePreviewError || null
         })""")
         raise AssertionError(
             f"Codebook row missing: url={page.url!r}, "
             f"navigation_status={navigation.status if navigation else None}, "
-            f"tree_status={tree_status}, state={state}, page_errors={page_errors}"
+            f"tree_status={tree_status}, tree_items={tree_items}, "
+            f"state={state}, page_errors={page_errors}"
         ) from error
 
 
