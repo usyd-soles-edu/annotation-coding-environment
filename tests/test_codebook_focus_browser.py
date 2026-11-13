@@ -131,10 +131,23 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
 
                 search = page.locator("#code-search-input")
                 search.fill("Beta")
+                page.wait_for_function(
+                    "id => !document.querySelector(`.ace-ht-row[data-code-id='${id}']`)",
+                    arg=str(first_code),
+                    timeout=2000,
+                )
                 assert alpha.count() == 0
-                assert beta.locator(".ace-ht-chip").text_content() == "1"
+                page.wait_for_function(
+                    "id => document.querySelector(`.ace-ht-row[data-code-id='${id}'] .ace-ht-chip`)?.textContent === '1'",
+                    arg=str(second_code),
+                    timeout=2000,
+                )
                 search.fill("")
-                assert beta.locator(".ace-ht-chip").text_content() == "2"
+                page.wait_for_function(
+                    "id => document.querySelector(`.ace-ht-row[data-code-id='${id}'] .ace-ht-chip`)?.textContent === '2'",
+                    arg=str(second_code),
+                    timeout=2000,
+                )
                 folder_a.locator(".ace-ht-toggle").click()
                 assert folder_a.get_attribute("aria-expanded") == "false"
                 assert alpha.count() == 0
