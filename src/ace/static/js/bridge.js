@@ -55,13 +55,6 @@
     return _navigationInFlight || !!document.getElementById("code-view") || !document.getElementById("text-panel");
   }
 
-  function _codebookMutationSwapOptions() {
-    if (document.getElementById("text-panel")) {
-      return { target: "#text-panel", swap: "outerHTML" };
-    }
-    return { target: "#code-sidebar", swap: "none" };
-  }
-
   function _codebookMutationContext() {
     return _getSidebarTreeController().mutationContext();
   }
@@ -2296,13 +2289,7 @@
         // Let the tree controller capture and restore this row across the swap.
         _closeColourPopover();
         _findCodebookItemRow(codeId)?.focus({ preventScroll: true });
-        htmx.ajax("PUT", `/api/codes/${codeId}`, {
-          ..._codebookMutationSwapOptions(),
-          values: _codebookMutationValues({
-            colour: hex,
-            current_index: window.__aceCurrentIndex || 0,
-          }),
-        }).catch(function () {
+        _getSidebarTreeController()?.setItemColour(codeId, hex)?.catch(function () {
           window._setStatus?.("Could not change code colour", "err");
         });
       });
@@ -2467,12 +2454,7 @@
       "Convert this code to a folder? Existing annotations are preserved in a new child code. " +
       "You can undo this conversion, but there is no separate Convert back action."
     )) return;
-    htmx.ajax("POST", `/api/codes/${codeId}/convert-to-folder`, {
-      ..._codebookMutationSwapOptions(),
-      values: _codebookMutationValues({
-        current_index: window.__aceCurrentIndex || 0,
-      }),
-    });
+    _getSidebarTreeController()?.convertItemToFolder(codeId);
   }
 
   /** Focus the filter input and prompt the user to create a folder.
@@ -4078,14 +4060,7 @@
         return;
       }
       const aboveCodeId = _itemIdFromTreeElement(above);
-      htmx.ajax("POST", `/api/codes/${codeId}/indent-promote`, {
-        ..._codebookMutationSwapOptions(),
-        values: _codebookMutationValues({
-          above_code_id: aboveCodeId,
-          folder_name: "New folder",
-          current_index: window.__aceCurrentIndex || 0,
-        }),
-      });
+      controller.wrapSiblingCodes(codeId, aboveCodeId);
       return;
     }
 

@@ -3210,6 +3210,27 @@
           current_index: currentIndex()
         });
       }
+      function setItemColour(itemId, colour) {
+        if (!itemId || codebookEditingDisabled()) return;
+        return htmxSwap("PUT", `/api/codes/${itemId}`, {
+          colour,
+          current_index: currentIndex()
+        });
+      }
+      function convertItemToFolder(itemId) {
+        if (!itemId || codebookEditingDisabled()) return;
+        return htmxSwap("POST", `/api/codes/${itemId}/convert-to-folder`, {
+          current_index: currentIndex()
+        });
+      }
+      function wrapSiblingCodes(itemId, aboveItemId) {
+        if (!itemId || !aboveItemId || codebookEditingDisabled()) return;
+        return htmxSwap("POST", `/api/codes/${itemId}/indent-promote`, {
+          above_code_id: aboveItemId,
+          folder_name: "New folder",
+          current_index: currentIndex()
+        });
+      }
       document.addEventListener("htmx:afterRequest", function(event) {
         const detail = event.detail;
         if (!detail?.successful || detail.requestConfig?.path !== "/api/codes/cut-paste" || detail.requestConfig.parameters?.code_id !== cutItemId) return;
@@ -3316,6 +3337,9 @@
         itemIdFromTreeElement: itemIdFromElement,
         firstChildOfFolderRow,
         moveItemInDirection,
+        setItemColour,
+        convertItemToFolder,
+        wrapSiblingCodes,
         startRenaming,
         firstCodeItem,
         activeCodeItem,
