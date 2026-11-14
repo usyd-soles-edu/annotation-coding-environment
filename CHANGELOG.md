@@ -34,6 +34,7 @@
 - **Narrow coding windows** — provide a visible way to reach the codebook and applied codes while keeping an open source note in view.
 - **Source notes** — retain unsaved drafts after failed or overlapping saves.
 - **Codebook sidebar** — retain annotation counts, the cut marker, and keyboard position when the tree redraws.
+- **Cut codes** — keep a code available to paste while its folder is collapsed; clear the cut only when a refreshed codebook confirms that the item was removed.
 - **Codebook order** — restore the saved order after a failed drag or keyboard move instead of leaving a misleading unsaved arrangement.
 - **Codebook editing** — warn when another ACE tab is open so edits in separate tabs do not silently overwrite one another.
 - **Agreement results** — sort columns and expand guidance with the keyboard, with sort direction announced to assistive technology.

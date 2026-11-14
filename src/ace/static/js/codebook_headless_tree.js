@@ -1890,6 +1890,12 @@
     function itemLabel(id) {
       return itemData(id)?.name || "";
     }
+    function reconcileCutItem(serverItems) {
+      if (cutItemId && !serverItems[cutItemId]) {
+        controller.setCutItemId(null);
+        window._setStatus?.("Cut cleared (item removed)", "ok");
+      }
+    }
     function keyLabel(index) {
       return SINGLE_KEY_LABELS[index] || "";
     }
@@ -2154,6 +2160,7 @@
         if (!response.ok) throw new Error(`status ${response.status}`);
         const payload = await response.json();
         if (version !== reorderResolutionVersion || sidebarGeneration !== initGeneration || pendingReorders.size) return;
+        reconcileCutItem(payload.items || {});
         refreshedTreeData = { version, generation: sidebarGeneration, items: payload.items || {} };
         if (tree?.getRenamingItem?.()) {
           deferredTreeData = refreshedTreeData;
@@ -3437,6 +3444,7 @@
           return;
         }
         items = payload.items || {};
+        reconcileCutItem(items);
         reconcileFetchedReorders(fetchStartedVersion);
         controller.finishCountReload(generation, true);
         searchRaw = search?.value.trim() || "";

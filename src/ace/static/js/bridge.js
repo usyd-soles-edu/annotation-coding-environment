@@ -2106,16 +2106,6 @@
       if (sidebarTarget || (sidebarEl && sidebarEl !== _lastSidebarEl)) {
         _lastSidebarEl = sidebarEl;
         _syncSidebarAfterSwap({ gridResize: true });
-        const cutId = _getCutCode();
-        if (cutId) {
-          const r = _findCodebookItemRow(cutId);
-          if (r) {
-            r.classList.add("ace-code-row--ghost");
-          } else {
-            _setCut(null);
-            window._setStatus("Cut cleared (item removed)", "ok");
-          }
-        }
       } else if (codingTarget) {
         _syncCodeCounts();
       }

@@ -143,6 +143,13 @@ import {
     return itemData(id)?.name || "";
   }
 
+  function reconcileCutItem(serverItems) {
+    if (cutItemId && !serverItems[cutItemId]) {
+      controller.setCutItemId(null);
+      window._setStatus?.("Cut cleared (item removed)", "ok");
+    }
+  }
+
   function keyLabel(index) {
     return SINGLE_KEY_LABELS[index] || "";
   }
@@ -438,6 +445,7 @@ import {
       const payload = await response.json();
       if (version !== reorderResolutionVersion || sidebarGeneration !== initGeneration ||
           pendingReorders.size) return;
+      reconcileCutItem(payload.items || {});
       refreshedTreeData = { version, generation: sidebarGeneration, items: payload.items || {} };
       // Completing or cancelling a rename will apply and render this result.
       if (tree?.getRenamingItem?.()) {
@@ -1873,6 +1881,7 @@ import {
         return;
       }
       items = payload.items || {};
+      reconcileCutItem(items);
       reconcileFetchedReorders(fetchStartedVersion);
       controller.finishCountReload(generation, true);
       searchRaw = search?.value.trim() || "";
