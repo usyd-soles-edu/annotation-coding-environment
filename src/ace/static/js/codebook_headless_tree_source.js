@@ -30,6 +30,7 @@ import {
   let reportedChordPrefix = "";
   let reportedChordMatches = null;
   let chordHintShown = false;
+  let codeCueIds = new Set();
   let cutItemId = null;
   let pendingSidebarState = null;
   let pendingWrappedFolderId = null;
@@ -870,7 +871,10 @@ import {
     const input = document.getElementById("code-search-input");
     searchRaw = "";
     searchText = "";
-    if (input) input.value = "";
+    if (input) {
+      input.value = "";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    }
     scheduleRender();
   }
 
@@ -1363,6 +1367,7 @@ import {
     const rows = visibleItems.map(function (item) { return rowForItem(item, context); });
     mount.replaceChildren(...rows);
     syncChordMatches();
+    if (codeCueIds.size) syncCodeCueRows();
     renderedParentById = parents;
     renderedFocusedId = focusedId;
     renderCreateActions();
@@ -1381,6 +1386,14 @@ import {
     if (!tree.getRenamingItem?.() && (!active || active === document.body || mount.contains(active))) {
       tree.getFocusedItem()?.getElement()?.focus({ preventScroll: true });
     }
+  }
+
+  function syncCodeCueRows() {
+    document.getElementById("ace-headless-tree-mount")
+      ?.querySelectorAll(".ace-ht-row--code[data-code-id]")
+      .forEach(function (row) {
+        row.classList.toggle("ace-ht-row--cue", codeCueIds.has(row.dataset.codeId));
+      });
   }
 
   function syncChordMatches() {
@@ -1658,6 +1671,14 @@ import {
       else renderCreateActions();
     }
 
+    function setCodeCueIds(ids) {
+      const next = new Set(ids || []);
+      if (next.size === codeCueIds.size &&
+          Array.from(next).every(function (id) { return codeCueIds.has(id); })) return;
+      codeCueIds = next;
+      syncCodeCueRows();
+    }
+
     function setCutItemId(id) {
       cutItemId = id || null;
       rootElement()?.querySelectorAll(".ace-ht-row[data-item-id]").forEach(function (row) {
@@ -1844,6 +1865,7 @@ import {
       activeCodeItem,
       syncCurrentCode,
       setChordHighlight,
+      setCodeCueIds,
       syncChordMatches,
       getCutItemId: function () { return cutItemId; },
       setCutItemId,
