@@ -1,6 +1,7 @@
 """The current tree controller handles codebook renaming across engines."""
 
 import sqlite3
+import time
 from urllib.parse import urlsplit
 
 import pytest
@@ -156,9 +157,16 @@ def test_code_folder_and_new_wrapper_rename_use_tree_controller(tmp_path, browse
                 )
 
                 next_code = page.locator(f'.ace-ht-row[data-item-id="{next_code_id}"]')
+                def slow_tree(route):
+                    time.sleep(0.8)
+                    serve_from_test_client(route)
+
+                page.route("**/api/codes/tree", slow_tree, times=1)
                 next_code.click()
                 page.keyboard.press("Alt+Shift+ArrowRight")
                 new_folder_name = page.locator("input.ace-ht-rename")
+                new_folder_name.wait_for()
+                assert new_folder_name.evaluate("input => document.activeElement === input")
                 new_folder_name.fill("Bundle")
                 new_folder_name.press("Enter")
                 page.wait_for_function(

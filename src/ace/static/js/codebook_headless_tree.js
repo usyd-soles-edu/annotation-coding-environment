@@ -1789,6 +1789,7 @@
     let chordHintShown = false;
     let cutItemId = null;
     let pendingSidebarState = null;
+    let pendingWrappedFolderId = null;
     let initGeneration = 0;
     let initializedGeneration = 0;
     let nextReorderRequestId = 0;
@@ -3338,6 +3339,19 @@
       return api;
     }
     let controller = createController();
+    function renameWrappedFolderWhenReady() {
+      const folderId = pendingWrappedFolderId;
+      if (!folderId || initializedGeneration !== initGeneration || !mountedElement?.isConnected || !items[folderId]) return;
+      pendingWrappedFolderId = null;
+      focusItemById(folderId);
+      controller.startRenaming(folderId);
+    }
+    document.addEventListener("ace:folder-wrapped", function(event) {
+      const folderId = event.detail?.folder_id;
+      if (typeof folderId !== "string" || !folderId) return;
+      pendingWrappedFolderId = folderId;
+      renameWrappedFolderWhenReady();
+    });
     async function init() {
       const mount = document.getElementById("ace-headless-tree-mount");
       if (!mount) return;
@@ -3373,6 +3387,7 @@
         tree.rebuildTree();
         initializedGeneration = generation;
         renderTree();
+        renameWrappedFolderWhenReady();
         if (restore) {
           mount.scrollTop = restore.scrollTop;
           if (pendingSidebarState === restore) pendingSidebarState = null;

@@ -4119,7 +4119,6 @@
         window._setStatus("Need two sibling codes to wrap into a folder", "err");
         return;
       }
-      const previousParentId = _itemIdFromTreeElement(_parentFolderRow(active));
       const aboveCodeId = _itemIdFromTreeElement(above);
       htmx.ajax("POST", `/api/codes/${codeId}/indent-promote`, {
         ..._codebookMutationSwapOptions(),
@@ -4128,23 +4127,6 @@
           folder_name: "New folder",
           current_index: window.__aceCurrentIndex || 0,
         }),
-      }).then(function () {
-        // After OOB swap, locate the moved code's new parent folder and
-        // start inline rename on it. Defer past
-        // htmx:afterSettle (which can re-bind focus via _syncSidebarAfterSwap)
-        // by using a slightly longer timeout so sidebar re-init has finished.
-        setTimeout(function () {
-          const moved = document.querySelector(
-            `.ace-ht-row[data-item-id="${codeId}"]`
-          );
-          if (!moved) return;
-          const folderRow = _parentFolderRow(moved);
-          if (folderRow && _isFolderRow(folderRow) &&
-              _itemIdFromTreeElement(folderRow) !== previousParentId) {
-            _focusTreeItem(folderRow);
-            _startCodebookRename(folderRow);
-          }
-        }, 100);
       });
       return;
     }

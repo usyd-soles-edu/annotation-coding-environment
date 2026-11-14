@@ -1519,6 +1519,9 @@ def test_audit_mode_indent_promote_returns_audit_sidebar_only(client_with_codes)
     assert detail["currentCodeId"] == current_code_id
     assert detail["auditReload"] is True
     assert detail["folderListChanged"] is True
+    assert json.loads(resp.headers["HX-Trigger-After-Settle"])["ace:folder-wrapped"] == {
+        "folder_id": _latest_id_by_name(db_path, "Audit wrapped", "folder"),
+    }
 
 
 def test_audit_mode_reorder_returns_audit_sidebar_only(client_with_codes):
@@ -1828,6 +1831,9 @@ def test_indent_promote_creates_folder_and_moves_both_codes(client_with_codes):
     # Folder exists; both codes parented to it.
     fid = _latest_id_by_name(db_path, "Wrapped", "folder")
     assert fid
+    assert json.loads(r.headers["HX-Trigger-After-Settle"])["ace:folder-wrapped"] == {
+        "folder_id": fid,
+    }
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
@@ -1857,6 +1863,7 @@ def test_indent_promote_rolls_back_on_name_collision(client_with_codes):
     )
     # Returns OOB status fragment (200) carrying the error message; transaction rolled back.
     assert r.status_code == 200
+    assert "ace:folder-wrapped" not in r.headers.get("HX-Trigger-After-Settle", "")
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
