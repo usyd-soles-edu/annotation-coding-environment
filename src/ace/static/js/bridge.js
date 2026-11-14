@@ -310,45 +310,12 @@
   window.aceFocusAppliedEntry = _focusAppliedEntry;
   window.aceToggleAppliedCollapsed = _toggleAppliedCollapsedShortcut;
 
-  function _toggleFolderCollapse(folderRow) {
-    const controller = _getSidebarTreeController();
-    if (controller) {
-      controller.toggleFolderCollapse(folderRow);
-    }
-  }
-
   function _restoreCollapseState() {
     const controller = _getSidebarTreeController();
     if (controller) {
       controller.restoreCollapseState();
     }
   }
-
-  // Click handler for folder rows — toggle on the chevron, focus on label.
-  document.addEventListener("click", function (e) {
-    const toggle = e.target.closest(".ace-folder-toggle");
-    if (toggle) {
-      const row = toggle.closest(".ace-code-folder-row");
-      if (row) {
-        _focusTreeItem(row);
-        _toggleFolderCollapse(row);
-        const labelEl = row.querySelector(".ace-folder-label");
-        const name = labelEl ? labelEl.textContent.trim() : "folder";
-        const expanded = row.getAttribute("aria-expanded") === "true";
-        _announce(`${name}${expanded ? " expanded" : " collapsed"}`);
-      }
-      return;
-    }
-    // Click on the label or row (not chevron) — just focus the row
-    const row = e.target.closest(".ace-code-folder-row");
-    if (row && !e.target.closest(".ace-code-menu")) {
-      _focusTreeItem(row);
-    }
-  });
-
-  // Folder rename: F2 or double-click on a folder label enters inline
-  // edit on the .ace-folder-label. Folders share the PUT /api/codes/{id}
-  // route with codes.
 
   // Nav: flag toggle button (delegated — survives OOB swaps)
   let _pendingFlagAnnounce = false;
