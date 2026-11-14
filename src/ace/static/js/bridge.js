@@ -4354,19 +4354,8 @@
     btn.setAttribute("aria-checked", _codeCuesEnabled() ? "true" : "false");
   }
 
-  function _codeCueSelector(codeId) {
-    const raw = String(codeId);
-    const escaped = window.CSS && typeof window.CSS.escape === "function"
-      ? window.CSS.escape(raw)
-      : raw.replace(/["\\]/g, "\\$&");
-    return `.ace-code-row[data-code-id="${escaped}"], .ace-ht-row--code[data-code-id="${escaped}"]`;
-  }
-
   function _clearCodeCueRows() {
-    document.querySelectorAll(".ace-code-row--cue, .ace-ht-row--cue").forEach(function (row) {
-      row.classList.remove("ace-code-row--cue");
-      row.classList.remove("ace-ht-row--cue");
-    });
+    window.AceHeadlessTreePreview?.getController?.()?.setCodeCueIds?.([]);
   }
 
   function _clearCodeCues() {
@@ -4405,27 +4394,18 @@
     };
   }
 
-  function _rowIsCueVisible(row) {
-    if (!row || row.hidden) return false;
-    const style = window.getComputedStyle(row);
-    return style.display !== "none" && style.visibility !== "hidden";
-  }
-
   function _applyCodeCues(cues) {
     _clearCodeCueRows();
     if (!_codeCuesEnabled() || _codebookFilterActive()) return;
-    (cues || []).slice(0, CODE_CUES_MAX).forEach(function (cue) {
-      document.querySelectorAll(_codeCueSelector(cue.code_id)).forEach(function (row) {
-        if (!_rowIsCueVisible(row)) return;
-        row.classList.add("ace-code-row--cue");
-        row.classList.add("ace-ht-row--cue");
-      });
-    });
+    window.AceHeadlessTreePreview?.getController?.()?.setCodeCueIds?.(
+      (cues || []).slice(0, CODE_CUES_MAX).map(function (cue) { return cue.code_id; })
+    );
   }
 
   function _scheduleCodeCues() {
     const requestId = _codeCueRequestId + 1;
     _codeCueRequestId = requestId;
+    _clearCodeCueRows();
     if (_codeCueTimer !== null) {
       clearTimeout(_codeCueTimer);
       _codeCueTimer = null;
