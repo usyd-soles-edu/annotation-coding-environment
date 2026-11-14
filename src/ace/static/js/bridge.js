@@ -3493,6 +3493,8 @@
 
     const paraBreakRects = _paraBreakRects(body);
     const lineHeight = parseFloat(getComputedStyle(body).lineHeight);
+    // Keep SVG writes out of the live overlay while Range geometry is read.
+    const highlightRects = document.createDocumentFragment();
 
     for (const ann of annotations) {
       const startPos = _findDOMPosition(textIndex, ann.start);
@@ -3522,9 +3524,11 @@
         el.setAttribute("y", y);
         el.setAttribute("width", right - x);
         el.setAttribute("height", bottom - y);
-        svg.appendChild(el);
+        highlightRects.appendChild(el);
       }
     }
+
+    svg.appendChild(highlightRects);
 
     _attachResizeObserver(body);
   }
