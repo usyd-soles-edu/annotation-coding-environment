@@ -4535,6 +4535,7 @@
   }
 
   // Codebook menu: toggle, import, export, shortcuts
+  let _codebookImportPickerPending = false;
   document.addEventListener("click", function (e) {
     const dropdown = document.getElementById("codebook-dropdown");
 
@@ -4570,14 +4571,19 @@
 
     // Import button
     if (e.target.closest("#codebook-menu-import-btn")) {
-      window._aceCodebookImportReturnFocus = document.getElementById("codebook-menu-btn");
       _setCodebookMenuOpen(false);
+      if (_codebookImportPickerPending) return;
+      _codebookImportPickerPending = true;
+      window._aceCodebookImportReturnFocus = document.getElementById("codebook-menu-btn");
       fetch("/api/native/pick-file", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: "accept=.csv"
       })
-        .then(function (r) { return r.json(); })
+        .then(function (r) {
+          if (!r.ok) throw new Error("File picker failed");
+          return r.json();
+        })
         .then(function (data) {
           if (!data.path) return;
           htmx.ajax("POST", "/api/codes/import/preview-path", {
@@ -4588,7 +4594,9 @@
             target: "#modal-container",
             swap: "innerHTML",
           });
-        });
+        })
+        .catch(function () { window._setStatus("Could not open file picker", "err"); })
+        .finally(function () { _codebookImportPickerPending = false; });
       return;
     }
 
