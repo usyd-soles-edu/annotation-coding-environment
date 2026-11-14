@@ -3088,6 +3088,9 @@
         const root = rootElement();
         return root ? root.querySelector('[role="treeitem"][tabindex="0"]') : null;
       }
+      function focusTreeZone() {
+        (getActiveTreeItem() || getTreeItems()[0])?.focus();
+      }
       function itemForElement(element) {
         const id = itemIdFromElement(element);
         return id && tree ? tree.getItemInstance(id) : null;
@@ -3298,6 +3301,7 @@
         isReadonlyMode,
         editingDisabled: codebookEditingDisabled,
         getTreeItems,
+        focusTreeZone,
         focusTreeItem,
         getActiveTreeItem,
         isFolderRow,

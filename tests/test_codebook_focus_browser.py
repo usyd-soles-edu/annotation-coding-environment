@@ -172,6 +172,15 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                 beta.focus()
 
                 search = page.locator("#code-search-input")
+                search.focus()
+                page.keyboard.press("Tab")
+                assert page.evaluate("document.activeElement?.dataset.itemId") == str(second_code)
+                page.keyboard.press("Shift+Tab")
+                assert page.evaluate("document.activeElement?.id") == "code-search-input"
+                page.locator("#text-panel").focus()
+                page.keyboard.press("Shift+Tab")
+                assert page.evaluate("document.activeElement?.dataset.itemId") == str(second_code)
+
                 search.fill("Beta")
                 page.wait_for_function(
                     "id => !document.querySelector(`.ace-ht-row[data-code-id='${id}']`)",

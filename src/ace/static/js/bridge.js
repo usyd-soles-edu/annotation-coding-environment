@@ -3884,21 +3884,7 @@
 
   /** Move focus into the code tree (last-focused item or first visible item). */
   function _focusCodeTree() {
-    const headlessTree = document.getElementById("ace-headless-tree-mount");
-    if (headlessTree) {
-      const activeHeadless = headlessTree.querySelector('[role="treeitem"][tabindex="0"]');
-      const firstHeadless = headlessTree.querySelector('[role="treeitem"]');
-      if (activeHeadless) activeHeadless.focus();
-      else if (firstHeadless) firstHeadless.focus();
-      return;
-    }
-    const active = _getActiveTreeItem();
-    if (active && active.style.display !== "none") {
-      active.focus();
-    } else {
-      const items = _getTreeItems();
-      if (items.length > 0) _focusTreeItem(items[0]);
-    }
+    _getSidebarTreeController()?.focusTreeZone();
   }
 
   function _visibleCreateActions() {
@@ -4006,12 +3992,6 @@
     if (controller) {
       controller.focusTreeItem(item, options);
     }
-  }
-
-  /** Get the currently focused treeitem (tabindex="0"). */
-  function _getActiveTreeItem() {
-    const controller = _getSidebarTreeController();
-    return controller ? controller.getActiveTreeItem() : null;
   }
 
   /** Check if a treeitem is a folder row. */
