@@ -4590,7 +4590,7 @@
           htmx.ajax("POST", "/api/codes/import/preview-path", {
             values: _codebookMutationValues({
               path: data.path,
-              current_index: window.__aceCurrentIndex,
+              current_index: window.__aceCurrentIndex ?? 0,
             }),
             target: "#modal-container",
             swap: "innerHTML",
