@@ -368,22 +368,22 @@
    * 4. Keymap — source-side shortcut dispatch
    * ================================================================ */
 
-  function _keymapRoot() {
-    return document.getElementById("ace-headless-tree-mount");
-  }
-
   /* ================================================================
    * Chord-key state machine — `;` enters chord mode; two letters
-   * resolve to a matching .ace-code-row[data-chord]; Esc cancels.
+   * resolve through the codebook controller; Esc cancels.
    * ================================================================ */
 
   let _chordMode = null;        // null | "awaiting"
   window.aceIsChordAwaiting = function () { return _chordMode === "awaiting"; };
   let _chordBuffer = "";
 
-  function _setChordCodebookHighlight(active) {
-    const controller = window.__aceHeadlessTreeController ||
+  function _chordTreeController() {
+    return window.__aceHeadlessTreeController ||
       window.AceHeadlessTreePreview?.getController?.();
+  }
+
+  function _setChordCodebookHighlight(active) {
+    const controller = _chordTreeController();
     if (controller && typeof controller.setChordHighlight === "function") {
       controller.setChordHighlight(!!active);
     }
@@ -400,48 +400,40 @@
   function _exitChordMode() {
     _chordMode = null;
     _chordBuffer = "";
-    _setChordCodebookHighlight(false);
     delete document.body.dataset.chordMode;
     delete document.body.dataset.chordBuffer;
-    document.querySelectorAll(".ace-chord-match").forEach(function (el) {
-      el.classList.remove("ace-chord-match");
-    });
+    _setChordCodebookHighlight(false);
   }
+
+  function _showChordMatches(prefix, matches) {
+    _setStatus(
+      "Two-key shortcut: ;" + prefix + "_ · " +
+        matches + " visible " + (matches === 1 ? "match" : "matches"),
+      "ok-sticky"
+    );
+  }
+
+  document.addEventListener("ace:chord-matches", function (event) {
+    if (_chordMode === "awaiting" && event.detail.prefix === _chordBuffer) {
+      _showChordMatches(event.detail.prefix, event.detail.matches);
+    }
+  });
 
   function _onChordBufferChange() {
     if (_chordBuffer.length === 1) {
       document.body.dataset.chordBuffer = _chordBuffer;
-      let matches = 0;
-      const tree = _keymapRoot();
-      if (tree) {
-        tree.querySelectorAll(".ace-ht-chip--chord").forEach(function (cap) {
-          const row = cap.closest(".ace-ht-row--code");
-          const chord = row && row.dataset.chord;
-          const isMatch = !!(chord && chord.startsWith(_chordBuffer));
-          if (isMatch) matches++;
-          cap.classList.toggle("ace-chord-match", isMatch);
-        });
-      }
-      _setStatus(
-        "Two-key shortcut: ;" + _chordBuffer + "_ · " +
-          matches + " " + (matches === 1 ? "match" : "matches"),
-        "ok-sticky"
-      );
+      const controller = _chordTreeController();
+      if (controller?.syncChordMatches) controller.syncChordMatches();
+      else _showChordMatches(_chordBuffer, 0);
     }
   }
 
   function _resolveChord(chord) {
-    const tree = _keymapRoot();
-    if (tree) {
-      const row = tree.querySelector(`.ace-ht-row--code[data-chord="${chord}"]`);
-      if (row) {
-        const codeId = row.getAttribute("data-code-id");
-        if (codeId) {
-          _applyCode(codeId);
-          _exitChordMode();
-          return;
-        }
-      }
+    const codeId = _chordTreeController()?.lookupChord?.(chord);
+    if (codeId) {
+      _applyCode(codeId);
+      _exitChordMode();
+      return;
     }
     _exitChordMode();
     _setStatus("No code for ;" + chord, "err");
