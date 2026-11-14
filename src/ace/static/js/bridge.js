@@ -4580,7 +4580,10 @@
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: "accept=.csv"
       })
-        .then(function (r) { return r.json(); })
+        .then(function (r) {
+          if (!r.ok) throw new Error("File picker failed");
+          return r.json();
+        })
         .then(function (data) {
           if (!data.path) return;
           htmx.ajax("POST", "/api/codes/import/preview-path", {

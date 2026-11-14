@@ -61,7 +61,8 @@ def test_import_waits_for_existing_file_picker(tmp_path, engine, mode):
                         if (url !== '/api/native/pick-file') return nativeFetch(url, options);
                         window.__acePickerCalls += 1;
                         return new Promise(resolve => {
-                            window.__releasePicker = () => resolve({
+                            window.__releasePicker = (status = 200) => resolve({
+                                ok: status >= 200 && status < 300,
                                 json: async () => ({path: null})
                             });
                         });
@@ -84,5 +85,17 @@ def test_import_waits_for_existing_file_picker(tmp_path, engine, mode):
                 menu.click()
                 item.click()
                 assert page.evaluate("window.__acePickerCalls") == 2
+                page.evaluate("""async () => {
+                    window.__releasePicker(503);
+                    await new Promise(resolve => setTimeout(resolve, 0));
+                }""")
+                page.wait_for_function("""() =>
+                    document.getElementById('ace-statusbar')?.textContent
+                        .includes('Could not open file picker')
+                """)
+                menu.click()
+                item.click()
+                assert page.evaluate("window.__acePickerCalls") == 3
+                page.evaluate("window.__releasePicker()")
             finally:
                 browser.close()
