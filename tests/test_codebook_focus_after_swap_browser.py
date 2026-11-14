@@ -22,7 +22,7 @@ def test_codebook_focus_survives_sidebar_swap(tmp_path, engine):
     conn = create_project(project, "Focus swap")
     coder_id = list_coders(conn)[0]["id"]
     add_source(conn, "S1", "One sentence.", "row")
-    add_code(conn, "Alpha", "#336699")
+    alpha_id = add_code(conn, "Alpha", "#336699")
     beta_id = add_code(conn, "Beta", "#993366")
     conn.close()
 
@@ -57,6 +57,22 @@ def test_codebook_focus_survives_sidebar_swap(tmp_path, engine):
                 page.goto("http://127.0.0.1:8080/code")
                 beta = page.locator(f'.ace-ht-row[data-item-id="{beta_id}"]')
                 beta.wait_for()
+                beta.click(button="right")
+                page.get_by_role("menu", name="Codebook actions").wait_for()
+                page.keyboard.press("Escape")
+                page.wait_for_function(
+                    "id => document.activeElement?.dataset.itemId === id", arg=beta_id,
+                )
+                page.keyboard.press("ArrowRight")
+                page.wait_for_function("document.activeElement?.id === 'text-panel'")
+                page.keyboard.press("ArrowLeft")
+                page.wait_for_function(
+                    "id => document.activeElement?.dataset.itemId === id", arg=beta_id,
+                    timeout=2000,
+                )
+                assert page.evaluate(
+                    "window.__aceHeadlessTreePreview.tree.getFocusedItem()?.getId()"
+                ) == beta_id
                 beta.focus()
                 page.wait_for_function(
                     "id => document.activeElement?.dataset.itemId === id",
@@ -77,6 +93,31 @@ def test_codebook_focus_survives_sidebar_swap(tmp_path, engine):
                     timeout=3000,
                 )
                 page.evaluate("() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)))")
+                page.keyboard.press("ArrowRight")
+                page.wait_for_function("document.activeElement?.id === 'text-panel'")
+                page.evaluate("""async () => {
+                    await htmx.ajax('POST', '/api/codes', {
+                        target: '#code-sidebar', swap: 'outerHTML',
+                        values: {name: 'Epsilon', current_index: 0}
+                    });
+                }""")
+                page.wait_for_function("""() => Object.values(
+                    window.__aceHeadlessTreePreview?.items || {}
+                ).some(item => item.name === 'Epsilon')""")
+                assert page.evaluate("document.activeElement?.id") == "text-panel"
+                page.keyboard.press("ArrowLeft")
+                page.wait_for_function(
+                    "id => document.activeElement?.dataset.itemId === id",
+                    arg=beta_id,
+                )
+                assert page.evaluate("""() => ({
+                    cursor: window.__aceHeadlessTreePreview.tree.getFocusedItem()?.getId(),
+                    roving: [...document.querySelectorAll('#code-sidebar [role="treeitem"][tabindex="0"]')]
+                        .map(row => row.dataset.itemId),
+                })""") == {"cursor": beta_id, "roving": [beta_id]}
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute("SELECT COUNT(*) FROM annotation").fetchone()[0] == 0
+
                 page.evaluate("window.aceFocusSentence(0)")
                 page.evaluate("""() => {
                     window.__aceOldTextPanel = document.getElementById('text-panel');
@@ -124,6 +165,38 @@ def test_codebook_focus_survives_sidebar_swap(tmp_path, engine):
                 }""")
                 assert beta.is_visible()
                 assert page.locator('.ace-ht-row[aria-label="Delta"]').count() == 0
+
+                search.fill("")
+                beta.focus()
+                page.keyboard.press("ArrowRight")
+                page.wait_for_function("document.activeElement?.id === 'text-panel'")
+                assert client.delete(
+                    f"/api/codes/{beta_id}?current_index=0"
+                ).status_code == 200
+                page.evaluate("""async () => {
+                    await htmx.ajax('POST', '/api/codes', {
+                        target: '#code-sidebar', swap: 'outerHTML',
+                        values: {name: 'Zeta', current_index: 0}
+                    });
+                }""")
+                page.wait_for_function("""() => Object.values(
+                    window.__aceHeadlessTreePreview?.items || {}
+                ).some(item => item.name === 'Zeta')""")
+                page.wait_for_function(
+                    "id => !document.querySelector(`.ace-ht-row[data-item-id=\"${id}\"]`)",
+                    arg=beta_id,
+                )
+                assert page.evaluate("document.activeElement?.id") == "text-panel"
+                page.keyboard.press("ArrowLeft")
+                page.wait_for_function(
+                    "id => document.activeElement?.dataset.itemId === id",
+                    arg=alpha_id,
+                )
+                assert page.evaluate("""() => ({
+                    cursor: window.__aceHeadlessTreePreview.tree.getFocusedItem()?.getId(),
+                    roving: [...document.querySelectorAll('#code-sidebar [role="treeitem"][tabindex="0"]')]
+                        .map(row => row.dataset.itemId),
+                })""") == {"cursor": alpha_id, "roving": [alpha_id]}
             finally:
                 browser.close()
 
