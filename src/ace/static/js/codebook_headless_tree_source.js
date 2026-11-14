@@ -1846,6 +1846,14 @@ import {
     controller.beginCountReload(generation);
     const fetchStartedVersion = reorderResolutionVersion;
     const restore = pendingSidebarState;
+    let entryFocusId = "";
+    if (!restore && isAuditMode()) {
+      try {
+        if (sessionStorage.getItem("cv-restore-codebook-focus") === "1") {
+          entryFocusId = codebookMutationContext().currentCodeId;
+        }
+      } catch (_) {}
+    }
     mountedElement = mount;
     dropLog = [];
     const search = document.getElementById("code-search-input");
@@ -1866,13 +1874,17 @@ import {
       controller.finishCountReload(generation, true);
       searchRaw = search?.value.trim() || "";
       searchText = searchRaw.toLowerCase();
-      buildTree(restore?.zone === "tree" ? restore.itemId : null);
+      buildTree(restore?.zone === "tree" ? restore.itemId : entryFocusId);
       applyProps(mount, tree.getContainerProps("Codebook tree"));
       mount.addEventListener("keydown", announceKeyboardDragCancel, true);
       tree.setMounted(true);
       tree.rebuildTree();
       initializedGeneration = generation;
       renderTree();
+      if (entryFocusId) {
+        rowByItemId(entryFocusId)?.scrollIntoView({ block: "nearest" });
+        try { sessionStorage.removeItem("cv-restore-codebook-focus"); } catch (_) {}
+      }
       renameWrappedFolderWhenReady();
       if (restore) {
         mount.scrollTop = restore.scrollTop;

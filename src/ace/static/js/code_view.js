@@ -51,10 +51,6 @@
     return row?.dataset?.codeId || row?.getAttribute?.("data-code-id") || "";
   }
 
-  function isCodebookCodeRow(row) {
-    return !!(row?.matches?.(CODEBOOK_CODE_ROW_SELECTOR));
-  }
-
   function escapeHtml(s) {
     return String(s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -127,7 +123,6 @@
   const rememberedCursor = {
     tracks: null,    // integer index into displayOrder, or null
     excerpts: null,  // annotation id string, or null
-    codebook: null,  // code id string, or null
   };
 
   function renderFolderOptions() {
@@ -1215,24 +1210,6 @@
     announce(ctxEl.textContent.replace(/\s+/g, " ").trim());
   }
 
-  // Restore codebook focus after an auto-navigate reload so holding ↑/↓
-  // continues the codebook scroll seamlessly across page loads.
-  const CODEBOOK_FOCUS_RESTORE_KEY = "cv-restore-codebook-focus";
-  try {
-    if (sessionStorage.getItem(CODEBOOK_FOCUS_RESTORE_KEY) === "1") {
-      sessionStorage.removeItem(CODEBOOK_FOCUS_RESTORE_KEY);
-      const currentRow = sidebarCodeRows().find(
-        (row) => row.getAttribute("aria-current") === "page",
-      );
-      if (currentRow) {
-        sidebarCodeRows().forEach((r) => r.setAttribute("tabindex", "-1"));
-        currentRow.setAttribute("tabindex", "0");
-        currentRow.focus({ preventScroll: true });
-        currentRow.scrollIntoView({ block: "nearest" });
-      }
-    }
-  } catch (_) {}
-
   // --- Codebook keyboard navigation -------------------------------------
   // `/` focuses search; ↑/↓/Home/End on code rows move the roving tabindex;
   // Enter navigates; search handles ↓/↑/Esc.
@@ -1241,9 +1218,9 @@
   const codeSearchInput = document.getElementById("code-search-input");
   let previousFocusBeforeSearch = null;
 
-  function visibleCodeRows() {
+  function visibleCodebookRows() {
     if (!treeEl || !isVisible(treeEl)) return [];
-    const all = Array.from(treeEl.querySelectorAll(CODEBOOK_CODE_ROW_SELECTOR));
+    const all = Array.from(treeEl.querySelectorAll('.ace-ht-row[data-item-id]'));
     return all.filter((row) => {
       if (row.hidden || row.style.display === "none" || row.getAttribute("aria-hidden") === "true") {
         return false;
@@ -1254,11 +1231,8 @@
   }
 
   function moveCodebookCursor(targetRow) {
-    const rows = visibleCodeRows();
-    rows.forEach((r) => r.setAttribute("tabindex", "-1"));
     if (!targetRow) return;
-    targetRow.setAttribute("tabindex", "0");
-    targetRow.focus();
+    window.AceHeadlessTreePreview?.getController?.()?.focusTreeItem(targetRow, { activate: false });
     targetRow.scrollIntoView({ block: "nearest" });
   }
 
@@ -1266,7 +1240,6 @@
     const row = sidebarCodeRows().find((candidate) => codeIdFromCodebookRow(candidate) === codeId);
     if (!row) return;
     moveCodebookCursor(row);
-    rememberedCursor.codebook = codeId;
   }
 
   const navAbort = { ctl: null, generation: 0 };
@@ -1656,7 +1629,7 @@
   function activeZoneOrder() {
     const zones = [];
     const sidebar = document.getElementById("code-sidebar");
-    if (isVisible(sidebar) && visibleCodeRows().length > 0) zones.push("codebook");
+    if (isVisible(sidebar) && visibleCodebookRows().length > 0) zones.push("codebook");
     if (isVisible(editPanelEl)) zones.push("editor");
     else if (isVisible(tracksEl) && trackRowEls().length > 0) zones.push("tracks");
     if (isVisible(tableEl) && excerptRows().length > 0) zones.push("excerpts");
@@ -1695,16 +1668,14 @@
   function focusCodebookZone() {
     const sidebar = document.getElementById("code-sidebar");
     if (!isVisible(sidebar)) return;
-    const rows = visibleCodeRows();
+    const rows = visibleCodebookRows();
     if (rows.length === 0) return;
-    let target = null;
-    if (rememberedCursor.codebook != null) {
-      target = rows.find((r) => codeIdFromCodebookRow(r) === rememberedCursor.codebook) || null;
-    }
-    if (!target) {
-      // Fall back to the currently-viewed code (has aria-current="page")
-      target = rows.find((r) => r.getAttribute("aria-current") === "page") || rows[0];
-    }
+    // The shared tree owns the roving cursor; fall back to the viewed code.
+    const active = window.AceHeadlessTreePreview?.getController?.()?.getActiveTreeItem();
+    const target = rows.includes(active) ? active
+      : rows.find((r) => r.tabIndex === 0)
+      || rows.find((r) => r.getAttribute("aria-current") === "page")
+      || rows[0];
     moveCodebookCursor(target);
     updateUI({ announce: false });
   }
@@ -1743,9 +1714,6 @@
       if (idx >= 0) rememberedCursor.tracks = idx;
     } else if (a.classList.contains("cv-row")) {
       if (a.dataset.annId) rememberedCursor.excerpts = a.dataset.annId;
-    } else if (isCodebookCodeRow(a)) {
-      const codeId = codeIdFromCodebookRow(a);
-      if (codeId) rememberedCursor.codebook = codeId;
     }
     // back link has no remembered state — not a roving zone
   }, true); // capture phase
