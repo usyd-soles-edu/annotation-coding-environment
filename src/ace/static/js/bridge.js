@@ -4126,6 +4126,7 @@
     if (_chordMode === "awaiting") return;
     if (evt.key !== "v" && evt.key !== "V") return;
     if (evt.metaKey || evt.ctrlKey || evt.altKey || evt.shiftKey) return;
+    if (document.querySelector("dialog[open]")) return;
     const tag = (evt.target.tagName || "").toLowerCase();
     if (tag === "input" || tag === "textarea" || tag === "select" || evt.target.isContentEditable) return;
     const controller = _getSidebarTreeController();

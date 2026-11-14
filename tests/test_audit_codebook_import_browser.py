@@ -78,6 +78,9 @@ def test_audit_import_dialog_cancel_then_commit(tmp_path, engine):
                     "document.querySelector('.ace-codebook-import-dialog')?.dataset.codebookImportReady === '1'",
                     timeout=5000,
                 )
+                page.locator("#codebook-import-title").press("v")
+                assert page.url == audit_url
+                assert dialog.is_visible()
                 match_tab = page.locator("#codebook-import-tab-match")
                 review_tab = page.locator("#codebook-import-tab-review")
                 match_tab.focus()
