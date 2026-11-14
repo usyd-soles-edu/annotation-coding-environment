@@ -2098,16 +2098,6 @@
       if (sidebarTarget || (sidebarEl && sidebarEl !== _lastSidebarEl)) {
         _lastSidebarEl = sidebarEl;
         _syncSidebarAfterSwap({ gridResize: true });
-        const cutId = _getCutCode();
-        if (cutId) {
-          const r = _findCodebookItemRow(cutId);
-          if (r) {
-            r.classList.add("ace-code-row--ghost");
-          } else {
-            _setCut(null);
-            window._setStatus("Cut cleared (item removed)", "ok");
-          }
-        }
       } else if (codingTarget) {
         _syncCodeCounts();
       }
@@ -2188,7 +2178,7 @@
   // Cut/paste state for the codebook sidebar (⌘X / ⌘V).
   // The tree controller owns the id of the item currently flagged for paste;
   // the matching row carries `.ace-code-row--ghost` so the user sees what's cut.
-  // Cleared on paste, on Esc, or when a sibling write swaps the sidebar.
+  // Cleared on paste, on Esc, or when a refreshed codebook confirms removal.
   function _cutStateController() {
     return window.AceHeadlessTreePreview?.getController?.() || null;
   }
