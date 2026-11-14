@@ -1046,11 +1046,13 @@
   // Registered on the capturing phase with stopImmediatePropagation so the
   // page's bridge.js (which also handles N and Esc on the coding page) never
   // sees these events when we're on /code/{id}/view.
+  function auditDialogOpen() {
+    return !!document.querySelector("#cv-cheatsheet-dialog[open], #modal-container dialog[open]");
+  }
+
   document.addEventListener("keydown", (evt) => {
-    // If the cheat sheet dialog is open, let native dialog handling take over
-    // (Esc closes it natively; our Esc handler must not also navigate away).
-    const _dlg = document.getElementById("cv-cheatsheet-dialog");
-    if (_dlg && _dlg.open) return;
+    // Native and dialog-specific keys take priority over audit navigation.
+    if (auditDialogOpen()) return;
     if (evt.target.closest?.(".ace-context-menu, .ace-colour-popover")) return;
 
     // Don't hijack keys while the user is typing in any form control (filter,
@@ -1492,6 +1494,7 @@
   // Document-level `/` → focus codebook search.
   // Registered at capture phase, matching the existing code_view.js convention.
   document.addEventListener("keydown", (evt) => {
+    if (auditDialogOpen()) return;
     if (evt.target.closest?.(".ace-context-menu, .ace-colour-popover")) return;
     if (evt.target.closest?.("#cv-resize-handle") &&
         !evt.altKey && !evt.ctrlKey && !evt.metaKey && !evt.shiftKey &&
