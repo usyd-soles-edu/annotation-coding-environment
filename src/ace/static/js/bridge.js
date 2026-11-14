@@ -2293,51 +2293,9 @@
           _closeAllPopovers();
           return;
         }
-        _closeAllPopovers();
-        const mutationPath = `/api/codes/${codeId}`;
-        const previousSidebar = document.getElementById("code-sidebar");
-        let treeReady = false;
-        let swapSettled = false;
-        let focusTimer = null;
-        const stopWatchingFocus = function () {
-          observer.disconnect();
-          clearTimeout(expiry);
-          clearTimeout(focusTimer);
-          document.removeEventListener("htmx:afterSettle", onSettle);
-          document.removeEventListener("htmx:afterRequest", stopOnFailedRequest);
-        };
-        const scheduleFocus = function () {
-          if (!treeReady || !swapSettled) return;
-          clearTimeout(focusTimer);
-          // HTMX may emit several settle events for one OOB response. Restore
-          // focus after they have all finished touching the text panel.
-          focusTimer = setTimeout(function () {
-            stopWatchingFocus();
-            _findCodebookItemRow(codeId)?.focus({ preventScroll: true });
-          }, 50);
-        };
-        const observer = new MutationObserver(function () {
-          const sidebar = document.getElementById("code-sidebar");
-          if (!sidebar || sidebar === previousSidebar) return;
-          // The new headless tree loads separately after the sidebar swap.
-          const row = sidebar.querySelector(`.ace-ht-row[data-code-id="${codeId}"]`);
-          if (!row) return;
-          treeReady = true;
-          scheduleFocus();
-        });
-        const onSettle = function (event) {
-          if (event.detail?.requestConfig?.path !== mutationPath) return;
-          swapSettled = true;
-          scheduleFocus();
-        };
-        const stopOnFailedRequest = function (event) {
-          if (event.detail?.requestConfig?.path !== mutationPath) return;
-          if (event.detail.xhr.status !== 200) stopWatchingFocus();
-        };
-        const expiry = setTimeout(stopWatchingFocus, 3000);
-        observer.observe(document.body, { childList: true, subtree: true });
-        document.addEventListener("htmx:afterSettle", onSettle);
-        document.addEventListener("htmx:afterRequest", stopOnFailedRequest);
+        // Let the tree controller capture and restore this row across the swap.
+        _closeColourPopover();
+        _findCodebookItemRow(codeId)?.focus({ preventScroll: true });
         htmx.ajax("PUT", `/api/codes/${codeId}`, {
           ..._codebookMutationSwapOptions(),
           values: _codebookMutationValues({
@@ -2345,7 +2303,7 @@
             current_index: window.__aceCurrentIndex || 0,
           }),
         }).catch(function () {
-          stopWatchingFocus();
+          window._setStatus?.("Could not change code colour", "err");
         });
       });
       popover.appendChild(swatch);
