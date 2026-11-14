@@ -51,18 +51,6 @@
     return row?.dataset?.codeId || row?.getAttribute?.("data-code-id") || "";
   }
 
-  function setCurrentSidebarCode(codeId) {
-    sidebarCodeRows().forEach((row) => {
-      row.removeAttribute("aria-current");
-      row.classList.remove("ace-ht-row--current");
-    });
-    const current = sidebarCodeRows().find((row) => codeIdFromCodebookRow(row) === codeId);
-    if (current) {
-      current.setAttribute("aria-current", "page");
-      current.classList.add("ace-ht-row--current");
-    }
-  }
-
   function escapeHtml(s) {
     return String(s)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -581,7 +569,7 @@
     }
 
     const restoreFocusId = populateCodeEditor();
-    setCurrentSidebarCode(data.code.id);
+    window.AceHeadlessTreePreview?.getController?.()?.syncCurrentCode();
     setCodeViewMode(codeViewMode, {
       focusName: false,
       restoreFocusId,
@@ -1179,17 +1167,8 @@
   }, true);
 
   // --- Codebook sidebar wiring ---
-  // The shared codebook partial is rendered here as well. Mark the currently-
-  // viewed code; activation loads excerpts while editing stays shared with /code.
+  // The shared tree marks the viewed code; activation loads excerpts here.
   (function initSidebar() {
-    const currentId = data.code.id;
-    setCurrentSidebarCode(currentId);
-    const root = codebookTreeElement();
-    if (root) {
-      const observer = new MutationObserver(() => setCurrentSidebarCode(data.code.id));
-      observer.observe(root, { childList: true, subtree: true });
-    }
-
     document.addEventListener("click", (evt) => {
       const row = codebookCodeRowFromTarget(evt.target);
       if (!row) return;
@@ -1422,7 +1401,6 @@
       )
       && affectedCodeIds.includes(currentCodeId);
     if (currentWasDeleted) {
-      setCurrentSidebarCode("");
       dataCache.delete(currentCodeId);
       window.location.href = "/code";
       return;
@@ -1451,9 +1429,6 @@
       return;
     }
 
-    if (currentCodeId) {
-      setCurrentSidebarCode(currentCodeId);
-    }
     if (metadataEnvelope) finishMetadataSave(metadataEnvelope.requestId, true);
   });
 

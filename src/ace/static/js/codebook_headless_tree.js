@@ -2655,6 +2655,12 @@
       }
       mount.replaceChildren(...actions.map(button));
     }
+    function updateCurrentCodeMarker(row, codeId, currentCodeId) {
+      const current = codeId === currentCodeId;
+      row.classList.toggle("ace-ht-row--current", current);
+      if (current) row.setAttribute("aria-current", "page");
+      else row.removeAttribute("aria-current");
+    }
     function rowForItem(item, context) {
       const data = item.getItemData();
       const singleKeyLabel = data.kind === "code" && !data.chord && !codeApplicationDisabled() ? keyLabel(context.codeRanks.get(item.getId())) : "";
@@ -2771,6 +2777,7 @@
         row.setAttribute("aria-description", `Shortcut: press semicolon, then ${data.chord.split("").join(" then ")}.`);
       }
       if (item.getId() === cutItemId) row.classList.add("ace-code-row--ghost");
+      if (data.kind === "code") updateCurrentCodeMarker(row, item.getId(), context.currentCodeId);
       if (context.focusedAncestors.has(item.getId())) row.classList.add("ace-ht-row--path-parent");
       if (dropReceiverId === item.getId()) row.classList.add("ace-ht-row--drop-receiver");
       row.dataset.itemId = item.getId();
@@ -2948,6 +2955,7 @@
       const context = {
         parents,
         codeRanks,
+        currentCodeId: codebookMutationContext().currentCodeId,
         focusedAncestors: ancestorIdsFor(focusedId, parents)
       };
       const rows = visibleItems.map(function(item) {
@@ -3181,6 +3189,12 @@
         const active = getActiveTreeItem();
         return active?.getAttribute("data-kind") === "code" ? active : null;
       }
+      function syncCurrentCode() {
+        const currentCodeId = codebookMutationContext().currentCodeId;
+        rootElement()?.querySelectorAll(".ace-ht-row--code[data-item-id]").forEach(function(row) {
+          updateCurrentCodeMarker(row, row.dataset.itemId, currentCodeId);
+        });
+      }
       function setChordHighlight(active) {
         const next = !!active;
         if (chordHighlightActive === next) return;
@@ -3353,6 +3367,7 @@
         startRenaming,
         firstCodeItem,
         activeCodeItem,
+        syncCurrentCode,
         setChordHighlight,
         getCutItemId: function() {
           return cutItemId;

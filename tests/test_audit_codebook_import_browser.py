@@ -117,6 +117,26 @@ def test_audit_import_dialog_cancel_then_commit(tmp_path, engine):
                 assert page.url == audit_url
                 page.locator(".ace-ht-row--code", has_text="Access").wait_for(timeout=5000)
                 assert page.locator(f'.ace-ht-row[data-item-id="{current_code_id}"]').count() == 1
+                current_row = page.locator(f'.ace-ht-row[data-item-id="{current_code_id}"]')
+                assert current_row.get_attribute("aria-current") == "page"
+                imported_row = page.locator(".ace-ht-row--code", has_text="Access")
+                imported_id = imported_row.get_attribute("data-item-id")
+                imported_row.click()
+                page.wait_for_function(
+                    "id => document.getElementById('code-view')?.dataset.codeId === id",
+                    arg=imported_id,
+                )
+                assert imported_row.get_attribute("aria-current") == "page"
+                assert current_row.get_attribute("aria-current") is None
+                page.evaluate("""() => {
+                    window.__oldCurrentRow = document.querySelector('.ace-ht-row--current');
+                    window.AceHeadlessTreePreview.getController().restoreCollapseState();
+                }""")
+                page.wait_for_function("""() =>
+                    document.querySelector('.ace-ht-row--current') !== window.__oldCurrentRow
+                """)
+                assert imported_row.get_attribute("aria-current") == "page"
+                assert page.locator('#code-sidebar .ace-ht-row[aria-current="page"]').count() == 1
                 with sqlite3.connect(project) as stored:
                     assert stored.execute(
                         "SELECT colour FROM codebook_code WHERE name = 'Access'"
