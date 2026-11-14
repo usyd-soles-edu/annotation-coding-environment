@@ -25,7 +25,7 @@
 - **Local startup** — report an occupied port without stopping another process or ACE runtime, and retain a bounded launcher failure record with safe categories and limited dependency or disk-full details.
 - **Windows packages** — extract each bundled server launch into a unique temporary directory so installed versions can run at the same time.
 - **Template safety** — restore safe JSON escaping when inserting project data into HTML.
-- **Codebook imports** — undo imported codes and the folders created with them without removing folders that were already in the project.
+- **Codebook imports** — undo imported codes and folders without removing pre-existing folders, and show how many codes were actually added.
 - **Annotation exports** — preserve exact selected spans and memos, including every memo and the source whitespace in merged exports.
 - **Coding text** — keep selections and highlights aligned with emoji-containing source text, and keep the source map usable in short windows.
 - **Multi-line highlights** — fill the gaps between wrapped highlighted lines while keeping paragraph spacing clear.
@@ -43,6 +43,8 @@
 - **Codebook actions** — make context menus keyboard accessible, show the create-code shortcut, warn before turning a code into a folder, keep the codebook visible during chord shortcuts, and keep the colour picker within the window.
 - **Codebook shortcuts** — keep single-key labels, accessible shortcut descriptions, and applied codes in sync after filtering or sidebar refresh; leave the existing folder alone if creating a nested folder fails.
 - **Codebook navigation** — keep Ctrl+Home and Ctrl+Right from moving focus, preserve source focus after returning from the tree, and prevent Ctrl/Command+Enter from applying a code; ordinary tree keys still work.
+- **Codebook keyboard moves** — apply modified-arrow moves to the row that received the shortcut, even if focus shifts during the keypress.
+- **Codebook focus** — return focus to a code after changing its colour and start renaming a newly wrapped folder without an extra click.
 - **Codebook errors** — keep the coding screen and sidebar intact if another tab has already created a code or folder with the same name.
 - **Audit codebook** — confirm context-menu deletion of the currently viewed code or a folder.
 - **Shortcut help** — explain two-letter code shortcuts, unify help dialogs, and clarify that applying a code stays on the current sentence.
