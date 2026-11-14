@@ -3098,7 +3098,10 @@
         return root ? root.querySelector('[role="treeitem"][tabindex="0"]') : null;
       }
       function focusTreeZone() {
-        (getActiveTreeItem() || getTreeItems()[0])?.focus();
+        const target = getActiveTreeItem() || getTreeItems()[0];
+        if (!target) return false;
+        focusTreeItem(target, { activate: false });
+        return true;
       }
       function itemForElement(element) {
         const id = itemIdFromElement(element);
@@ -3438,7 +3441,7 @@
         controller.finishCountReload(generation, true);
         searchRaw = search?.value.trim() || "";
         searchText = searchRaw.toLowerCase();
-        buildTree(restore?.zone === "tree" ? restore.itemId : entryFocusId);
+        buildTree(restore?.itemId || entryFocusId);
         applyProps(mount, tree.getContainerProps("Codebook tree"));
         mount.addEventListener("keydown", announceKeyboardDragCancel, true);
         tree.setMounted(true);
@@ -3504,13 +3507,22 @@
         return pendingSidebarState?.zone === "tree" || pendingSidebarState?.zone === "search";
       }
     };
+    document.addEventListener("focusin", function(event) {
+      const row = event.target?.closest?.(".ace-ht-row[data-item-id]");
+      if (row !== event.target || !mountedElement?.contains(row) || !tree) return;
+      const item = tree.getItemInstance(row.dataset.itemId);
+      if (item && tree.getFocusedItem?.()?.getId?.() !== item.getId()) {
+        item.setFocused();
+      }
+    }, true);
     document.addEventListener("htmx:beforeSwap", function() {
       if (!mountedElement?.isConnected) return;
       const active = document.activeElement;
       const search = document.getElementById("code-search-input");
+      const focusedRow = active?.closest?.(".ace-ht-row") || controller.getActiveTreeItem();
       pendingSidebarState = {
         zone: active === search ? "search" : mountedElement.contains(active) ? "tree" : null,
-        itemId: active?.closest?.(".ace-ht-row")?.dataset.itemId || null,
+        itemId: focusedRow?.dataset.itemId || tree?.getFocusedItem?.()?.getId?.() || null,
         searchText: search?.value || "",
         scrollTop: mountedElement.scrollTop
       };
