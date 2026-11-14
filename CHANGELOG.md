@@ -26,6 +26,7 @@
 - **Windows packages** — extract each bundled server launch into a unique temporary directory so installed versions can run at the same time.
 - **Template safety** — restore safe JSON escaping when inserting project data into HTML.
 - **Codebook imports** — undo imported codes and folders without removing pre-existing folders, and show how many codes were actually added.
+- **Codebook file picker** — keep one picker open at a time when Import is chosen repeatedly.
 - **Annotation exports** — preserve exact selected spans and memos, including every memo and the source whitespace in merged exports.
 - **Coding text** — keep selections and highlights aligned with emoji-containing source text, and keep the source map usable in short windows.
 - **Multi-line highlights** — fill the gaps between wrapped highlighted lines while keeping paragraph spacing clear.
