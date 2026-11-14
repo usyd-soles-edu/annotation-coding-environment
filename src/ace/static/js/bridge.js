@@ -2735,30 +2735,6 @@
     _applyCode(codeId);
   });
 
-  // Code-chip click: apply code to focused sentence/selection
-  document.addEventListener("click", function (e) {
-    const chip = e.target.closest(".ace-code-chip");
-    if (!chip) return;
-    e.stopPropagation();
-    let row = chip.closest(".ace-code-row");
-    if (!row) return;
-    if (row.querySelector('[contenteditable="true"]')) return;
-    let codeId = row.getAttribute("data-code-id");
-    if (!codeId) return;
-    _clearSearchFilter();
-    _applyCode(codeId);
-  });
-
-  // Click on code row (not chip): focus/select for management
-  document.addEventListener("click", function (e) {
-    let row = e.target.closest(".ace-code-row");
-    if (!row) return;
-    if (e.target.closest(".ace-code-chip")) return;
-    if (e.target.closest(".ace-code-menu")) return;
-    if (e.target.isContentEditable) return;
-    _focusTreeItem(row);
-  });
-
   /** Clear the search filter input and trigger the input handler to restore all rows. */
   function _clearSearchFilter() {
     let el = document.getElementById("code-search-input");
