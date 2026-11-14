@@ -1786,6 +1786,8 @@
     let searchRaw = "";
     let searchText = "";
     let chordHighlightActive = false;
+    let reportedChordPrefix = "";
+    let reportedChordMatches = null;
     let chordHintShown = false;
     let cutItemId = null;
     let pendingSidebarState = null;
@@ -1925,6 +1927,13 @@
         return !item.getItemData().chord;
       });
       return { codeId: codes[position]?.getId() || null, availableCount: codes.length };
+    }
+    function lookupChord(chord) {
+      if (codeApplicationDisabled() || !tree || initializedGeneration !== initGeneration || mountedElement !== document.getElementById("ace-headless-tree-mount")) return null;
+      const match = Object.entries(items).find(function([, data]) {
+        return data.kind === "code" && data.chord === chord;
+      });
+      return match?.[0] || null;
     }
     function firstVisibleCodeItem() {
       return visibleCodeItems()[0] || null;
@@ -2969,6 +2978,7 @@
         return rowForItem(item, context);
       });
       mount.replaceChildren(...rows);
+      syncChordMatches();
       renderedParentById = parents;
       renderedFocusedId = focusedId;
       renderCreateActions();
@@ -2986,6 +2996,30 @@
       if (!tree.getRenamingItem?.() && (!active || active === document.body || mount.contains(active))) {
         tree.getFocusedItem()?.getElement()?.focus({ preventScroll: true });
       }
+    }
+    function syncChordMatches() {
+      const mount = document.getElementById("ace-headless-tree-mount");
+      const prefix2 = chordHighlightActive ? document.body.dataset.chordBuffer : "";
+      let matches = 0;
+      mount?.querySelectorAll(".ace-ht-chip--chord").forEach(function(chip) {
+        const chord = chip.closest(".ace-ht-row--code")?.dataset.chord;
+        const match = !!(prefix2?.length === 1 && chord?.startsWith(prefix2));
+        chip.classList.toggle("ace-chord-match", match);
+        if (match) matches++;
+      });
+      if (prefix2?.length === 1) {
+        if (prefix2 !== reportedChordPrefix || matches !== reportedChordMatches) {
+          reportedChordPrefix = prefix2;
+          reportedChordMatches = matches;
+          document.dispatchEvent(new CustomEvent("ace:chord-matches", {
+            detail: { prefix: prefix2, matches }
+          }));
+        }
+      } else {
+        reportedChordPrefix = "";
+        reportedChordMatches = null;
+      }
+      return matches;
     }
     function scheduleDragStateRender() {
       if (dragRenderQueued) return;
@@ -3209,6 +3243,7 @@
         const next = !!active;
         if (chordHighlightActive === next) return;
         chordHighlightActive = next;
+        syncChordMatches();
         if (searchText) scheduleRender();
         else renderCreateActions();
       }
@@ -3379,6 +3414,7 @@
         activeCodeItem,
         syncCurrentCode,
         setChordHighlight,
+        syncChordMatches,
         getCutItemId: function() {
           return cutItemId;
         },
@@ -3386,6 +3422,7 @@
         pasteCutItem,
         moveItemToParent,
         lookupSingleKey,
+        lookupChord,
         deleteItemById,
         folderOptions,
         itemLabel,
