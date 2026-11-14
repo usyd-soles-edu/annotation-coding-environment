@@ -1,7 +1,7 @@
 """Optional CSV colour mapping works in the codebook import dialog."""
 
 import sqlite3
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
@@ -35,7 +35,11 @@ def test_import_dialog_maps_colour_column(tmp_path, engine, import_case):
         app.state.coder_id = coder_id
         dialog_html = client.post(
             "/api/codes/import/preview-path",
-            data={"path": str(csv_path), "current_index": 0},
+            data={
+                "path": str(csv_path),
+                "current_index": 0,
+                "codebook_mode": "coding",
+            },
         ).text
         with sync_api.sync_playwright() as playwright:
             browser = getattr(playwright, engine).launch()
@@ -91,8 +95,18 @@ def test_import_dialog_maps_colour_column(tmp_path, engine, import_case):
                         existing_colour = stored.execute(
                             "SELECT colour FROM codebook_code WHERE name = 'Access'"
                         ).fetchone()[0]
-                with page.expect_response("**/api/codes/import"):
+                if import_case == "fresh":
+                    requests = []
+                    page.on("request", lambda request: requests.append(request))
+                    page.evaluate("document.body.dataset.aceNavigating = '1'")
                     page.locator("#codebook-import-commit").click()
+                    assert page.locator(".ace-codebook-import-dialog").is_visible()
+                    assert not any(request.url.endswith("/api/codes/import") for request in requests)
+                    page.evaluate("delete document.body.dataset.aceNavigating")
+                with page.expect_response("**/api/codes/import") as imported:
+                    page.locator("#codebook-import-commit").click()
+                request_data = parse_qs(imported.value.request.post_data)
+                assert request_data["codebook_mode"] == ["coding"]
                 with sqlite3.connect(project) as stored:
                     row = stored.execute(
                         "SELECT colour FROM codebook_code WHERE name = 'Access' AND kind = 'code'"

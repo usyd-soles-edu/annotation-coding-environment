@@ -660,14 +660,14 @@ import {
     });
   }
 
-  async function htmxSidebarSwap(method, url, values) {
+  async function htmxSidebarSwap(method, url, values, swap = "outerHTML") {
     if (document.body.dataset.aceNavigating === "1") return;
     if (!window.htmx || typeof window.htmx.ajax !== "function") {
       throw new Error("HTMX is unavailable");
     }
     return window.htmx.ajax(method, url, {
       target: "#code-sidebar",
-      swap: "outerHTML",
+      swap,
       values: codebookMutationValues(values),
     });
   }
@@ -1649,6 +1649,16 @@ import {
       });
     }
 
+    function importCodes(codesJson, index, mode, currentCodeId) {
+      if (codebookEditingDisabled()) return;
+      return htmxSidebarSwap("POST", "/api/codes/import", {
+        codes_json: codesJson,
+        current_index: index,
+        codebook_mode: mode,
+        current_code_id: currentCodeId,
+      }, mode === "audit" ? "none" : "outerHTML");
+    }
+
     // HTMX resolves ajax() immediately when a request is queued. The actual
     // response event is the only reliable point to clear a successfully
     // pasted item; a rejected or dropped request leaves it available to retry.
@@ -1770,6 +1780,7 @@ import {
       setItemColour,
       convertItemToFolder,
       wrapSiblingCodes,
+      importCodes,
       startRenaming,
       firstCodeItem,
       activeCodeItem,

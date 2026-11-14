@@ -55,14 +55,6 @@
     return _navigationInFlight || !!document.getElementById("code-view") || !document.getElementById("text-panel");
   }
 
-  function _codebookMutationContext() {
-    return _getSidebarTreeController().mutationContext();
-  }
-
-  function _codebookMutationValues(values) {
-    return _getSidebarTreeController().mutationValues(values);
-  }
-
   // Warn while another codebook page is open in this browser origin. A
   // per-document ID avoids sessionStorage IDs copied by Duplicate Tab.
   let _codebookTabChannel = null;
@@ -4588,7 +4580,7 @@
         .then(function (data) {
           if (!data.path) return;
           htmx.ajax("POST", "/api/codes/import/preview-path", {
-            values: _codebookMutationValues({
+            values: _getSidebarTreeController().mutationValues({
               path: data.path,
               current_index: window.__aceCurrentIndex,
             }),
@@ -4872,29 +4864,24 @@
   };
 
   window.aceImportFromPreview = function (btn) {
+    const controller = _getSidebarTreeController();
+    if (!controller) return;
     const codesJson = btn.getAttribute("data-codes");
     const currentIndex = btn.getAttribute("data-current-index") || window.__aceCurrentIndex;
-    const mode = btn.dataset.codebookMode || _codebookMutationContext().mode;
-    const currentCodeId = btn.dataset.currentCodeId || _codebookMutationContext().currentCodeId;
+    const context = controller.mutationContext();
+    const mode = btn.dataset.codebookMode || context.mode;
+    const currentCodeId = btn.dataset.currentCodeId || context.currentCodeId;
     if (
       mode === "audit"
       && !window.confirm("Import codebook? This can change the audit view. You can undo imported codes.")
     ) {
       return;
     }
+    if (_denyCodebookEditing()) return;
     const dialog = btn.closest("dialog");
     if (dialog) dialog.close();
 
-    htmx.ajax("POST", "/api/codes/import", {
-      values: _codebookMutationValues({
-        codes_json: codesJson,
-        current_index: currentIndex,
-        codebook_mode: mode,
-        current_code_id: currentCodeId,
-      }),
-      target: "#code-sidebar",
-      swap: mode === "audit" ? "none" : "outerHTML",
-    });
+    controller.importCodes(codesJson, currentIndex, mode, currentCodeId);
   };
 
   /* ================================================================
