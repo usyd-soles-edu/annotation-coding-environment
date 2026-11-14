@@ -26,6 +26,7 @@ from ace.routes.api_support import (
     _csv_download,
     _fallback_code_after_delete,
     _get_undo_manager,
+    _merge_hx_trigger,
     _oob_announce,
     _oob_status,
     _oob_status_undo,
@@ -362,6 +363,12 @@ async def indent_promote_route(
             status_html=status_html,
             audit_reload=bool(current_code_id),
             folder_list_changed=True,
+            headers=_merge_hx_trigger(
+                None,
+                "ace:folder-wrapped",
+                {"folder_id": folder_id},
+                header_name="HX-Trigger-After-Settle",
+            ),
         )
 
 
