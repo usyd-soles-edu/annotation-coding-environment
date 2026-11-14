@@ -3195,13 +3195,6 @@
           scheduleRender();
         }
       }
-      function toggleFolderCollapse(element) {
-        const item = itemForElement(element);
-        if (!item?.isFolder?.()) return;
-        if (item.isExpanded()) item.collapse();
-        else item.expand();
-        scheduleRender();
-      }
       function moveItemInDirection(itemId, direction) {
         if (denyCodebookEditing() || dragSavePending) return;
         const parentId = findParentId(itemId) || ROOT_ID;
@@ -3397,7 +3390,6 @@
         refresh,
         rootElement,
         restoreCollapseState: scheduleRender,
-        toggleFolderCollapse,
         expandFolder,
         collapseFolder,
         getMode: currentCodebookMode,
