@@ -27,6 +27,8 @@ import {
   let searchRaw = "";
   let searchText = "";
   let chordHighlightActive = false;
+  let reportedChordPrefix = "";
+  let reportedChordMatches = null;
   let chordHintShown = false;
   let codeCueIds = new Set();
   let cutItemId = null;
@@ -179,6 +181,16 @@ import {
       return !item.getItemData().chord;
     });
     return { codeId: codes[position]?.getId() || null, availableCount: codes.length };
+  }
+
+  function lookupChord(chord) {
+    if (codeApplicationDisabled() || !tree ||
+        initializedGeneration !== initGeneration ||
+        mountedElement !== document.getElementById("ace-headless-tree-mount")) return null;
+    const match = Object.entries(items).find(function ([, data]) {
+      return data.kind === "code" && data.chord === chord;
+    });
+    return match?.[0] || null;
   }
 
   function firstVisibleCodeItem() {
@@ -1354,6 +1366,7 @@ import {
     };
     const rows = visibleItems.map(function (item) { return rowForItem(item, context); });
     mount.replaceChildren(...rows);
+    syncChordMatches();
     if (codeCueIds.size) syncCodeCueRows();
     renderedParentById = parents;
     renderedFocusedId = focusedId;
@@ -1381,6 +1394,31 @@ import {
       .forEach(function (row) {
         row.classList.toggle("ace-ht-row--cue", codeCueIds.has(row.dataset.codeId));
       });
+  }
+
+  function syncChordMatches() {
+    const mount = document.getElementById("ace-headless-tree-mount");
+    const prefix = chordHighlightActive ? document.body.dataset.chordBuffer : "";
+    let matches = 0;
+    mount?.querySelectorAll(".ace-ht-chip--chord").forEach(function (chip) {
+      const chord = chip.closest(".ace-ht-row--code")?.dataset.chord;
+      const match = !!(prefix?.length === 1 && chord?.startsWith(prefix));
+      chip.classList.toggle("ace-chord-match", match);
+      if (match) matches++;
+    });
+    if (prefix?.length === 1) {
+      if (prefix !== reportedChordPrefix || matches !== reportedChordMatches) {
+        reportedChordPrefix = prefix;
+        reportedChordMatches = matches;
+        document.dispatchEvent(new CustomEvent("ace:chord-matches", {
+          detail: { prefix, matches },
+        }));
+      }
+    } else {
+      reportedChordPrefix = "";
+      reportedChordMatches = null;
+    }
+    return matches;
   }
 
   function scheduleDragStateRender() {
@@ -1628,6 +1666,7 @@ import {
       const next = !!active;
       if (chordHighlightActive === next) return;
       chordHighlightActive = next;
+      syncChordMatches();
       if (searchText) scheduleRender();
       else renderCreateActions();
     }
@@ -1827,11 +1866,13 @@ import {
       syncCurrentCode,
       setChordHighlight,
       setCodeCueIds,
+      syncChordMatches,
       getCutItemId: function () { return cutItemId; },
       setCutItemId,
       pasteCutItem,
       moveItemToParent,
       lookupSingleKey,
+      lookupChord,
       deleteItemById,
       folderOptions,
       itemLabel,
