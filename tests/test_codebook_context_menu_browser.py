@@ -287,6 +287,19 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                 }""", alpha_id)
                 assert active_after_settle == "text-panel"
 
+                row.click(button="right")
+                menu.get_by_role("menuitem", name="Change colour…").click()
+                page.route(failed_path, lambda route: route.abort(), times=1)
+                with page.expect_event(
+                    "requestfailed", predicate=lambda request: request.url == failed_path
+                ):
+                    page.get_by_role("group", name="Change code colour").get_by_role(
+                        "button", name="Set code colour to #0B4F8A"
+                    ).click()
+                page.wait_for_function(
+                    "document.querySelector('.ace-statusbar-event')?.textContent === 'Could not change code colour'"
+                )
+
                 page.goto(f"{base}/code/{alpha_id}/view")
                 audit_row = page.locator(f'.ace-ht-row[data-code-id="{alpha_id}"]')
                 audit_row.wait_for()
@@ -313,6 +326,24 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                 audit_palette.get_by_role("button").first.wait_for()
                 page.keyboard.press("Escape")
                 assert audit_row.evaluate("el => el === document.activeElement")
+                assert page.url == f"{base}/code/{alpha_id}/view"
+
+                audit_row.press("Shift+F10")
+                page.get_by_role("menuitem", name="Change colour…").click()
+                audit_palette = page.get_by_role("group", name="Change code colour")
+                audit_swatch = audit_palette.get_by_role("button").nth(1)
+                chosen_colour = audit_swatch.get_attribute("aria-label").rsplit(" ", 1)[-1]
+                with page.expect_response(f"**/api/codes/{alpha_id}"):
+                    audit_swatch.click()
+                page.wait_for_function("""({id, colour}) =>
+                    document.querySelector(`.ace-ht-row[data-code-id='${id}']`)
+                        ?.style.getPropertyValue('--row-colour').trim().toUpperCase()
+                        === colour.toUpperCase()
+                """, arg={"id": alpha_id, "colour": chosen_colour})
+                page.wait_for_function(
+                    "id => document.activeElement?.getAttribute('data-code-id') === id",
+                    arg=alpha_id,
+                )
                 assert page.url == f"{base}/code/{alpha_id}/view"
 
                 audit_row.press("Shift+F10")
