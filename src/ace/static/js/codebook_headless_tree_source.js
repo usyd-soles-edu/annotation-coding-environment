@@ -1625,6 +1625,30 @@ import {
       });
     }
 
+    function setItemColour(itemId, colour) {
+      if (!itemId || codebookEditingDisabled()) return;
+      return htmxSwap("PUT", `/api/codes/${itemId}`, {
+        colour,
+        current_index: currentIndex(),
+      });
+    }
+
+    function convertItemToFolder(itemId) {
+      if (!itemId || codebookEditingDisabled()) return;
+      return htmxSwap("POST", `/api/codes/${itemId}/convert-to-folder`, {
+        current_index: currentIndex(),
+      });
+    }
+
+    function wrapSiblingCodes(itemId, aboveItemId) {
+      if (!itemId || !aboveItemId || codebookEditingDisabled()) return;
+      return htmxSwap("POST", `/api/codes/${itemId}/indent-promote`, {
+        above_code_id: aboveItemId,
+        folder_name: "New folder",
+        current_index: currentIndex(),
+      });
+    }
+
     // HTMX resolves ajax() immediately when a request is queued. The actual
     // response event is the only reliable point to clear a successfully
     // pasted item; a rejected or dropped request leaves it available to retry.
@@ -1743,6 +1767,9 @@ import {
       itemIdFromTreeElement: itemIdFromElement,
       firstChildOfFolderRow,
       moveItemInDirection,
+      setItemColour,
+      convertItemToFolder,
+      wrapSiblingCodes,
       startRenaming,
       firstCodeItem,
       activeCodeItem,
