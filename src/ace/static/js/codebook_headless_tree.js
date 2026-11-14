@@ -2351,14 +2351,14 @@
         }
       });
     }
-    async function htmxSidebarSwap(method, url, values) {
+    async function htmxSidebarSwap(method, url, values, swap = "outerHTML") {
       if (document.body.dataset.aceNavigating === "1") return;
       if (!window.htmx || typeof window.htmx.ajax !== "function") {
         throw new Error("HTMX is unavailable");
       }
       return window.htmx.ajax(method, url, {
         target: "#code-sidebar",
-        swap: "outerHTML",
+        swap,
         values: codebookMutationValues(values)
       });
     }
@@ -3231,6 +3231,15 @@
           current_index: currentIndex()
         });
       }
+      function importCodes(codesJson, index, mode, currentCodeId) {
+        if (codebookEditingDisabled()) return;
+        return htmxSidebarSwap("POST", "/api/codes/import", {
+          codes_json: codesJson,
+          current_index: index,
+          codebook_mode: mode,
+          current_code_id: currentCodeId
+        }, mode === "audit" ? "none" : "outerHTML");
+      }
       document.addEventListener("htmx:afterRequest", function(event) {
         const detail = event.detail;
         if (!detail?.successful || detail.requestConfig?.path !== "/api/codes/cut-paste" || detail.requestConfig.parameters?.code_id !== cutItemId) return;
@@ -3340,6 +3349,7 @@
         setItemColour,
         convertItemToFolder,
         wrapSiblingCodes,
+        importCodes,
         startRenaming,
         firstCodeItem,
         activeCodeItem,

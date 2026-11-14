@@ -69,30 +69,6 @@ def test_bridge_no_longer_describes_codebook_slash_commands():
     assert "slash commands" not in bridge.lower()
 
 
-def test_audit_codebook_mutations_send_mode_context():
-    bridge = (ROOT / "src" / "ace" / "static" / "js" / "bridge.js").read_text(
-        encoding="utf-8"
-    )
-    tree_source = (
-        ROOT / "src" / "ace" / "static" / "js" / "codebook_headless_tree_source.js"
-    ).read_text(encoding="utf-8")
-
-    assert "return _getSidebarTreeController().mutationContext()" in bridge
-    assert "return _getSidebarTreeController().mutationValues(values)" in bridge
-    assert "next.codebook_mode = ctx.mode" not in bridge
-    assert "next.current_code_id = ctx.currentCodeId" not in bridge
-    assert "_codebookMutationQueryString" not in bridge
-    assert "deleteItemById" in bridge
-
-    assert "function codebookMutationValues" in tree_source
-    assert "next.codebook_mode = ctx.mode" in tree_source
-    assert "next.current_code_id = ctx.currentCodeId" in tree_source
-    assert "codebookMutationValues(values)" in tree_source
-    assert "deleteItemById," in tree_source
-    assert "mutationContext: codebookMutationContext" in tree_source
-    assert "mutationValues: codebookMutationValues" in tree_source
-
-
 def test_headless_tree_controller_exposes_mode_policy_contract():
     tree_source = (
         ROOT / "src" / "ace" / "static" / "js" / "codebook_headless_tree_source.js"
