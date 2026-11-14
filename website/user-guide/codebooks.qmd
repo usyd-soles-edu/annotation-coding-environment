@@ -40,7 +40,7 @@ Put common codes near the top. ACE assigns quick keyboard positions from the vis
 
 If a code is hard to reach, move it higher.
 
-Drag a code or folder to move it. With the keyboard, focus the row and press `Control+Shift+D`, use the arrow keys to choose a position, then press `Enter` to move it or `Esc` to cancel. Codes can move into folders; folders stay at the top level.
+Drag a code or folder to move it. With the keyboard, focus the row and press `Control+Shift+D`, use the arrow keys to choose a position, then press `Enter` to move it or `Esc` to cancel. Codes and folders can move to the top level or into other folders. Folders can be nested.
 
 ## Editing in more than one tab
 

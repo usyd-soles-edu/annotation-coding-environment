@@ -132,6 +132,36 @@ def test_code_folder_and_new_wrapper_rename_use_tree_controller(tmp_path, browse
 
                 page.route("http://127.0.0.1:8080/**", serve_from_test_client)
                 page.goto("http://127.0.0.1:8080/code")
+                page.evaluate("""() => {
+                    window.__aceRenameTestSettleCount = 0;
+                    document.addEventListener('htmx:afterSettle', () => {
+                        window.__aceRenameTestSettleCount += 1;
+                    });
+                }""")
+
+                def save_rename(input_locator, item_id, name):
+                    input_locator.fill(name)
+                    previous_tree = page.evaluate_handle("window.__aceHeadlessTreePreview.tree")
+                    previous_settles = page.evaluate("window.__aceRenameTestSettleCount")
+                    with page.expect_response(
+                        lambda response: response.request.method == "PUT"
+                        and urlsplit(response.url).path == f"/api/codes/{item_id}"
+                    ) as save:
+                        input_locator.press("Enter")
+                    assert save.value.ok
+                    page.wait_for_function(
+                        "count => window.__aceRenameTestSettleCount > count",
+                        arg=previous_settles,
+                    )
+                    page.wait_for_function(
+                        "old => window.__aceHeadlessTreePreview?.tree !== old",
+                        arg=previous_tree,
+                    )
+                    page.wait_for_function(
+                        "({id, name}) => window.__aceHeadlessTreePreview?.items[id]?.name === name && document.querySelector(`.ace-ht-row[data-item-id='${id}'] .ace-ht-label`)?.textContent === name",
+                        arg={"id": item_id, "name": name},
+                    )
+                    previous_tree.dispose()
 
                 folder = page.locator(f'.ace-ht-row[data-item-id="{folder_id}"]')
                 folder.click()
@@ -140,21 +170,11 @@ def test_code_folder_and_new_wrapper_rename_use_tree_controller(tmp_path, browse
                     arg=folder_id,
                 )
                 page.keyboard.press("F2")
-                folder.locator("input.ace-ht-rename").fill("Cluster")
-                folder.locator("input.ace-ht-rename").press("Enter")
-                page.wait_for_function(
-                    "id => document.querySelector(`.ace-ht-row[data-item-id='${id}'] .ace-ht-label`)?.textContent === 'Cluster'",
-                    arg=folder_id,
-                )
+                save_rename(folder.locator("input.ace-ht-rename"), folder_id, "Cluster")
 
                 code = page.locator(f'.ace-ht-row[data-item-id="{code_id}"]')
                 code.locator(".ace-ht-label").dblclick()
-                code.locator("input.ace-ht-rename").fill("Beta")
-                code.locator("input.ace-ht-rename").press("Enter")
-                page.wait_for_function(
-                    "id => document.querySelector(`.ace-ht-row[data-item-id='${id}'] .ace-ht-label`)?.textContent === 'Beta'",
-                    arg=code_id,
-                )
+                save_rename(code.locator("input.ace-ht-rename"), code_id, "Beta")
 
                 next_code = page.locator(f'.ace-ht-row[data-item-id="{next_code_id}"]')
                 def slow_tree(route):
@@ -167,20 +187,14 @@ def test_code_folder_and_new_wrapper_rename_use_tree_controller(tmp_path, browse
                 new_folder_name = page.locator("input.ace-ht-rename")
                 new_folder_name.wait_for()
                 assert new_folder_name.evaluate("input => document.activeElement === input")
-                new_folder_name.fill("Bundle")
-                new_folder_name.press("Enter")
-                page.wait_for_function(
-                    "() => [...document.querySelectorAll('.ace-ht-row--folder .ace-ht-label')].some(el => el.textContent === 'Bundle')"
-                )
+                new_folder_id = new_folder_name.get_attribute("data-item-id")
+                save_rename(new_folder_name, new_folder_id, "Bundle")
 
                 next_code.click()
                 page.keyboard.press("Alt+Shift+ArrowRight")
                 nested_folder_name = page.locator("input.ace-ht-rename")
-                nested_folder_name.fill("Inside")
-                nested_folder_name.press("Enter")
-                page.wait_for_function(
-                    "() => [...document.querySelectorAll('.ace-ht-row--folder .ace-ht-label')].some(el => el.textContent === 'Inside')"
-                )
+                nested_folder_id = nested_folder_name.get_attribute("data-item-id")
+                save_rename(nested_folder_name, nested_folder_id, "Inside")
                 with sqlite3.connect(project) as saved:
                     nested_id = saved.execute(
                         "SELECT id FROM codebook_code WHERE name = 'Inside' AND kind = 'folder'"

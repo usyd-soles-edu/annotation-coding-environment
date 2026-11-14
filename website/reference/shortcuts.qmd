@@ -39,10 +39,10 @@ Shortcuts depend on where focus is: source text, codebook, or search.
 
 | Shortcut | Action |
 |---|---|
-| `Option+Right` | Move focused code into the folder above |
-| `Option+Shift+Right` | Create a folder from the focused code and code above |
-| `Option+Left` | Move focused code out to the root |
-| `Option+Shift+Up` / `Option+Shift+Down` | Reorder folder rows |
+| `Option+Right` | Move the focused code or folder into the folder above |
+| `Option+Shift+Right` | Wrap two adjacent sibling codes in a new folder, or move the focused item into the folder above when available |
+| `Option+Left` | Move the focused code or folder out one level |
+| `Option+Shift+Up` / `Option+Shift+Down` | Reorder the focused code or folder |
 | `Command+X` | Cut code |
 | `Command+V` | Paste code |
 | `Control+Shift+D` | Start keyboard drag; use arrows to choose a position, `Enter` to move, or `Esc` to cancel |
