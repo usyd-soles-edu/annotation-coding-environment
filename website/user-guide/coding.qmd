@@ -60,6 +60,8 @@ Steps:
 
 You can apply visible codes with keyboard shortcuts. The codebook shows the available shortcut beside each code.
 
+For a code with a two-letter shortcut, press `;` followed by those letters. This also works when the code's folder is collapsed.
+
 If wording cues are turned on, use them as prompts to check the codebook. Apply a code only when it fits your interpretation of the passage.
 
 If the same code is applied to overlapping text, ACE merges the overlapping spans into a single annotation for that code.

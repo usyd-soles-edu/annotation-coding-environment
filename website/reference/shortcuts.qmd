@@ -9,6 +9,7 @@ Shortcuts depend on where focus is: source text, codebook, or search.
 | Shortcut | Action |
 |---|---|
 | `1` to `9`, `0`, `a` to `y` | Apply visible codes |
+| `;` then two letters | Apply the code with that two-letter shortcut, even when its folder is collapsed |
 | `Up` / `Down` | Move between sentences and section headings |
 | `Shift+Left` / `Shift+Right` | Move between sources |
 | `Q` | Repeat the last code |
