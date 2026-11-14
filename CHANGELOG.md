@@ -47,6 +47,7 @@
 - **Codebook navigation** — keep Ctrl+Home and Ctrl+Right from moving focus, preserve source focus after returning from the tree, and prevent Ctrl/Command+Enter from applying a code; ordinary tree keys still work.
 - **Codebook keyboard moves** — apply modified-arrow moves to the row that received the shortcut, even if focus shifts during the keypress.
 - **Codebook focus** — return focus to a code after changing its colour and start renaming a newly wrapped folder without an extra click.
+- **Audit codebook focus** — keep keyboard focus on the viewed code when opening the audit view, and return to the focused code or folder after moving through its review panels.
 - **Codebook errors** — keep the coding screen and sidebar intact if another tab has already created a code or folder with the same name.
 - **Audit codebook** — confirm context-menu deletion of the currently viewed code or a folder.
 - **Shortcut help** — explain two-letter code shortcuts, unify help dialogs, and clarify that applying a code stays on the current sentence.
