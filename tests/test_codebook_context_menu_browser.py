@@ -411,7 +411,9 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                 ) as deleted:
                     page.get_by_role("menuitem", name="Delete ⌫").click()
                 assert deleted.value.ok
-                assert parse_qs(urlsplit(deleted.value.url).query) == {
+                delete_params = parse_qs(urlsplit(deleted.value.url).query)
+                assert delete_params.pop("_ace_mutation_feedback_id")
+                assert delete_params == {
                     "current_index": ["0"],
                     "codebook_mode": ["audit"],
                     "current_code_id": [alpha_id],

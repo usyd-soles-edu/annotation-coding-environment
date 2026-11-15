@@ -2601,7 +2601,12 @@
           query.set(key, value);
         }
       });
-      htmxSwap("DELETE", `/api/codes/${item.getId()}?${query}`, {});
+      mutationWithFeedback(
+        "DELETE",
+        `/api/codes/${item.getId()}?${query}`,
+        {},
+        "Could not delete item"
+      );
     }
     function deleteItemById(itemId) {
       if (denyCodebookEditing(true)) return;
