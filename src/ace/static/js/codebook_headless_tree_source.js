@@ -605,10 +605,10 @@ import {
     }
   }
 
-  function mutationWithFeedback(method, url, values, errorMessage) {
+  function mutationWithFeedback(method, url, values, errorMessage, send = htmxSwap) {
     const requestId = String(++nextFeedbackRequestId);
     pendingFeedbackRequests.set(requestId, errorMessage);
-    return htmxSwap(method, url, {
+    return send(method, url, {
       ...values,
       _ace_mutation_feedback_id: requestId,
     }).catch(function () {
@@ -1833,12 +1833,15 @@ import {
 
     function importCodes(codesJson, index, mode, currentCodeId) {
       if (codebookEditingDisabled()) return;
-      return htmxSidebarSwap("POST", "/api/codes/import", {
+      return mutationWithFeedback("POST", "/api/codes/import", {
         codes_json: codesJson,
         current_index: index,
         codebook_mode: mode,
         current_code_id: currentCodeId,
-      }, mode === "audit" ? "none" : "outerHTML");
+      }, "Could not import codebook", function (method, url, values) {
+        return htmxSidebarSwap(method, url, values,
+          mode === "audit" ? "none" : "outerHTML");
+      });
     }
 
     // HTMX resolves ajax() immediately when a request is queued. The actual
