@@ -75,6 +75,10 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                 folder_a = page.locator(f'.ace-ht-row[data-folder-id="{first_folder}"]')
                 folder_b = page.locator(f'.ace-ht-row[data-folder-id="{second_folder}"]')
                 alpha.wait_for()
+                assert folder_a.get_attribute("tabindex") == "0"
+                assert page.locator(
+                    '#ace-headless-tree-mount [role="treeitem"][tabindex="0"]'
+                ).count() == 1
                 assert alpha.locator(".ace-ht-chip").text_content() == "1"
                 assert beta.locator(".ace-ht-chip").text_content() == "2"
                 assert alpha.get_attribute("aria-keyshortcuts") == "1 Shift+F10 ContextMenu"

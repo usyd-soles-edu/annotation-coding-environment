@@ -3793,13 +3793,7 @@
     }
   }, true);  // capture phase to intercept before default Tab behaviour
 
-  // --- Roving tabindex ---
-
-  /** Return all visible treeitems (group headers + code rows) in DOM order. */
-  function _getTreeItems() {
-    const controller = _getSidebarTreeController();
-    return controller ? controller.getTreeItems() : [];
-  }
+  // --- Tree row helpers ---
 
   /** Check if a treeitem is a folder row. */
   function _isFolderRow(item) {
@@ -4959,12 +4953,6 @@
     _initCodePeek();
     _initCodingTextControls();
     _syncAppliedCollapseA11y();
-
-    // Set initial roving tabindex — first treeitem gets tabindex="0"
-    const items = _getTreeItems();
-    if (items.length > 0) {
-      items[0].setAttribute("tabindex", "0");
-    }
 
     // Auto-focus first sentence so keyboard works immediately
     const sentences = _getSentences();
