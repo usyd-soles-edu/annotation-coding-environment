@@ -45,6 +45,9 @@ import {
   const queuedKeyboardReorders = [];
   let activeKeyboardReorderId = null;
   let reorderFailureVisible = false;
+  let nextCreateRequestId = 0;
+  const pendingCreates = new Set();
+  let createFailureVisible = false;
   const RESERVED_SINGLE_KEYS = new Set(["q", "x", "z", "n", "v"]);
   const SINGLE_KEY_LABELS = Array.from("1234567890abcdefghijklmnopqrstuvwxyz")
     .filter(function (label) { return !RESERVED_SINGLE_KEYS.has(label); });
@@ -324,7 +327,9 @@ import {
       return;
     }
     const saveGeneration = initGeneration;
-    setStatus("Saving");
+    reorderFailureVisible = false;
+    createFailureVisible = false;
+    setStatus(mutationStatusText());
     try {
       if (previousParent === nextParent) {
         await htmxDragSwap("POST", "/api/codes/reorder-in-scope", {
@@ -339,10 +344,9 @@ import {
           current_index: currentIndex(),
         });
       }
-      setStatus("");
       if (isCodingMode()) void refreshSavedTree(++reorderResolutionVersion);
     } catch (error) {
-      setStatus("Move failed");
+      reorderFailureVisible = true;
       if (saveGeneration === initGeneration) restoreChildrenByParent(restoreSnapshot);
       window.__aceHeadlessTreePreviewError = String(error && error.message || error);
       throw error;
@@ -393,6 +397,14 @@ import {
   function setStatus(text) {
     const el = document.querySelector("[data-headless-tree-status]");
     if (el) el.textContent = text;
+  }
+
+  function mutationStatusText() {
+    if (pendingReorders.size || dragSavePending) return "Saving";
+    if (pendingCreates.size) return "Creating";
+    if (reorderFailureVisible) return "Move failed";
+    if (createFailureVisible) return "Create failed";
+    return "";
   }
 
   function hasOobError(responseText) {
@@ -522,7 +534,7 @@ import {
     if (!scope.pending.size) {
       reorderScopes.delete(request.parentId);
     }
-    setStatus(reorderFailureVisible ? "Move failed" : pendingReorders.size ? "Saving" : "");
+    setStatus(mutationStatusText());
     if (activeKeyboardReorderId === requestId) {
       activeKeyboardReorderId = null;
       // HTMX finishes its request bookkeeping after htmx:afterRequest.
@@ -538,6 +550,26 @@ import {
     const failedStatus = hasOobError(detail.xhr?.responseText);
     settleKeyboardReorder(
       String(requestId), detail.successful && !failedStatus,
+      detail.xhr?.status ? `HTTP ${detail.xhr.status}` : "Request failed"
+    );
+  });
+
+  function finishCreateRequest(requestId, failed, error) {
+    if (!pendingCreates.delete(requestId)) return;
+    if (failed) {
+      createFailureVisible = true;
+      window.__aceHeadlessTreePreviewError = String(error?.message || error || "Create failed");
+    }
+    setStatus(mutationStatusText());
+  }
+
+  document.addEventListener("htmx:afterRequest", function (event) {
+    const detail = event.detail;
+    const requestId = detail?.requestConfig?.parameters?._ace_create_request_id;
+    if (!requestId) return;
+    finishCreateRequest(
+      String(requestId),
+      !detail.successful || hasOobError(detail.xhr?.responseText),
       detail.xhr?.status ? `HTTP ${detail.xhr.status}` : "Request failed"
     );
   });
@@ -777,6 +809,7 @@ import {
       await persistDrop(id, previousParent, nextParent, order, restoreSnapshot);
     } finally {
       dragSavePending = false;
+      setStatus(mutationStatusText());
     }
   }
 
@@ -947,15 +980,17 @@ import {
       return;
     }
     clearSearchInput();
-    setStatus("Creating");
+    const requestId = String(++nextCreateRequestId);
+    pendingCreates.add(requestId);
+    createFailureVisible = false;
+    reorderFailureVisible = false;
+    setStatus(mutationStatusText());
     htmxSidebarSwap("POST", "/api/codes", {
       name: next,
       current_index: currentIndex(),
-    }).then(function () {
-      setStatus("");
+      _ace_create_request_id: requestId,
     }).catch(function (error) {
-      setStatus("Create failed");
-      window.__aceHeadlessTreePreviewError = String(error && error.message || error);
+      finishCreateRequest(requestId, true, error);
     });
   }
 
@@ -971,15 +1006,17 @@ import {
       return;
     }
     clearSearchInput();
-    setStatus("Creating");
+    const requestId = String(++nextCreateRequestId);
+    pendingCreates.add(requestId);
+    createFailureVisible = false;
+    reorderFailureVisible = false;
+    setStatus(mutationStatusText());
     htmxSwap("POST", "/api/codes/folder", {
       name: next,
       current_index: currentIndex(),
-    }).then(function () {
-      setStatus("");
+      _ace_create_request_id: requestId,
     }).catch(function (error) {
-      setStatus("Create failed");
-      window.__aceHeadlessTreePreviewError = String(error && error.message || error);
+      finishCreateRequest(requestId, true, error);
     });
   }
 
@@ -1639,6 +1676,7 @@ import {
       const nextIndex = index + direction;
       if (index < 0 || nextIndex < 0 || nextIndex >= order.length) return;
       reorderFailureVisible = false;
+      createFailureVisible = false;
       let scope = reorderScopes.get(parentId);
       if (!scope) {
         scope = { confirmed: [...order], pending: new Set() };
@@ -1949,7 +1987,7 @@ import {
       if (restore.zone === "search") search.focus({ preventScroll: true });
     }
     try {
-      setStatus("Loading");
+      setStatus(mutationStatusText() || "Loading");
       const response = await fetch("/api/codes/tree", { headers: { Accept: "application/json" } });
       if (!response.ok) throw new Error(`status ${response.status}`);
       const payload = await response.json();
@@ -1979,7 +2017,7 @@ import {
         if (pendingSidebarState === restore) pendingSidebarState = null;
       }
       controller.refresh();
-      setStatus(reorderFailureVisible ? "Move failed" : pendingReorders.size ? "Saving" : "");
+      setStatus(mutationStatusText());
       maybeShowChordHint();
       window.__aceHeadlessTreePreview = {
         get tree() { return tree; },

@@ -126,6 +126,11 @@ async def create_code(
             coding_content=content,
             mode=codebook_mode,
             current_code_id=current_code_id or new_code_id,
+            headers=(
+                {"HX-Retarget": "#code-sidebar"}
+                if _request_codebook_mode(request, explicit=codebook_mode) == "coding"
+                else None
+            ),
         )
 
 
