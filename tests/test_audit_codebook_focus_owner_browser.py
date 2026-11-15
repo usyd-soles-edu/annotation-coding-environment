@@ -23,6 +23,7 @@ def test_audit_codebook_focus_survives_zone_changes(tmp_path, engine):
     source_id = add_source(conn, "S1", "Alpha beta.", "row")
     alpha_id = add_code(conn, "Alpha", "#AA0000")
     beta_id = add_code(conn, "Beta", "#0000AA")
+    gamma_id = add_code(conn, "Gamma", "#00AA00")
     folder_id = add_folder(conn, "Empty folder")
     add_annotation(conn, source_id, coder_id, alpha_id, 0, 5, "Alpha")
     add_annotation(conn, source_id, coder_id, beta_id, 6, 10, "beta")
@@ -95,6 +96,51 @@ def test_audit_codebook_focus_survives_zone_changes(tmp_path, engine):
                 page.keyboard.press("ArrowLeft")
                 assert_tree_focus(folder_id)
                 assert page.locator("#code-view").get_attribute("data-code-id") == beta_id
+
+                # An audit codebook mutation replaces the sidebar without
+                # reloading code_view.js. Its search and focus must use the new tree.
+                page.locator("#code-search-input").fill("")
+                alpha = page.locator(f'.ace-ht-row[data-item-id="{alpha_id}"]')
+                alpha.wait_for()
+                page.evaluate(
+                    "window.__oldCodebookTree = document.getElementById('ace-headless-tree-mount')"
+                )
+                alpha.focus()
+                alpha.press("F2")
+                rename = alpha.locator("input.ace-ht-rename")
+                rename.fill("Alpha renamed")
+                with page.expect_response(f"**/api/codes/{alpha_id}"):
+                    rename.press("Enter")
+                page.wait_for_function(
+                    "document.getElementById('ace-headless-tree-mount') !== window.__oldCodebookTree"
+                )
+                page.locator(".cv-track-row").first.focus()
+                page.keyboard.press("/")
+                assert page.evaluate("document.activeElement?.id") == "code-search-input"
+
+                # A whitespace filter should return focus to the track that
+                # opened search, even when the input was replaced by the swap.
+                page.locator("#code-search-input").fill("   ")
+                page.keyboard.press("Escape")
+                assert page.evaluate(
+                    "document.activeElement?.classList.contains('cv-track-row')"
+                )
+                assert page.locator("#code-search-input").input_value() == ""
+
+                page.keyboard.press("ArrowLeft")
+                focused_id = page.evaluate("document.activeElement?.dataset.itemId")
+                assert focused_id in {alpha_id, beta_id, gamma_id, folder_id}
+                assert_tree_focus(focused_id)
+
+                # Focusing a row in the replacement tree still warms audit
+                # data for quick code switching.
+                gamma = page.locator(f'.ace-ht-row[data-item-id="{gamma_id}"]')
+                with page.expect_request(
+                    lambda request: request.method == "GET"
+                    and urlsplit(request.url).path
+                    == f"/api/code/{gamma_id}/view-data"
+                ):
+                    gamma.focus()
 
                 page.evaluate("sessionStorage.setItem('cv-restore-codebook-focus', '1')")
                 page.goto(f"http://127.0.0.1:8080/code/{beta_id}/view")
