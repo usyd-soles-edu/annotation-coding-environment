@@ -121,3 +121,65 @@ def test_editing_denied_during_source_navigation(tmp_path, engine):
                     ).fetchone()[0] is None
             finally:
                 browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_readonly_codebook_mode_cannot_apply_code(tmp_path, engine):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    project = tmp_path / "readonly-application.ace"
+    conn = create_project(str(project), "Read-only codebook")
+    coder_id = list_coders(conn)[0]["id"]
+    add_source(conn, "S1", "One sentence.", "row")
+    code_id = add_code(conn, "Alpha", "#336699")
+    conn.close()
+
+    app = create_app()
+    with TestClient(app, base_url="http://127.0.0.1:8080") as client:
+        app.state.project_path = str(project)
+        app.state.coder_id = coder_id
+        with sync_api.sync_playwright() as playwright:
+            browser = getattr(playwright, engine).launch()
+            try:
+                page = browser.new_page()
+
+                def serve(route):
+                    request = route.request
+                    url = urlsplit(request.url)
+                    path = url.path + (f"?{url.query}" if url.query else "")
+                    headers = {
+                        key: value for key, value in request.headers.items()
+                        if key.lower() not in {"host", "content-length"}
+                    }
+                    response = client.request(
+                        request.method, path,
+                        content=request.post_data_buffer, headers=headers,
+                    )
+                    route.fulfill(
+                        status=response.status_code,
+                        headers=dict(response.headers), body=response.content,
+                    )
+
+                page.route("http://127.0.0.1:8080/**", serve)
+                page.goto("http://127.0.0.1:8080/code")
+                page.locator(f'.ace-ht-row[data-code-id="{code_id}"]').wait_for()
+                apply_requests = page.evaluate("""id => {
+                    document.getElementById('ace-headless-tree-mount').dataset.codebookMode = 'readonly';
+                    window.__aceFocusIndex = 0;
+                    const requests = [];
+                    const originalAjax = window.htmx.ajax;
+                    window.htmx.ajax = function (method, url) {
+                        if (url.startsWith('/api/code/apply')) requests.push(url);
+                        return originalAjax.apply(this, arguments);
+                    };
+                    document.dispatchEvent(new CustomEvent('ace:apply-code', {
+                        detail: { codeId: id },
+                    }));
+                    return requests;
+                }""", code_id)
+                assert apply_requests == []
+
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute("SELECT COUNT(*) FROM annotation").fetchone()[0] == 0
+            finally:
+                browser.close()

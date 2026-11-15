@@ -52,7 +52,7 @@
   }
 
   function _codeApplicationDisabled() {
-    return _navigationInFlight || !!document.getElementById("code-view") || !document.getElementById("text-panel");
+    return _getSidebarTreeController()?.applicationDisabled() ?? true;
   }
 
   // Warn while another codebook page is open in this browser origin. A

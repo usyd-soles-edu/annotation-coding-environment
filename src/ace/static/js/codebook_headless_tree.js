@@ -2284,6 +2284,9 @@
     function codeApplicationDisabled() {
       return modePolicy().enterOnCode !== "apply";
     }
+    function applicationDisabled() {
+      return codeApplicationDisabled() || document.body.dataset.aceNavigating === "1" || !document.getElementById("text-panel");
+    }
     function editingDeniedMessage() {
       if (!codebookEditingDisabled()) return null;
       return document.body.dataset.aceNavigating === "1" ? "Wait for source navigation to finish" : "Back to source to edit the codebook";
@@ -3414,6 +3417,7 @@
         isReadonlyMode,
         editingDisabled: codebookEditingDisabled,
         editingDeniedMessage,
+        applicationDisabled,
         getTreeItems,
         focusTreeZone,
         focusTreeItem,

@@ -588,6 +588,12 @@ import {
     return modePolicy().enterOnCode !== "apply";
   }
 
+  function applicationDisabled() {
+    return codeApplicationDisabled()
+      || document.body.dataset.aceNavigating === "1"
+      || !document.getElementById("text-panel");
+  }
+
   function editingDeniedMessage() {
     if (!codebookEditingDisabled()) return null;
     return document.body.dataset.aceNavigating === "1"
@@ -1859,6 +1865,7 @@ import {
       isReadonlyMode,
       editingDisabled: codebookEditingDisabled,
       editingDeniedMessage,
+      applicationDisabled,
       getTreeItems,
       focusTreeZone,
       focusTreeItem,
