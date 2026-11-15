@@ -20,6 +20,7 @@ from ace.models.source import add_source
     ("operation", "suffix", "method", "message"),
     [
         ("moveItemToParent", "/parent", "PUT", "Could not move item"),
+        ("pasteCutItem", "/cut-paste", "POST", "Could not paste item"),
         ("convertItemToFolder", "/convert-to-folder", "POST", "Could not convert code"),
         ("wrapSiblingCodes", "/indent-promote", "POST", "Could not create folder"),
     ],
@@ -69,17 +70,27 @@ def test_failed_structure_edit_reports_error_and_retry_succeeds(
                 page.goto(f"{base}{path}")
                 row = page.locator(f'.ace-ht-row[data-code-id="{beta_id}"]')
                 row.wait_for()
-                endpoint = f"{base}/api/codes/{beta_id}{suffix}"
+                endpoint_path = (
+                    "/api/codes/cut-paste" if operation == "pasteCutItem"
+                    else f"/api/codes/{beta_id}{suffix}"
+                )
+                endpoint = f"{base}{endpoint_path}"
                 page.route(
                     endpoint, lambda route: route.fulfill(status=503, body="save failed"),
                     times=1,
                 )
+                if operation == "pasteCutItem":
+                    page.evaluate(
+                        "id => window.AceHeadlessTreePreview.getController().setCutItemId(id)",
+                        beta_id,
+                    )
 
                 def request_edit():
                     page.evaluate(
                         "([action, item, folder, sibling]) => {"
                         " const controller = window.AceHeadlessTreePreview.getController();"
                         " if (action === 'moveItemToParent') controller.moveItemToParent(item, folder);"
+                        " else if (action === 'pasteCutItem') controller.pasteCutItem(folder);"
                         " else if (action === 'wrapSiblingCodes') controller.wrapSiblingCodes(item, sibling);"
                         " else controller.convertItemToFolder(item);"
                         "}",
@@ -88,7 +99,7 @@ def test_failed_structure_edit_reports_error_and_retry_succeeds(
 
                 predicate = lambda response: (
                     response.request.method == method
-                    and urlsplit(response.url).path == f"/api/codes/{beta_id}{suffix}"
+                    and urlsplit(response.url).path == endpoint_path
                 )
                 with page.expect_response(predicate) as failed:
                     request_edit()
@@ -100,6 +111,10 @@ def test_failed_structure_edit_reports_error_and_retry_succeeds(
                 )
                 assert page.locator("#ace-notification-receipt").is_visible()
                 assert row.is_visible()
+                if operation == "pasteCutItem":
+                    assert page.evaluate(
+                        "window.AceHeadlessTreePreview.getController().getCutItemId()"
+                    ) == beta_id
                 with sqlite3.connect(project) as stored:
                     assert stored.execute(
                         "SELECT kind, parent_id FROM codebook_code WHERE id = ?", (beta_id,)
@@ -117,7 +132,7 @@ def test_failed_structure_edit_reports_error_and_retry_succeeds(
                     kind, parent_id = stored.execute(
                         "SELECT kind, parent_id FROM codebook_code WHERE id = ?", (beta_id,)
                     ).fetchone()
-                    if operation == "moveItemToParent":
+                    if operation in ("moveItemToParent", "pasteCutItem"):
                         assert (kind, parent_id) == ("code", folder_id)
                     elif operation == "convertItemToFolder":
                         assert (kind, parent_id) == ("folder", None)
@@ -126,5 +141,9 @@ def test_failed_structure_edit_reports_error_and_retry_succeeds(
                         assert stored.execute(
                             "SELECT parent_id FROM codebook_code WHERE id = ?", (alpha_id,)
                         ).fetchone()[0] == parent_id
+                if operation == "pasteCutItem":
+                    page.wait_for_function(
+                        "window.AceHeadlessTreePreview.getController().getCutItemId() === null"
+                    )
             finally:
                 browser.close()

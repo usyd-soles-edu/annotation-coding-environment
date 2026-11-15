@@ -1791,11 +1791,11 @@ import {
     function pasteCutItem(targetId) {
       const sourceId = cutItemId;
       if (!sourceId || targetId === sourceId || codebookEditingDisabled()) return;
-      return htmxSwap("POST", "/api/codes/cut-paste", {
+      return mutationWithFeedback("POST", "/api/codes/cut-paste", {
         code_id: sourceId,
         target_id: targetId || "",
         current_index: currentIndex(),
-      });
+      }, "Could not paste item");
     }
 
     function moveItemToParent(itemId, parentId) {
