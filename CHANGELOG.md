@@ -33,7 +33,7 @@
 - **Multi-line highlights** — fill the gaps between wrapped highlighted lines while keeping paragraph spacing clear.
 - **Narrow coding windows** — provide a visible way to reach the codebook and applied codes while keeping an open source note in view.
 - **Source notes** — retain unsaved drafts after failed or overlapping saves.
-- **Codebook sidebar** — retain annotation counts, the cut marker, and keyboard position when the tree redraws.
+- **Codebook sidebar** — retain annotation counts, the cut marker, collapsed folders, and keyboard position when the tree redraws; keep focus on a visible folder when the focused code moves into a collapsed one.
 - **Cut codes** — keep a code available to paste while its folder is collapsed; clear the cut only when a refreshed codebook confirms that the item was removed.
 - **Codebook order** — restore the saved order after a failed drag or keyboard move instead of leaving a misleading unsaved arrangement.
 - **Codebook editing** — warn when another ACE tab is open so edits in separate tabs do not silently overwrite one another.
@@ -51,7 +51,7 @@
 - **Codebook keyboard moves** — apply modified-arrow moves to the row that received the shortcut, even if focus shifts during the keypress.
 - **Codebook focus** — return focus to a code after changing its colour and start renaming a newly wrapped folder without an extra click.
 - **Audit codebook focus** — keep keyboard focus on the viewed code when opening the audit view, and return to the focused code or folder after moving through its review panels.
-- **Codebook errors** — keep the coding screen and sidebar intact if another tab has already created a code or folder with the same name.
+- **Codebook errors** — keep the coding screen and sidebar intact if another tab has already created a code or folder with the same name, and show the saved name if a rename is rejected or the server fails.
 - **Audit codebook** — confirm context-menu deletion of the currently viewed code or a folder.
 - **Shortcut help** — explain two-letter code shortcuts, unify help dialogs, and clarify that applying a code stays on the current sentence.
 - **Agreement results** — identify coder and file provenance and clarify pooled results and pairwise differences.
