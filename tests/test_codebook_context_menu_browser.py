@@ -85,7 +85,7 @@ def test_filtered_code_menu_keeps_all_folder_destinations(tmp_path, engine):
                 page.wait_for_function(
                     "([code, folder]) => {"
                     " const row = document.querySelector(`[data-code-id='${code}']`);"
-                    " return window.__aceHeadlessTreeController?.parentFolderRow(row)"
+                    " return window.AceHeadlessTreePreview?.getController?.()?.parentFolderRow(row)"
                     "   ?.dataset.itemId === folder;"
                     "}",
                     arg=[code_id, destination_id],

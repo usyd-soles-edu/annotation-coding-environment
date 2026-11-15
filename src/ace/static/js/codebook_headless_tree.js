@@ -3517,7 +3517,6 @@
           if (pendingSidebarState === restore) pendingSidebarState = null;
         }
         controller.refresh();
-        window.__aceHeadlessTreeController = controller;
         setStatus(reorderFailureVisible ? "Move failed" : pendingReorders.size ? "Saving" : "");
         maybeShowChordHint();
         window.__aceHeadlessTreePreview = {
@@ -3553,7 +3552,6 @@
         window.__aceHeadlessTreePreviewError = String(error && error.message || error);
       }
     }
-    window.__aceHeadlessTreeController = controller;
     window.AceHeadlessTreePreview = {
       init,
       getController: function() {
