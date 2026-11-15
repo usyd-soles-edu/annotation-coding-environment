@@ -1178,6 +1178,23 @@ import {
         if (typeof defaultKeyDown === "function") defaultKeyDown(event);
         return;
       }
+      if (event.altKey && event.shiftKey &&
+          (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+        if (window.aceIsChordAwaiting?.()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (denyCodebookEditing(true)) return;
+        if (data.kind === "code") {
+          row.classList.add("ace-code-row--reordering");
+        }
+        controller.moveItemInDirection(
+          item.getId(), event.key === "ArrowUp" ? -1 : 1,
+        );
+        if (data.kind === "code") {
+          setTimeout(function () { row.classList.remove("ace-code-row--reordering"); }, 300);
+        }
+        return;
+      }
       if (
         event.key === "ArrowRight"
         && isCodingMode()

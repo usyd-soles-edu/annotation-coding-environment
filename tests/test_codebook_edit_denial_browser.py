@@ -132,6 +132,7 @@ def test_readonly_codebook_mode_cannot_apply_code(tmp_path, engine):
     coder_id = list_coders(conn)[0]["id"]
     add_source(conn, "S1", "One sentence.", "row")
     code_id = add_code(conn, "Alpha", "#336699")
+    second_code_id = add_code(conn, "Beta", "#663399")
     conn.close()
 
     app = create_app()
@@ -179,7 +180,16 @@ def test_readonly_codebook_mode_cannot_apply_code(tmp_path, engine):
                 }""", code_id)
                 assert apply_requests == []
 
+                page.locator(f'.ace-ht-row[data-code-id="{code_id}"]').focus()
+                page.keyboard.press("Alt+Shift+ArrowDown")
+                assert page.evaluate(
+                    "window.__aceHeadlessTreePreview.snapshot().rootChildren"
+                ) == [code_id, second_code_id]
+
                 with sqlite3.connect(project) as stored:
                     assert stored.execute("SELECT COUNT(*) FROM annotation").fetchone()[0] == 0
+                    assert [row[0] for row in stored.execute(
+                        "SELECT id FROM codebook_code WHERE kind = 'code' ORDER BY sort_order"
+                    )] == [code_id, second_code_id]
             finally:
                 browser.close()
