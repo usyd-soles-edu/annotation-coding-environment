@@ -216,18 +216,6 @@
     return window.AceHeadlessTreePreview?.getController?.() || null;
   }
 
-  function _refreshSidebarTreeController() {
-    const controller = _getSidebarTreeController();
-    if (controller && typeof controller.restoreCollapseState === "function") {
-      controller.restoreCollapseState();
-    }
-  }
-
-  document.addEventListener("DOMContentLoaded", function () {
-    _refreshSidebarTreeController();
-    _syncAppliedCollapseA11y();
-  });
-
   const APPLIED_COLLAPSED_KEY = "ace-applied-codes-collapsed";
 
   function _isNoteDrawerOpenDom() {
@@ -302,13 +290,6 @@
   window.aceSetAppliedCollapsed = _setAppliedCollapsed;
   window.aceFocusAppliedEntry = _focusAppliedEntry;
   window.aceToggleAppliedCollapsed = _toggleAppliedCollapsedShortcut;
-
-  function _restoreCollapseState() {
-    const controller = _getSidebarTreeController();
-    if (controller) {
-      controller.restoreCollapseState();
-    }
-  }
 
   // Nav: flag toggle button (delegated — survives OOB swaps)
   let _pendingFlagAnnounce = false;
@@ -1911,7 +1892,6 @@
   // Tree focus, search and scroll restoration are owned by the tree controller.
   function _syncSidebarAfterSwap(opts) {
     opts = opts || {};
-    _restoreCollapseState();
     if (opts.gridResize) _initGridResize();
     if (_codeCuesEnabled()) {
       _scheduleCodeCues();

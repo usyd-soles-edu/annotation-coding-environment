@@ -130,8 +130,14 @@ def test_audit_import_dialog_cancel_then_commit(tmp_path, engine):
                 assert current_row.get_attribute("aria-current") is None
                 page.evaluate("""() => {
                     window.__oldCurrentRow = document.querySelector('.ace-ht-row--current');
-                    window.AceHeadlessTreePreview.getController().restoreCollapseState();
                 }""")
+                search = page.locator("#code-search-input")
+                search.fill("Access")
+                page.wait_for_function(
+                    "id => !document.querySelector(`.ace-ht-row[data-item-id='${id}']`)",
+                    arg=current_code_id,
+                )
+                search.fill("")
                 page.wait_for_function("""() =>
                     document.querySelector('.ace-ht-row--current') !== window.__oldCurrentRow
                 """)
