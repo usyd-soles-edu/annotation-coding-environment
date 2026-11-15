@@ -51,7 +51,8 @@
 - **Codebook keyboard moves** — apply modified-arrow moves to the row that received the shortcut, even if focus shifts during the keypress.
 - **Codebook focus** — return focus to a code after changing its colour and start renaming a newly wrapped folder without an extra click.
 - **Audit codebook focus** — keep keyboard focus on the viewed code when opening the audit view, and return to the focused code or folder after moving through its review panels.
-- **Codebook errors** — keep the coding screen and sidebar intact if another tab has already created a code or folder with the same name, and show the saved name if a rename is rejected or the server fails.
+- **Queued codebook changes** — keep create and save indicators accurate while requests wait, and show newly created or imported codes in the live sidebar when those requests finish.
+- **Codebook errors** — keep the coding screen and sidebar intact if another tab creates the same code or folder, show the saved name and an error when a rename fails, and give visible feedback when colour changes, deletions, moves, pastes, folder edits or imports fail.
 - **Audit codebook** — confirm context-menu deletion of the currently viewed code or a folder.
 - **Shortcut help** — explain two-letter code shortcuts, unify help dialogs, and clarify that applying a code stays on the current sentence.
 - **Agreement results** — identify coder and file provenance and clarify pooled results and pairwise differences.
