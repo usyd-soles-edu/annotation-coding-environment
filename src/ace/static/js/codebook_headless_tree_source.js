@@ -1479,13 +1479,18 @@ import {
     },
   };
 
-  function buildTree(focusedItemId) {
+  function buildTree(focusedItemId, collapsedFolderIds) {
+    const collapsed = new Set(collapsedFolderIds || []);
+    let restoredFocusId = focusedItemId && items[focusedItemId]
+      ? focusedItemId : childrenOf(ROOT_ID)[0];
+    for (const ancestorId of ancestorIdsFor(restoredFocusId, parentMap())) {
+      if (collapsed.has(ancestorId)) restoredFocusId = ancestorId;
+    }
     tree = createTree({
       rootItemId: ROOT_ID,
       initialState: {
-        expandedItems: folderIds(),
-        focusedItem: focusedItemId && items[focusedItemId]
-          ? focusedItemId : childrenOf(ROOT_ID)[0],
+        expandedItems: folderIds().filter((id) => !collapsed.has(id)),
+        focusedItem: restoredFocusId,
       },
       getItemName: function (item) { return item.getItemData().name; },
       isItemFolder: function (item) { return item.getItemData().kind === "folder"; },
@@ -1935,7 +1940,7 @@ import {
       controller.finishCountReload(generation, true);
       searchRaw = search?.value.trim() || "";
       searchText = searchRaw.toLowerCase();
-      buildTree(restore?.itemId || entryFocusId);
+      buildTree(restore?.itemId || entryFocusId, restore?.collapsedFolderIds);
       applyProps(mount, tree.getContainerProps("Codebook tree"));
       mount.addEventListener("keydown", announceKeyboardDragCancel, true);
       tree.setMounted(true);
@@ -1998,12 +2003,15 @@ import {
     const active = document.activeElement;
     const search = document.getElementById("code-search-input");
     const focusedRow = active?.closest?.(".ace-ht-row") || controller.getActiveTreeItem();
+    const expanded = tree?.getState?.().expandedItems;
     pendingSidebarState = {
       zone: active === search ? "search"
         : mountedElement.contains(active) ? "tree" : null,
       itemId: focusedRow?.dataset.itemId || tree?.getFocusedItem?.()?.getId?.() || null,
       searchText: search?.value || "",
       scrollTop: mountedElement.scrollTop,
+      collapsedFolderIds: Array.isArray(expanded)
+        ? folderIds().filter((id) => !expanded.includes(id)) : [],
     };
   });
 
