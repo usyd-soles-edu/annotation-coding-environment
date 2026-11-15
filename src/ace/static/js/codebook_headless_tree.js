@@ -2259,8 +2259,8 @@
     });
     function finishCreateRequest(requestId, failed, error) {
       if (!pendingCreates.delete(requestId)) return;
+      createFailureVisible = failed;
       if (failed) {
-        createFailureVisible = true;
         window.__aceHeadlessTreePreviewError = String(error?.message || error || "Create failed");
       }
       setStatus(mutationStatusText());

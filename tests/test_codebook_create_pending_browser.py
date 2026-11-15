@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from ace.app import create_app
 from ace.db.connection import create_project
-from ace.models.codebook import add_code
+from ace.models.codebook import add_code, add_folder
 from ace.models.project import list_coders
 from ace.models.source import add_source
 
@@ -16,7 +16,8 @@ from ace.models.source import add_source
 @pytest.mark.slow
 @pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
 @pytest.mark.parametrize("kind", ["folder", "code"])
-def test_queued_create_keeps_pending_status(tmp_path, engine, kind):
+@pytest.mark.parametrize("first_fails", [False, True])
+def test_queued_create_keeps_pending_status(tmp_path, engine, kind, first_fails):
     sync_api = pytest.importorskip("playwright.sync_api")
     project = tmp_path / "queued-create.ace"
     conn = create_project(str(project), "Queued create")
@@ -115,10 +116,20 @@ def test_queued_create_keeps_pending_status(tmp_path, engine, kind):
                     document.getElementById('ace-headless-tree-mount')?.dataset.aceTreeController === 'headless'
                 """, timeout=5000)
                 assert page.locator("[data-headless-tree-status]").text_content() == "Creating"
-                with page.expect_response(f"**{path}", timeout=5000):
+                if first_fails:
+                    with sqlite3.connect(project) as stored:
+                        stored.row_factory = sqlite3.Row
+                        if kind == "code":
+                            add_code(stored, "Waiting item 1", "#123abc")
+                        else:
+                            add_folder(stored, "Waiting item 1")
+                with page.expect_response(f"**{path}", timeout=5000) as first_response:
                     page.evaluate("window.__releaseCreateRequests[0]()")
                     released_creates = 1
-                page.locator(f'.ace-ht-row[data-kind="{kind}"]', has_text="Waiting item 1").wait_for()
+                if first_fails:
+                    assert "already exists" in first_response.value.text().lower()
+                else:
+                    page.locator(f'.ace-ht-row[data-kind="{kind}"]', has_text="Waiting item 1").wait_for()
                 page.wait_for_function("window.__releaseCreateRequests.length === 2")
                 assert page.locator("[data-headless-tree-status]").text_content() == "Creating"
                 with page.expect_response("**/api/codes/reorder", timeout=5000):
@@ -126,6 +137,7 @@ def test_queued_create_keeps_pending_status(tmp_path, engine, kind):
                         page.evaluate("window.__releaseCreateRequests[1]()")
                         released_creates = 2
                 page.locator(f'.ace-ht-row[data-kind="{kind}"]', has_text="Waiting item 2").wait_for()
+                page.locator(f'.ace-ht-row[data-kind="{kind}"]', has_text="Waiting item 1").wait_for()
                 page.wait_for_function("""() =>
                     document.querySelector('[data-headless-tree-status]')?.textContent === ''
                 """)
