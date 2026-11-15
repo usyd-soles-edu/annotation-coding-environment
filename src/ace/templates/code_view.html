@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% block body_attributes %} hx-sync="this:queue all" hx-disinherit="hx-sync"{% endblock %}
+
 {% block title %}{{ code_view_data.code.name }} — Coded text — ACE{% endblock %}
 
 {% block head %}

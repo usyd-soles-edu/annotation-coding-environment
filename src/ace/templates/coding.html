@@ -1,5 +1,7 @@
 {% extends "base.html" %}
 
+{% block body_attributes %} hx-sync="this:queue all" hx-disinherit="hx-sync"{% endblock %}
+
 {% block title %}ACE - {{ project_file_stem or project_name }}{% endblock %}
 
 {% block head %}

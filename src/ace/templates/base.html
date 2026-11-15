@@ -8,7 +8,7 @@
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   {% block head %}{% endblock %}
 </head>
-<body>
+<body{% block body_attributes %}{% endblock %}>
   {% block content %}{% endblock %}
   <div id="ace-statusbar" aria-hidden="true">
     <span class="ace-statusbar-ambient" id="ace-statusbar-ambient"></span>
