@@ -1800,10 +1800,10 @@ import {
 
     function moveItemToParent(itemId, parentId) {
       if (!itemId || codebookEditingDisabled()) return;
-      return htmxSwap("PUT", `/api/codes/${itemId}/parent`, {
+      return mutationWithFeedback("PUT", `/api/codes/${itemId}/parent`, {
         parent_id: formParentId(parentId),
         current_index: currentIndex(),
-      });
+      }, "Could not move item");
     }
 
     function setItemColour(itemId, colour) {
@@ -1816,18 +1816,18 @@ import {
 
     function convertItemToFolder(itemId) {
       if (!itemId || codebookEditingDisabled()) return;
-      return htmxSwap("POST", `/api/codes/${itemId}/convert-to-folder`, {
+      return mutationWithFeedback("POST", `/api/codes/${itemId}/convert-to-folder`, {
         current_index: currentIndex(),
-      });
+      }, "Could not convert code");
     }
 
     function wrapSiblingCodes(itemId, aboveItemId) {
       if (!itemId || !aboveItemId || codebookEditingDisabled()) return;
-      return htmxSwap("POST", `/api/codes/${itemId}/indent-promote`, {
+      return mutationWithFeedback("POST", `/api/codes/${itemId}/indent-promote`, {
         above_code_id: aboveItemId,
         folder_name: "New folder",
         current_index: currentIndex(),
-      });
+      }, "Could not create folder");
     }
 
     function importCodes(codesJson, index, mode, currentCodeId) {
