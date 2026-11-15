@@ -171,6 +171,117 @@ def test_reorder_waits_for_pending_server_response(reorder_server, engine):
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+@pytest.mark.parametrize("leave_codebook", [False, True])
+def test_failed_reorder_respects_latest_focus(reorder_server, engine, leave_codebook):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        request_started = asyncio.Event()
+        release_response = asyncio.Event()
+        async with async_api.async_playwright() as playwright:
+            browser = await getattr(playwright, engine).launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def fail_reorder(route):
+                    request_started.set()
+                    await release_response.wait()
+                    await route.fulfill(status=500, body="save failed")
+
+                await page.route("**/api/codes/reorder-in-scope", fail_reorder)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(request_started.wait(), timeout=5)
+                if leave_codebook:
+                    await page.locator("#text-panel").focus()
+                    assert await page.evaluate("document.activeElement?.id") == "text-panel"
+
+                release_response.set()
+                await page.wait_for_function(
+                    "document.querySelector('[data-headless-tree-status]')?.textContent === 'Move failed'"
+                )
+                await page.evaluate(
+                    "new Promise(resolve => requestAnimationFrame(resolve))"
+                )
+                if leave_codebook:
+                    assert await page.evaluate("document.activeElement?.id") == "text-panel"
+                else:
+                    assert await page.evaluate(
+                        "document.activeElement?.dataset.itemId"
+                    ) == first
+                assert _stored_order(project) == [first, second]
+            finally:
+                release_response.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
+def test_failed_reorder_preserves_inline_rename(reorder_server, engine):
+    async_api = pytest.importorskip("playwright.async_api")
+    base, project, first, second = reorder_server
+
+    async def exercise():
+        request_started = asyncio.Event()
+        release_response = asyncio.Event()
+        async with async_api.async_playwright() as playwright:
+            browser = await getattr(playwright, engine).launch()
+            try:
+                page = await browser.new_page()
+                await page.goto(base + "/")
+                assert (await page.request.post(
+                    base + "/api/project/open", form={"path": str(project)}
+                )).ok
+                await page.goto(base + "/code")
+
+                async def fail_reorder(route):
+                    request_started.set()
+                    await release_response.wait()
+                    await route.fulfill(status=500, body="save failed")
+
+                await page.route("**/api/codes/reorder-in-scope", fail_reorder)
+                await page.locator(f'.ace-ht-row[data-code-id="{first}"]').click()
+                await page.keyboard.press("Alt+Shift+ArrowDown")
+                await asyncio.wait_for(request_started.wait(), timeout=5)
+                await page.keyboard.press("F2")
+                rename = page.locator(f'.ace-ht-rename[data-item-id="{first}"]')
+                await rename.fill("Unfinished draft")
+                assert await rename.evaluate("el => el === document.activeElement")
+
+                release_response.set()
+                await page.wait_for_function(
+                    "document.querySelector('[data-headless-tree-status]')?.textContent === 'Move failed'"
+                )
+                assert await rename.input_value() == "Unfinished draft"
+                assert await rename.evaluate("el => el === document.activeElement")
+                await page.keyboard.press("Escape")
+                await page.wait_for_function(
+                    "(id) => document.querySelector('#ace-headless-tree-mount .ace-ht-row[data-code-id]')?.dataset.codeId === id",
+                    arg=first,
+                )
+                assert await page.locator(
+                    "#ace-headless-tree-mount .ace-ht-row[data-code-id]"
+                ).evaluate_all("rows => rows.map(row => row.dataset.codeId)") == [
+                    str(first), str(second)
+                ]
+                assert _stored_order(project) == [first, second]
+            finally:
+                release_response.set()
+                await browser.close()
+
+    asyncio.run(exercise())
+
+
+@pytest.mark.slow
 def test_failed_queued_reorder_restores_last_saved_order(reorder_server):
     async_api = pytest.importorskip("playwright.async_api")
     base, project, first, second = reorder_server

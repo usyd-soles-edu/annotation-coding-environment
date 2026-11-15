@@ -1801,6 +1801,7 @@
     let reorderResolutionVersion = 0;
     let refreshedTreeData = null;
     let deferredTreeData = null;
+    let rebuildAfterRename = false;
     const queuedKeyboardReorders = [];
     let activeKeyboardReorderId = null;
     let reorderFailureVisible = false;
@@ -2234,10 +2235,18 @@
       }
       ++reorderResolutionVersion;
       const displayOrder = latestPendingOrder(scope) || scope.confirmed;
+      const active = document.activeElement;
+      const keepReorderFocus = active?.matches?.(
+        "#ace-headless-tree-mount .ace-ht-row[data-item-id]"
+      ) && itemIdFromElement(active) === request.itemId;
       if (request.initGeneration === initGeneration && setScopeOrder(request.parentId, displayOrder) && tree) {
-        tree.rebuildTree();
-        focusItemById(request.itemId);
-        scheduleRender();
+        if (tree.getRenamingItem?.()) {
+          rebuildAfterRename = true;
+        } else {
+          tree.rebuildTree();
+          if (keepReorderFocus) focusItemById(request.itemId);
+          scheduleRender();
+        }
       }
       if (!scope.pending.size) {
         reorderScopes.delete(request.parentId);
@@ -2635,10 +2644,16 @@
       }
       scheduleRender();
     }
-    function focusItemById(id) {
+    function focusItemById(id, options = {}) {
       if (!id || !tree) return;
       const item = tree.getItemInstance(id);
       if (!item) return;
+      if (options.revealHidden) {
+        for (const ancestorId of ancestorIdsFor(id, parentMap())) {
+          const ancestor = tree.getItemInstance(ancestorId);
+          if (ancestor?.isFolder?.() && !ancestor.isExpanded()) ancestor.expand();
+        }
+      }
       focusTreeItemInstance(item, {});
     }
     function plainTreeKey(event) {
@@ -2675,7 +2690,7 @@
       const duplicate = findDuplicateName("code", next);
       if (duplicate) {
         clearSearchInput();
-        focusItemById(duplicate.id);
+        focusItemById(duplicate.id, { revealHidden: true });
         setStatus("Already exists");
         return;
       }
@@ -3052,12 +3067,17 @@
     function renderTree() {
       const mount = document.getElementById("ace-headless-tree-mount");
       if (!mount || !tree) return;
-      if (deferredTreeData && !tree.getRenamingItem?.()) {
-        const deferred = deferredTreeData;
-        deferredTreeData = null;
-        if (deferred.version === reorderResolutionVersion && deferred.generation === initGeneration && !pendingReorders.size && applyAuthoritativeTreeData(deferred.items)) {
-          tree.rebuildTree();
+      if (!tree.getRenamingItem?.()) {
+        let needsRebuild = rebuildAfterRename;
+        rebuildAfterRename = false;
+        if (deferredTreeData) {
+          const deferred = deferredTreeData;
+          deferredTreeData = null;
+          if (deferred.version === reorderResolutionVersion && deferred.generation === initGeneration && !pendingReorders.size && applyAuthoritativeTreeData(deferred.items)) {
+            needsRebuild = true;
+          }
         }
+        if (needsRebuild) tree.rebuildTree();
       }
       const visibleItems = visibleTreeItems();
       const parents = parentMap();
@@ -3568,6 +3588,7 @@
       if (!mount) return;
       if (mount === mountedElement && tree) return;
       const generation = ++initGeneration;
+      rebuildAfterRename = false;
       controller.beginCountReload(generation);
       const fetchStartedVersion = reorderResolutionVersion;
       const restore = pendingSidebarState;
