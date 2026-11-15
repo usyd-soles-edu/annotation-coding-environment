@@ -33,9 +33,9 @@
 - **Multi-line highlights** — fill the gaps between wrapped highlighted lines while keeping paragraph spacing clear.
 - **Narrow coding windows** — provide a visible way to reach the codebook and applied codes while keeping an open source note in view.
 - **Source notes** — retain unsaved drafts after failed or overlapping saves.
-- **Codebook sidebar** — retain annotation counts, the cut marker, collapsed folders, and keyboard position when the tree redraws; keep focus on a visible folder when the focused code moves into a collapsed one.
+- **Codebook sidebar** — retain annotation counts, the cut marker, collapsed folders, and keyboard position when the tree redraws; keep focus on a visible folder when the focused code moves into a collapsed one. When an attempted code creation matches a code in a collapsed folder, expand that folder and focus the existing code.
 - **Cut codes** — keep a code available to paste while its folder is collapsed; clear the cut only when a refreshed codebook confirms that the item was removed.
-- **Codebook order** — restore the saved order after a failed drag or keyboard move instead of leaving a misleading unsaved arrangement.
+- **Codebook order** — restore the saved order after a failed drag or keyboard move instead of leaving a misleading unsaved arrangement; when a delayed keyboard move fails, keep the current focus and any inline rename draft.
 - **Codebook editing** — warn when another ACE tab is open so edits in separate tabs do not silently overwrite one another; prevent renaming while source navigation is in progress.
 - **Agreement results** — sort columns and expand guidance with the keyboard, with sort direction announced to assistive technology.
 - **Audit review** — keep rapid code navigation on the latest selection and make shortcut help visible in the header.
@@ -51,6 +51,7 @@
 - **Codebook keyboard moves** — apply modified-arrow moves to the row that received the shortcut, even if focus shifts during the keypress.
 - **Codebook focus** — return focus to a code after changing its colour and start renaming a newly wrapped folder without an extra click.
 - **Audit codebook focus** — keep keyboard focus on the viewed code when opening the audit view, and return to the focused code or folder after moving through its review panels.
+- **Audit details** — keep a failed sidebar edit from showing an unrelated error in the code details editor while its save is waiting.
 - **Queued codebook changes** — keep create and save indicators accurate while requests wait, and show newly created or imported codes in the live sidebar when those requests finish.
 - **Codebook errors** — keep the coding screen and sidebar intact if another tab creates the same code or folder, show the saved name and an error when a rename fails, and give visible feedback when colour changes, deletions, moves, pastes, folder edits or imports fail.
 - **Audit codebook** — confirm context-menu deletion of the currently viewed code or a folder.
