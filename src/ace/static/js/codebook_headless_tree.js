@@ -2698,6 +2698,10 @@
         if (renamePointerQueued) return true;
         renamePointerQueued = true;
         setTimeout(function() {
+          if (denyCodebookEditing()) {
+            renamePointerQueued = false;
+            return;
+          }
           item.setFocused();
           item.startRenaming?.();
           scheduleRender();
