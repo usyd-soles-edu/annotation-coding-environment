@@ -42,6 +42,7 @@ import {
   let reorderResolutionVersion = 0;
   let refreshedTreeData = null;
   let deferredTreeData = null;
+  let rebuildAfterRename = false;
   const queuedKeyboardReorders = [];
   let activeKeyboardReorderId = null;
   let reorderFailureVisible = false;
@@ -528,11 +529,21 @@ import {
     }
     ++reorderResolutionVersion;
     const displayOrder = latestPendingOrder(scope) || scope.confirmed;
+    const active = document.activeElement;
+    const keepReorderFocus = active?.matches?.(
+      "#ace-headless-tree-mount .ace-ht-row[data-item-id]",
+    ) && itemIdFromElement(active) === request.itemId;
     if (request.initGeneration === initGeneration &&
         setScopeOrder(request.parentId, displayOrder) && tree) {
-      tree.rebuildTree();
-      focusItemById(request.itemId);
-      scheduleRender();
+      // Keep an in-progress rename input mounted. The authoritative refresh
+      // below defers its render until renaming is completed or cancelled.
+      if (tree.getRenamingItem?.()) {
+        rebuildAfterRename = true;
+      } else {
+        tree.rebuildTree();
+        if (keepReorderFocus) focusItemById(request.itemId);
+        scheduleRender();
+      }
     }
     if (!scope.pending.size) {
       reorderScopes.delete(request.parentId);
@@ -1456,14 +1467,19 @@ import {
   function renderTree() {
     const mount = document.getElementById("ace-headless-tree-mount");
     if (!mount || !tree) return;
-    if (deferredTreeData && !tree.getRenamingItem?.()) {
-      const deferred = deferredTreeData;
-      deferredTreeData = null;
-      if (deferred.version === reorderResolutionVersion &&
-          deferred.generation === initGeneration && !pendingReorders.size &&
-          applyAuthoritativeTreeData(deferred.items)) {
-        tree.rebuildTree();
+    if (!tree.getRenamingItem?.()) {
+      let needsRebuild = rebuildAfterRename;
+      rebuildAfterRename = false;
+      if (deferredTreeData) {
+        const deferred = deferredTreeData;
+        deferredTreeData = null;
+        if (deferred.version === reorderResolutionVersion &&
+            deferred.generation === initGeneration && !pendingReorders.size &&
+            applyAuthoritativeTreeData(deferred.items)) {
+          needsRebuild = true;
+        }
       }
+      if (needsRebuild) tree.rebuildTree();
     }
 
     const visibleItems = visibleTreeItems();
@@ -2021,6 +2037,7 @@ import {
     if (!mount) return;
     if (mount === mountedElement && tree) return;
     const generation = ++initGeneration;
+    rebuildAfterRename = false;
     controller.beginCountReload(generation);
     const fetchStartedVersion = reorderResolutionVersion;
     const restore = pendingSidebarState;
