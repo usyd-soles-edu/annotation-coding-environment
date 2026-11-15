@@ -180,6 +180,22 @@ import {
     });
   }
 
+  function folderAboveItem(visible, index) {
+    if (index <= 0) return null;
+    const above = visible[index - 1];
+    if (above.getItemData().kind === "folder") return above;
+    const parentId = findParentId(above.getId());
+    return parentId && parentId !== ROOT_ID ? tree.getItemInstance(parentId) : null;
+  }
+
+  function moveIntoFolder(item, folder) {
+    if (findParentId(item.getId()) === folder.getId()) {
+      window.aceAnnounce?.("Already in that folder.");
+      return;
+    }
+    controller.moveItemToParent(item.getId(), folder.getId());
+  }
+
   function visibleCodeItems() {
     return visibleTreeItems().filter(function (item) {
       return item.getItemData().kind === "code";
@@ -1193,6 +1209,65 @@ import {
         if (data.kind === "code") {
           setTimeout(function () { row.classList.remove("ace-code-row--reordering"); }, 300);
         }
+        return;
+      }
+      if (event.target === row && event.altKey &&
+          (event.key === "ArrowRight" ||
+           (event.key === "ArrowLeft" && !event.shiftKey))) {
+        if (window.aceIsChordAwaiting?.()) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (denyCodebookEditing(true)) return;
+
+        const itemId = item.getId();
+        const parentId = findParentId(itemId);
+        if (event.key === "ArrowLeft") {
+          if (!parentId || parentId === ROOT_ID) {
+            window.aceAnnounce?.("Already at root.");
+          } else {
+            const grandparentId = findParentId(parentId);
+            controller.moveItemToParent(itemId, grandparentId || "");
+          }
+          return;
+        }
+
+        const visible = visibleTreeItems();
+        const index = visible.findIndex(function (candidate) {
+          return candidate.getId() === itemId;
+        });
+        const folderAbove = folderAboveItem(visible, index);
+        if (!event.shiftKey) {
+          if (folderAbove) moveIntoFolder(item, folderAbove);
+          else if (data.kind === "folder") {
+            window.aceAnnounce?.("No folder above to move into.");
+          } else {
+            window.aceAnnounce?.("Press Alt-Shift-Right to create a folder around sibling codes.");
+            window._setStatus?.("⌥⇧→ to wrap into a new folder", "ok");
+          }
+          return;
+        }
+
+        if (data.kind === "folder") {
+          if (folderAbove) moveIntoFolder(item, folderAbove);
+          else window.aceAnnounce?.("No folder above to move into.");
+          return;
+        }
+        if (index <= 0) {
+          window.aceAnnounce?.("No row above. Need two sibling codes to make a folder.");
+          window._setStatus?.("Need a row above to wrap into a folder", "err");
+          return;
+        }
+        const above = visible[index - 1];
+        if (above.getItemData().kind === "folder") {
+          moveIntoFolder(item, above);
+          return;
+        }
+        if (findParentId(above.getId()) !== parentId) {
+          window.aceAnnounce?.("Need two sibling codes to make a folder.");
+          window._setStatus?.("Need two sibling codes to wrap into a folder", "err");
+          return;
+        }
+        controller.wrapSiblingCodes(itemId, above.getId());
         return;
       }
       if (

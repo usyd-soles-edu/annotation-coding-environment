@@ -3359,6 +3359,7 @@
     region.textContent = message;
     setTimeout(function () { region.textContent = ""; }, 3000);
   }
+  window.aceAnnounce = _announce;
 
   // ---- Status bar helpers ----
   let _statusEventClearTimer = null;
@@ -3800,14 +3801,6 @@
     return controller ? controller.getTreeItems() : [];
   }
 
-  /** Move roving tabindex to the given treeitem. */
-  function _focusTreeItem(item, options) {
-    const controller = _getSidebarTreeController();
-    if (controller) {
-      controller.focusTreeItem(item, options);
-    }
-  }
-
   /** Check if a treeitem is a folder row. */
   function _isFolderRow(item) {
     const controller = _getSidebarTreeController();
@@ -3824,151 +3817,26 @@
     return controller ? controller.itemIdFromTreeElement(el) : null;
   }
 
-  // --- Indent/outdent helpers (Alt-arrow gestures) ---
-
-  /** Move a codebook item into the scope of `folderRow` via PUT /api/codes/{id}/parent. */
-  function _doMoveToFolderAbove(row, folderRow) {
-    if (_denyCodebookEditing()) return;
-    const codeId = _itemIdFromTreeElement(row);
-    const parentId = _itemIdFromTreeElement(folderRow);
-    if (!codeId || !parentId) return;
-    if (_parentFolderRow(row) === folderRow) {
-      _announce("Already in that folder.");
-      return;
-    }
-    _getSidebarTreeController()?.moveItemToParent(codeId, parentId);
-  }
-
-  /** Move a codebook item out one level, or to root if it is already one level deep. */
-  function _doMoveOutOfFolder(row) {
-    if (_denyCodebookEditing()) return;
-    const codeId = _itemIdFromTreeElement(row);
-    if (!codeId) return;
-    const parentRow = _parentFolderRow(row);
-    const grandparentRow = parentRow ? _parentFolderRow(parentRow) : null;
-    const newParentId = grandparentRow ? _itemIdFromTreeElement(grandparentRow) : "";
-    _getSidebarTreeController()?.moveItemToParent(codeId, newParentId);
-  }
-
-  function _folderRowAbove(item) {
-    const items = _getTreeItems();
-    const idx = items.indexOf(item);
-    if (idx <= 0) return null;
-    const above = items[idx - 1];
-    if (_isFolderRow(above)) return above;
-    return _parentFolderRow(above);
-  }
-
-  // --- Tree keydown handler ---
-
+  // Escape remains a coding-page navigation command; the tree controller
+  // owns codebook item movement and the associated Alt-arrow shortcuts.
   document.addEventListener("keydown", function (e) {
-    if (_chordMode === "awaiting") return;
+    if (_chordMode === "awaiting" || e.key !== "Escape" || e.altKey || e.shiftKey) return;
     const controller = _getSidebarTreeController();
-    const activeRoot = controller && typeof controller.rootElement === "function"
-      ? controller.rootElement()
-      : null;
-    if (!activeRoot || !activeRoot.contains(e.target)) return;
-    const active = e.target;
-    if (!active || active.getAttribute("role") !== "treeitem") return;
-    if (active.querySelector('[contenteditable="true"]')) return;
+    const root = controller?.rootElement?.();
+    if (!root || !root.contains(e.target) ||
+        e.target.getAttribute("role") !== "treeitem" ||
+        e.target.querySelector('[contenteditable="true"]') ||
+        !document.getElementById("text-panel")) return;
 
-    const key = e.key;
-    const alt = e.altKey;
-    const shift = e.shiftKey;
-    const ownedArrow = alt && (
-      (shift && key === "ArrowRight")
-      || (!shift && (key === "ArrowRight" || key === "ArrowLeft"))
-    );
-    // The tree may have moved focus while this event bubbled. The command
-    // belongs to the row that received the key, so restore that row first.
-    if (ownedArrow && active !== document.activeElement) {
-      _focusTreeItem(active, { activate: false });
-    }
-
-    // ⌥⇧→ — Wrap focused code + the sibling code above into a NEW folder.
-    // Composite: creates folder + moves both codes in one transaction. After
-    // the swap settles, focus moves to the new folder header and inline
-    // rename starts immediately.
-    if (key === "ArrowRight" && alt && shift) {
-      e.preventDefault();
-      if (_denyCodebookEditing()) return;
-      if (_isFolderRow(active)) {
-        const folderAbove = _folderRowAbove(active);
-        if (folderAbove) _doMoveToFolderAbove(active, folderAbove);
-        else _announce("No folder above to move into.");
-        return;
-      }
-      const codeId = _itemIdFromTreeElement(active);
-      const allRows = _getTreeItems();
-      const idx = allRows.indexOf(active);
-      if (idx <= 0) {
-        _announce("No row above. Need two sibling codes to make a folder.");
-        window._setStatus("Need a row above to wrap into a folder", "err");
-        return;
-      }
-      const above = allRows[idx - 1];
-      if (_isFolderRow(above)) {
-        _doMoveToFolderAbove(active, above);
-        return;
-      }
-      if (_parentFolderRow(above) !== _parentFolderRow(active)) {
-        _announce("Need two sibling codes to make a folder.");
-        window._setStatus("Need two sibling codes to wrap into a folder", "err");
-        return;
-      }
-      const aboveCodeId = _itemIdFromTreeElement(above);
-      controller.wrapSiblingCodes(codeId, aboveCodeId);
-      return;
-    }
-
-    // ⌥→ (no shift) — Move focused item into the folder above. Never
-    // creates a folder on its own; ⌥⇧→ is the explicit wrap gesture.
-    if (key === "ArrowRight" && alt && !shift) {
-      e.preventDefault();
-      if (_denyCodebookEditing()) return;
-      const above = _folderRowAbove(active);
-      if (!above) {
-        if (_isFolderRow(active)) {
-          _announce("No folder above to move into.");
-        } else {
-          _announce("Press Alt-Shift-Right to create a folder around sibling codes.");
-          window._setStatus("⌥⇧→ to wrap into a new folder", "ok");
-        }
-        return;
-      }
-      if (_isFolderRow(above)) {
-        _doMoveToFolderAbove(active, above);
-        return;
-      }
-      return;
-    }
-
-    // ⌥← — Move focused item out one folder level.
-    if (key === "ArrowLeft" && alt && !shift) {
-      e.preventDefault();
-      if (_denyCodebookEditing()) return;
-      if (!_parentFolderRow(active)) {
-        _announce("Already at root.");
-        return;
-      }
-      _doMoveOutOfFolder(active);
-      return;
-    }
-
-    // Escape — Clear the filter or return to the text panel. The capture-phase
-    // sidebar handler above cancels a pending cut before this listener runs.
-    if (key === "Escape" && !alt && !shift) {
-      if (!document.getElementById("text-panel")) return;
-      e.preventDefault();
-      const search = document.getElementById("code-search-input");
-      if (search && search.value.trim()) {
-        _clearSearchFilter();
-        window._setStatus("Filter cleared", "ok");
-      } else {
-        _focusTextPanel();
-        window._setStatus("Source focused", "ok");
-      }
-      return;
+    // The capture-phase sidebar handler cancels a pending cut first.
+    e.preventDefault();
+    const search = document.getElementById("code-search-input");
+    if (search && search.value.trim()) {
+      _clearSearchFilter();
+      window._setStatus("Filter cleared", "ok");
+    } else {
+      _focusTextPanel();
+      window._setStatus("Source focused", "ok");
     }
   });
 
