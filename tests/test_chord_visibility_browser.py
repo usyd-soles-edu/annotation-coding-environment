@@ -141,5 +141,23 @@ def test_chord_mode_highlights_without_hiding_codes(tmp_path, engine):
                 assert codes.count() == 35
                 page.keyboard.press("Escape")
                 assert 0 < codes.count() < 35
+
+                search.fill("")
+                codes.first.focus()
+                before = page.evaluate(
+                    "window.__aceHeadlessTreePreview.snapshot().rootChildren"
+                )
+                page.keyboard.press(";")
+                assert page.evaluate("window.aceIsChordAwaiting()")
+                page.keyboard.press("Alt+Shift+ArrowDown")
+                assert page.evaluate(
+                    "window.__aceHeadlessTreePreview.snapshot().rootChildren"
+                ) == before
+                with sqlite3.connect(project) as stored:
+                    assert [row[0] for row in stored.execute(
+                        "SELECT id FROM codebook_code WHERE parent_id IS NULL AND deleted_at IS NULL ORDER BY sort_order"
+                    )] == before
+                assert page.evaluate("window.aceIsChordAwaiting()")
+                page.keyboard.press("Escape")
             finally:
                 browser.close()

@@ -3876,30 +3876,13 @@
     const alt = e.altKey;
     const shift = e.shiftKey;
     const ownedArrow = alt && (
-      (shift && (key === "ArrowUp" || key === "ArrowDown" || key === "ArrowRight"))
+      (shift && key === "ArrowRight")
       || (!shift && (key === "ArrowRight" || key === "ArrowLeft"))
     );
     // The tree may have moved focus while this event bubbled. The command
     // belongs to the row that received the key, so restore that row first.
     if (ownedArrow && active !== document.activeElement) {
       _focusTreeItem(active, { activate: false });
-    }
-
-    // Alt+Shift+↑/↓ — Reorder the focused code or folder.
-    if ((key === "ArrowUp" || key === "ArrowDown") && alt && shift) {
-      e.preventDefault();
-      if (_denyCodebookEditing()) return;
-      const codeRow = !_isFolderRow(active);
-      if (codeRow) {
-        active.classList.add("ace-code-row--reordering");
-      }
-      controller.moveItemInDirection(
-        controller.itemIdFromTreeElement(active), key === "ArrowUp" ? -1 : 1
-      );
-      if (codeRow) {
-        setTimeout(function () { active.classList.remove("ace-code-row--reordering"); }, 300);
-      }
-      return;
     }
 
     // ⌥⇧→ — Wrap focused code + the sibling code above into a NEW folder.
