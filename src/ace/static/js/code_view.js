@@ -1214,11 +1214,10 @@
   // `/` focuses search; ↑/↓/Home/End on code rows move the roving tabindex;
   // Enter navigates; search handles ↓/↑/Esc.
 
-  const treeEl = codebookTreeElement();
-  const codeSearchInput = document.getElementById("code-search-input");
   let previousFocusBeforeSearch = null;
 
   function visibleCodebookRows() {
+    const treeEl = codebookTreeElement();
     if (!treeEl || !isVisible(treeEl)) return [];
     const all = Array.from(treeEl.querySelectorAll('.ace-ht-row[data-item-id]'));
     return all.filter((row) => {
@@ -1450,6 +1449,7 @@
     if (evt.key === "/") {
       if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
       if (isEditableElement(document.activeElement)) return;
+      const codeSearchInput = document.getElementById("code-search-input");
       if (codeSearchInput && isVisible(codeSearchInput)) {
         claim(evt);
         previousFocusBeforeSearch =
@@ -1580,36 +1580,27 @@
   }, true); // capture phase — matches existing code_view.js convention
 
   // Keydown on the code tree is owned by the shared codebook controller.
-  if (treeEl) {
-    treeEl.addEventListener("focusin", (evt) => {
-      const row = evt.target.closest && evt.target.closest(CODEBOOK_CODE_ROW_SELECTOR);
-      const codeId = codeIdFromCodebookRow(row);
-      if (codeId) prefetch(codeId);
-    }, true);
-  }
+  document.addEventListener("focusin", (evt) => {
+    const codeId = codeIdFromCodebookRow(codebookCodeRowFromTarget(evt.target));
+    if (codeId) prefetch(codeId);
+  }, true);
 
-  // Keydown on the codebook search input: ↓/↑/Esc.
-  // Registered at capture phase so Esc (when search has content) fires before
-  // the document-level Esc handler (which navigates to /code on second Esc).
-  // stopImmediatePropagation is only called when we're actually clearing the
-  // search — an empty-search Esc falls through to the existing doc handler.
-  if (codeSearchInput) {
-    codeSearchInput.addEventListener("keydown", (evt) => {
-      if (evt.key === "Escape" && codeSearchInput.value.length > 0) {
-        claim(evt);
-        codeSearchInput.value = "";
-        // Trigger existing filter logic (input listener in _sidebar_codebook.html)
-        codeSearchInput.dispatchEvent(new Event("input", { bubbles: true }));
-        if (previousFocusBeforeSearch && previousFocusBeforeSearch.isConnected) {
-          previousFocusBeforeSearch.focus();
-          previousFocusBeforeSearch = null;
-        } else {
-          codeSearchInput.blur();
-        }
-        return;
-      }
-    }, true); // capture phase — stopImmediatePropagation blocks bridge.js handlers
-  }
+  // The shared tree handles non-empty filters. Preserve audit's focus return
+  // for whitespace-only input, which the tree treats as an empty filter.
+  document.addEventListener("keydown", (evt) => {
+    const input = evt.target;
+    if (input.id !== "code-search-input" || evt.key !== "Escape" ||
+        !input.value.length || input.value.trim()) return;
+    claim(evt);
+    input.value = "";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    if (previousFocusBeforeSearch?.isConnected) {
+      previousFocusBeforeSearch.focus();
+    } else {
+      input.blur();
+    }
+    previousFocusBeforeSearch = null;
+  }, true);
 
   // --- Zone focus helpers (used by ←/→ zone-shift) ---------------------
 
