@@ -2644,10 +2644,16 @@
       }
       scheduleRender();
     }
-    function focusItemById(id) {
+    function focusItemById(id, options = {}) {
       if (!id || !tree) return;
       const item = tree.getItemInstance(id);
       if (!item) return;
+      if (options.revealHidden) {
+        for (const ancestorId of ancestorIdsFor(id, parentMap())) {
+          const ancestor = tree.getItemInstance(ancestorId);
+          if (ancestor?.isFolder?.() && !ancestor.isExpanded()) ancestor.expand();
+        }
+      }
       focusTreeItemInstance(item, {});
     }
     function plainTreeKey(event) {
@@ -2684,7 +2690,7 @@
       const duplicate = findDuplicateName("code", next);
       if (duplicate) {
         clearSearchInput();
-        focusItemById(duplicate.id);
+        focusItemById(duplicate.id, { revealHidden: true });
         setStatus("Already exists");
         return;
       }
