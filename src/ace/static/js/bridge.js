@@ -3985,15 +3985,11 @@
       return;
     }
 
-    // Escape — Cancel pending cut state first; otherwise return to text panel.
+    // Escape — Clear the filter or return to the text panel. The capture-phase
+    // sidebar handler above cancels a pending cut before this listener runs.
     if (key === "Escape" && !alt && !shift) {
       if (!document.getElementById("text-panel")) return;
       e.preventDefault();
-      if (_getCutCode()) {
-        _setCut(null);
-        window._setStatus("Cut cleared", "ok");
-        return;
-      }
       const search = document.getElementById("code-search-input");
       if (search && search.value.trim()) {
         _clearSearchFilter();
