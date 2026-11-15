@@ -2377,16 +2377,25 @@
 
   // --- Menu builders ---
 
+  function _viewCodedText(codeId) {
+    if (!codeId) return;
+    if (document.getElementById("code-view")) {
+      document.dispatchEvent(new CustomEvent("ace:view-code", {
+        detail: { codeId },
+      }));
+      return;
+    }
+    try { sessionStorage.setItem("cv-restore-codebook-focus", "1"); } catch (_) {}
+    window.location.href = `/code/${codeId}/view`;
+  }
+
   function _buildCodeRowMenu(row) {
     const codeId = _itemIdFromTreeElement(row);
     if (_codebookEditingDisabled()) {
       return [{
         label: "View coded text",
         shortcut: "V",
-        handler: function () {
-          try { sessionStorage.setItem("cv-restore-codebook-focus", "1"); } catch (_) {}
-          window.location.href = `/code/${codeId}/view`;
-        },
+        handler: function () { _viewCodedText(codeId); },
       }];
     }
     const inFolder = !!_parentFolderRow(row);
@@ -2455,10 +2464,7 @@
     items.push({
       label: "View coded text",
       shortcut: "V",
-      handler: function () {
-        try { sessionStorage.setItem("cv-restore-codebook-focus", "1"); } catch (_) {}
-        window.location.href = `/code/${codeId}/view`;
-      },
+      handler: function () { _viewCodedText(codeId); },
     });
     items.push({
       label: "Delete",
