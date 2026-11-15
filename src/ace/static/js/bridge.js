@@ -552,7 +552,7 @@
 
   function _flashCodeRow(codeId) {
     document.querySelectorAll(
-      `.ace-code-row[data-code-id="${codeId}"], .ace-ht-row[data-item-id="${codeId}"]`
+      `#ace-headless-tree-mount .ace-ht-row[data-code-id="${codeId}"]`
     ).forEach(function (r) {
       r.classList.add("ace-code-row--flash");
       setTimeout(function () { r.classList.remove("ace-code-row--flash"); }, 300);
@@ -2157,18 +2157,9 @@
   function _findCodebookItemRow(itemId) {
     if (!itemId) return null;
     const controller = _getSidebarTreeController();
-    const root = controller && typeof controller.rootElement === "function"
-      ? controller.rootElement()
-      : null;
-    if (root) {
-      const row = root.querySelector(
-        `.ace-code-row[data-code-id="${itemId}"], .ace-code-folder-row[data-folder-id="${itemId}"], .ace-ht-row[data-item-id="${itemId}"]`
-      );
-      if (row) return row;
-    }
-    return document.querySelector(
-      `.ace-code-row[data-code-id="${itemId}"], .ace-code-folder-row[data-folder-id="${itemId}"], .ace-ht-row[data-item-id="${itemId}"]`
-    );
+    const selector = `.ace-ht-row[data-item-id="${itemId}"]`;
+    return controller?.rootElement?.()?.querySelector(selector) ||
+      document.querySelector(`#ace-headless-tree-mount ${selector}`);
   }
 
   function _startCodebookRename(row) {
@@ -2648,8 +2639,8 @@
   document.addEventListener("contextmenu", function (e) {
     if (!e.target.closest || !e.target.closest("#code-sidebar")) return;
     let items;
-    const codeRow = e.target.closest(".ace-code-row, .ace-ht-row[data-kind='code']");
-    const folderRow = e.target.closest(".ace-code-folder-row, .ace-ht-row[data-kind='folder']");
+    const codeRow = e.target.closest(".ace-ht-row[data-kind='code']");
+    const folderRow = e.target.closest(".ace-ht-row[data-kind='folder']");
     if (codeRow) {
       items = _buildCodeRowMenu(codeRow);
     } else if (folderRow) {
@@ -2808,12 +2799,12 @@
         return;
       }
       e.preventDefault();
-      const row = e.target.closest(".ace-code-row, .ace-code-folder-row, .ace-ht-row");
+      const row = e.target.closest(".ace-ht-row[data-kind]");
       if (!row) {
         return;
       }
       const codeId = _itemIdFromTreeElement(row);
-      const nameEl = row.querySelector(".ace-code-name, .ace-folder-label, .ace-ht-label");
+      const nameEl = row.querySelector(".ace-ht-label");
       const name = nameEl ? nameEl.textContent : "item";
       _setCut(codeId);
       _announce(`Cut ${name}.`);
@@ -2841,7 +2832,7 @@
       window._setStatus("Focus a code or folder row first", "err");
       return;
     }
-    const targetRow = e.target.closest(".ace-code-row, .ace-code-folder-row, .ace-ht-row");
+    const targetRow = e.target.closest(".ace-ht-row[data-kind]");
     let targetId = null;
     if (targetRow) {
       targetId = _itemIdFromTreeElement(targetRow);
@@ -5015,7 +5006,7 @@
 
   function _peekContent(row) {
     const isFolder = _isFolderRow(row);
-    const labelEl = row.querySelector(".ace-folder-label, .ace-code-name, .ace-ht-label");
+    const labelEl = row.querySelector(".ace-ht-label");
     if (!labelEl) return null;
     const definition = !isFolder ? (row.dataset.definition || "").trim() : "";
     const isTruncated = labelEl.scrollWidth > labelEl.clientWidth;
@@ -5027,16 +5018,15 @@
 
     if (!isFolder) {
       stripe = row.style.getPropertyValue("--row-colour").trim() || "";
-      const cnt = row.querySelector(".ace-code-count, .ace-ht-count");
+      const cnt = row.querySelector(".ace-ht-count");
       if (cnt && cnt.textContent.trim()) {
         parts.push(`<span><strong>${_escapeHtml(cnt.textContent.trim())}</strong>&times;</span>`);
       }
-      const chip = row.querySelector(".ace-code-chip, .ace-ht-chip");
+      const chip = row.querySelector(".ace-ht-chip");
       if (chip) {
         const txt = chip.textContent.trim();
         if (txt) {
-          const isChord = chip.classList.contains("ace-code-chip--chord") ||
-            chip.classList.contains("ace-ht-chip--chord");
+          const isChord = chip.classList.contains("ace-ht-chip--chord");
           parts.push(`<span>${isChord ? "chord" : "key"} <strong>${_escapeHtml(txt)}</strong></span>`);
         }
       }

@@ -27,7 +27,10 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
     conn = create_project(str(project), "Focus test")
     add_source(conn, "Sample", "One sentence.", "row")
     first_folder = add_folder(conn, "First folder")
-    first_code = add_code(conn, "Alpha", "#AA0000", parent_id=first_folder)
+    first_code = add_code(
+        conn, "Alpha", "#AA0000", parent_id=first_folder,
+        definition="Alpha definition",
+    )
     second_folder = add_folder(conn, "Second folder")
     second_code = add_code(conn, "Beta", "#00AA00", parent_id=second_folder)
     conn.close()
@@ -76,6 +79,12 @@ def test_focus_changes_preserve_rows_and_update_tree_state(tmp_path, engine):
                 assert beta.locator(".ace-ht-chip").text_content() == "2"
                 assert alpha.get_attribute("aria-keyshortcuts") == "1 Shift+F10 ContextMenu"
                 assert beta.get_attribute("aria-keyshortcuts") == "2 Shift+F10 ContextMenu"
+                alpha.hover()
+                peek = page.locator(".ace-code-peek--visible")
+                peek.wait_for()
+                assert "Alpha definition" in peek.inner_text()
+                assert "key 1" in peek.inner_text().lower()
+                page.mouse.move(0, 0)
 
                 def focus(item_id):
                     page.evaluate(
