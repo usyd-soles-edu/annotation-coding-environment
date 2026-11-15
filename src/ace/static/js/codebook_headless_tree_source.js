@@ -1835,7 +1835,6 @@ import {
       kind: "headless",
       refresh,
       rootElement,
-      restoreCollapseState: scheduleRender,
       expandFolder,
       collapseFolder,
       getMode: currentCodebookMode,
