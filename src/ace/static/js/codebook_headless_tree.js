@@ -1807,6 +1807,9 @@
     let nextCreateRequestId = 0;
     const pendingCreates = /* @__PURE__ */ new Set();
     let createFailureVisible = false;
+    let nextRenameRequestId = 0;
+    const pendingRenames = /* @__PURE__ */ new Set();
+    let renameFailureVisible = false;
     const RESERVED_SINGLE_KEYS = /* @__PURE__ */ new Set(["q", "x", "z", "n", "v"]);
     const SINGLE_KEY_LABELS = Array.from("1234567890abcdefghijklmnopqrstuvwxyz").filter(function(label) {
       return !RESERVED_SINGLE_KEYS.has(label);
@@ -2275,6 +2278,21 @@
         detail.xhr?.status ? `HTTP ${detail.xhr.status}` : "Request failed"
       );
     });
+    document.addEventListener("htmx:afterRequest", function(event) {
+      const detail = event.detail;
+      const requestId = detail?.requestConfig?.parameters?._ace_rename_request_id;
+      if (!requestId || !pendingRenames.delete(String(requestId))) return;
+      if (!detail.successful) {
+        const status = detail.xhr?.status || 0;
+        renameFailureVisible = status === 0 || status >= 500;
+        if (renameFailureVisible) window._setStatus?.("Could not rename item", "err");
+      } else if (renameFailureVisible && !hasOobError(detail.xhr?.responseText)) {
+        renameFailureVisible = false;
+        if (document.getElementById("ace-statusbar-event")?.textContent === "Could not rename item") {
+          window._setStatus?.("", "ok");
+        }
+      }
+    });
     function maybeShowChordHint() {
       if (chordHintShown || !isCodingMode() || !document.getElementById("text-panel")) return;
       if (!Object.values(items).some((item) => item.kind === "code" && item.chord)) return;
@@ -2548,9 +2566,16 @@
       if (denyCodebookEditing(true)) return;
       const next = name.trim();
       if (!next || next === item.getItemData().name) return;
+      const requestId = String(++nextRenameRequestId);
+      pendingRenames.add(requestId);
       htmxSwap("PUT", `/api/codes/${item.getId()}`, {
         name: next,
-        current_index: currentIndex()
+        current_index: currentIndex(),
+        _ace_rename_request_id: requestId
+      }).catch(function() {
+        if (!pendingRenames.delete(requestId)) return;
+        renameFailureVisible = true;
+        window._setStatus?.("Could not rename item", "err");
       });
     }
     function deleteItem(item) {
