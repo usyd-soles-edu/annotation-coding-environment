@@ -3103,13 +3103,8 @@
         },
         canDrop: canDrop2,
         onDrop: handleDrop,
-        onRename: function(item, value) {
-          const next = value.trim();
-          if (!next) return;
-          items[item.getId()].name = next;
-          tree.rebuildTree();
-          scheduleRender();
-        },
+        // The server's sidebar response supplies the saved name. Applying it
+        // here would leave a rejected rename visible as though it had saved.
         setExpandedItems: scheduleRender,
         setFocusedItem: scheduleFocusRender,
         setRenamingItem: scheduleRender,

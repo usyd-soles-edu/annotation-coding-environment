@@ -16,6 +16,84 @@ from ace.models.source import add_source
 
 @pytest.mark.slow
 @pytest.mark.parametrize("browser_name", ["chromium", "firefox", "webkit"])
+@pytest.mark.parametrize("view", ["coding", "audit"])
+@pytest.mark.parametrize("failure", ["duplicate", "server"])
+def test_rejected_rename_keeps_saved_name(tmp_path, browser_name, view, failure):
+    sync_api = pytest.importorskip("playwright.sync_api")
+    project = tmp_path / "duplicate-rename.ace"
+    conn = create_project(str(project), "Duplicate rename")
+    coder_id = list_coders(conn)[0]["id"]
+    add_source(conn, "S1", "Source text.", "row")
+    first_id = add_code(conn, "Alpha", "#336699")
+    add_code(conn, "Beta", "#663399")
+    conn.close()
+
+    app = create_app()
+    with TestClient(app, base_url="http://127.0.0.1:8080") as client:
+        app.state.project_path = str(project)
+        app.state.coder_id = coder_id
+        with sync_api.sync_playwright() as playwright:
+            browser = getattr(playwright, browser_name).launch()
+            try:
+                page = browser.new_page()
+
+                def serve_from_test_client(route):
+                    request = route.request
+                    url = urlsplit(request.url)
+                    path = url.path + (f"?{url.query}" if url.query else "")
+                    headers = {
+                        key: value for key, value in request.headers.items()
+                        if key.lower() not in {"host", "content-length"}
+                    }
+                    response = client.request(
+                        request.method, path,
+                        content=request.post_data_buffer, headers=headers,
+                    )
+                    route.fulfill(
+                        status=response.status_code,
+                        headers=dict(response.headers), body=response.content,
+                    )
+
+                page.route("http://127.0.0.1:8080/**", serve_from_test_client)
+                path = "/code" if view == "coding" else f"/code/{first_id}/view"
+                page.goto(f"http://127.0.0.1:8080{path}")
+                row = page.locator(f'.ace-ht-row[data-item-id="{first_id}"]')
+                row.click()
+                page.keyboard.press("F2")
+                rename_input = row.locator("input.ace-ht-rename")
+                if failure == "server":
+                    page.route(
+                        f"**/api/codes/{first_id}",
+                        lambda route: route.fulfill(status=500, body="save failed"),
+                        times=1,
+                    )
+                rename_input.fill("Beta" if failure == "duplicate" else "Gamma")
+                with page.expect_response(f"**/api/codes/{first_id}") as save:
+                    rename_input.press("Enter")
+                if failure == "duplicate":
+                    assert "already exists" in save.value.text()
+                    page.wait_for_function(
+                        "document.getElementById('ace-statusbar-event')?.textContent"
+                        ".includes('An item with that name already exists.')"
+                    )
+                else:
+                    assert save.value.status == 500
+                with sqlite3.connect(project) as stored:
+                    assert stored.execute(
+                        "SELECT name FROM codebook_code WHERE id = ?", (first_id,)
+                    ).fetchone()[0] == "Alpha"
+                page.wait_for_function(
+                    "id => document.querySelector(`.ace-ht-row[data-item-id='${id}']"
+                    " .ace-ht-label`)?.textContent === 'Alpha'",
+                    arg=first_id,
+                )
+                assert row.locator(".ace-ht-label").inner_text() == "Alpha"
+            finally:
+                browser.close()
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("browser_name", ["chromium", "firefox", "webkit"])
 @pytest.mark.parametrize("input_style", ["physical", "combined_event"])
 def test_failed_nested_wrap_does_not_rename_existing_parent(
     tmp_path, browser_name, input_style,
