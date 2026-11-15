@@ -3978,13 +3978,6 @@
       return;
     }
 
-    // F2 — Rename through the shared tree controller.
-    if (key === "F2" && !alt && !shift) {
-      e.preventDefault();
-      _startCodebookRename(active);
-      return;
-    }
-
     // Escape — Clear the filter or return to the text panel. The capture-phase
     // sidebar handler above cancels a pending cut before this listener runs.
     if (key === "Escape" && !alt && !shift) {

@@ -36,7 +36,7 @@
 - **Codebook sidebar** — retain annotation counts, the cut marker, collapsed folders, and keyboard position when the tree redraws; keep focus on a visible folder when the focused code moves into a collapsed one.
 - **Cut codes** — keep a code available to paste while its folder is collapsed; clear the cut only when a refreshed codebook confirms that the item was removed.
 - **Codebook order** — restore the saved order after a failed drag or keyboard move instead of leaving a misleading unsaved arrangement.
-- **Codebook editing** — warn when another ACE tab is open so edits in separate tabs do not silently overwrite one another.
+- **Codebook editing** — warn when another ACE tab is open so edits in separate tabs do not silently overwrite one another; prevent renaming while source navigation is in progress.
 - **Agreement results** — sort columns and expand guidance with the keyboard, with sort direction announced to assistive technology.
 - **Audit review** — keep rapid code navigation on the latest selection and make shortcut help visible in the header.
 - **Audit layout** — resize the codebook with the keyboard, using the same divider behaviour and saved width as the coding screen.

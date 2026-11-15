@@ -1055,6 +1055,12 @@ import {
       return true;
     }
     itemProps.onKeyDown = function (event) {
+      if (event.key === "F2" && codebookEditingDisabled()) {
+        event.preventDefault();
+        event.stopPropagation();
+        denyCodebookEditing(true);
+        return;
+      }
       if (tree?.getState?.().dnd) {
         if (typeof defaultKeyDown === "function") defaultKeyDown(event);
         return;
