@@ -105,15 +105,11 @@
   window.addEventListener("pagehide", _stopCodebookTabPresence);
 
   function _denyCodebookEditing() {
-    if (!_codebookEditingDisabled()) return false;
-    if (typeof window._setStatus === "function") {
-      window._setStatus(
-        document.body.dataset.aceNavigating === "1"
-          ? "Wait for source navigation to finish"
-          : "Back to source to edit the codebook",
-        "ok"
-      );
-    }
+    const controller = _getSidebarTreeController();
+    if (!controller) return true;
+    const message = controller.editingDeniedMessage();
+    if (!message) return false;
+    window._setStatus?.(message, "ok");
     return true;
   }
 
