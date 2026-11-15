@@ -458,8 +458,9 @@
       .some((name) => (xhr.getResponseHeader(name) || "").includes("ace:codebook-mutated"));
   }
 
-  function isPendingMetadataRequest(path) {
-    if (!inFlightMetadataSave || !path) return false;
+  function isPendingMetadataRequest(path, requestId) {
+    if (!inFlightMetadataSave || !path ||
+        requestId !== inFlightMetadataSave.requestId) return false;
     let pathname = "";
     try {
       pathname = new URL(path, window.location.origin).pathname;
@@ -478,7 +479,9 @@
       || detail.requestConfig?.path
       || detail.xhr?.responseURL
       || "";
-    if (!isPendingMetadataRequest(requestPath)) return;
+    if (!isPendingMetadataRequest(
+      requestPath, detail.requestConfig?.parameters?.request_id,
+    )) return;
     if (responseTriggersCodebookMutation(detail.xhr)) return;
     const failed = inFlightMetadataSave;
     let message = "Code details could not be saved. Try again.";
