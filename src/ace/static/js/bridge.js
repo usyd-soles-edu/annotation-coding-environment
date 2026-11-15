@@ -213,14 +213,7 @@
   function _getSidebarTreeController() {
     const headlessMount = document.getElementById("ace-headless-tree-mount");
     if (!headlessMount) return null;
-    const headless = window.AceHeadlessTreePreview &&
-      typeof window.AceHeadlessTreePreview.getController === "function"
-        ? window.AceHeadlessTreePreview.getController()
-        : window.__aceHeadlessTreeController;
-    if (headless && typeof headless.refresh === "function") {
-      return headless.refresh();
-    }
-    return null;
+    return window.AceHeadlessTreePreview?.getController?.() || null;
   }
 
   function _refreshSidebarTreeController() {
@@ -345,8 +338,7 @@
   let _chordBuffer = "";
 
   function _chordTreeController() {
-    return window.__aceHeadlessTreeController ||
-      window.AceHeadlessTreePreview?.getController?.();
+    return window.AceHeadlessTreePreview?.getController?.();
   }
 
   function _setChordCodebookHighlight(active) {
