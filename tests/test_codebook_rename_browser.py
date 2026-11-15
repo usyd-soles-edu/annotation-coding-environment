@@ -17,7 +17,7 @@ from ace.models.source import add_source
 @pytest.mark.slow
 @pytest.mark.parametrize("browser_name", ["chromium", "firefox", "webkit"])
 @pytest.mark.parametrize("view", ["coding", "audit"])
-@pytest.mark.parametrize("failure", ["duplicate", "server"])
+@pytest.mark.parametrize("failure", ["duplicate", "server", "missing"])
 def test_rejected_rename_keeps_saved_name(tmp_path, browser_name, view, failure):
     sync_api = pytest.importorskip("playwright.sync_api")
     project = tmp_path / "duplicate-rename.ace"
@@ -67,6 +67,15 @@ def test_rejected_rename_keeps_saved_name(tmp_path, browser_name, view, failure)
                         lambda route: route.fulfill(status=500, body="save failed"),
                         times=1,
                     )
+                elif failure == "missing":
+                    page.route(
+                        f"**/api/codes/{first_id}",
+                        lambda route: route.fulfill(
+                            status=404, content_type="application/json",
+                            body='{"detail":"Code no longer exists"}',
+                        ),
+                        times=1,
+                    )
                 rename_input.fill("Beta" if failure == "duplicate" else "Gamma")
                 with page.expect_response(f"**/api/codes/{first_id}") as save:
                     rename_input.press("Enter")
@@ -76,8 +85,22 @@ def test_rejected_rename_keeps_saved_name(tmp_path, browser_name, view, failure)
                         "document.getElementById('ace-statusbar-event')?.textContent"
                         ".includes('An item with that name already exists.')"
                     )
-                else:
+                elif failure == "server":
                     assert save.value.status == 500
+                    page.wait_for_function(
+                        "document.getElementById('ace-notification-receipt')?.textContent "
+                        "=== 'Could not rename item'",
+                        timeout=1000,
+                    )
+                    assert page.locator("#ace-notification-receipt").is_visible()
+                else:
+                    assert save.value.status == 404
+                    page.wait_for_function(
+                        "document.getElementById('ace-notification-receipt')?.textContent "
+                        "=== 'Code no longer exists'",
+                        timeout=1000,
+                    )
+                    assert page.locator("#ace-notification-receipt").is_visible()
                 with sqlite3.connect(project) as stored:
                     assert stored.execute(
                         "SELECT name FROM codebook_code WHERE id = ?", (first_id,)
@@ -88,6 +111,28 @@ def test_rejected_rename_keeps_saved_name(tmp_path, browser_name, view, failure)
                     arg=first_id,
                 )
                 assert row.locator(".ace-ht-label").inner_text() == "Alpha"
+                if failure in {"server", "missing"}:
+                    row.click()
+                    page.keyboard.press("F2")
+                    row.locator("input.ace-ht-rename").fill("Gamma")
+                    with page.expect_response(f"**/api/codes/{first_id}") as retry:
+                        row.locator("input.ace-ht-rename").press("Enter")
+                    assert retry.value.status == 200
+                    page.wait_for_function(
+                        "id => document.querySelector(`.ace-ht-row[data-item-id='${id}']"
+                        " .ace-ht-label`)?.textContent === 'Gamma'",
+                        arg=first_id,
+                    )
+                    receipt = page.locator("#ace-notification-receipt")
+                    page.wait_for_function(
+                        "() => !['Could not rename item', 'Code no longer exists'].includes("
+                        "document.getElementById('ace-notification-receipt')?.textContent)",
+                    )
+                    assert receipt.text_content() != "Could not rename item"
+                    with sqlite3.connect(project) as stored:
+                        assert stored.execute(
+                            "SELECT name FROM codebook_code WHERE id = ?", (first_id,)
+                        ).fetchone()[0] == "Gamma"
             finally:
                 browser.close()
 
