@@ -648,6 +648,11 @@ async def import_codebook(
             audit_reload=bool(imported.code_ids and current_code_id),
             folder_list_changed=bool(imported.created_folder_ids),
             status_html=_oob_status(status, "ok").body.decode(),
+            headers=(
+                {"HX-Retarget": "#code-sidebar"}
+                if _request_codebook_mode(request, explicit=codebook_mode) == "coding"
+                else None
+            ),
         )
 
     # Clean up temp file
