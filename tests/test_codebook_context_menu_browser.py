@@ -265,6 +265,12 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                     page.get_by_role("group", name="Change code colour").get_by_role(
                         "button", name="Set code colour to #0B4F8A"
                     ).click()
+                page.wait_for_function(
+                    "document.getElementById('ace-notification-receipt')?.textContent "
+                    "=== 'Could not change code colour'",
+                    timeout=1000,
+                )
+                assert page.locator("#ace-notification-receipt").is_visible()
                 page.evaluate("""() => {
                     const button = document.createElement('button');
                     button.id = 'focus-sentinel';
@@ -289,6 +295,31 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
 
                 row.click(button="right")
                 menu.get_by_role("menuitem", name="Change colour…").click()
+                page.route(failed_path, lambda route: route.fulfill(status=503, body="failed"), times=1)
+                with page.expect_response(
+                    lambda response: response.url == failed_path and response.status == 503
+                ):
+                    page.get_by_role("group", name="Change code colour").get_by_role(
+                        "button", name="Set code colour to #0B4F8A"
+                    ).click()
+                page.wait_for_function(
+                    "document.getElementById('ace-notification-receipt')?.textContent "
+                    "=== 'Could not change code colour'"
+                )
+                row.click(button="right")
+                menu.get_by_role("menuitem", name="Change colour…").click()
+                with page.expect_response(
+                    lambda response: response.url == failed_path and response.status == 200
+                ):
+                    page.get_by_role("group", name="Change code colour").get_by_role(
+                        "button", name="Set code colour to #0B4F8A"
+                    ).click()
+                page.wait_for_function(
+                    "document.getElementById('ace-notification-receipt')?.textContent === ''"
+                )
+
+                row.click(button="right")
+                menu.get_by_role("menuitem", name="Change colour…").click()
                 page.route(failed_path, lambda route: route.abort(), times=1)
                 with page.expect_event(
                     "requestfailed", predicate=lambda request: request.url == failed_path
@@ -297,8 +328,10 @@ def test_codebook_menu_keyboard_access_and_focus(tmp_path, engine):
                         "button", name="Set code colour to #0B4F8A"
                     ).click()
                 page.wait_for_function(
-                    "document.querySelector('.ace-statusbar-event')?.textContent === 'Could not change code colour'"
+                    "document.getElementById('ace-notification-receipt')?.textContent "
+                    "=== 'Could not change code colour'"
                 )
+                assert page.locator("#ace-notification-receipt").is_visible()
 
                 page.goto(f"{base}/code/{alpha_id}/view")
                 audit_row = page.locator(f'.ace-ht-row[data-code-id="{alpha_id}"]')
