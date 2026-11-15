@@ -15,13 +15,14 @@ from ace.models.source import add_source
 
 @pytest.mark.slow
 @pytest.mark.parametrize("engine", ["chromium", "firefox", "webkit"])
-def test_modified_enter_keeps_code_unapplied(tmp_path, engine):
+def test_codebook_row_and_chip_apply_without_modified_enter(tmp_path, engine):
     sync_api = pytest.importorskip("playwright.sync_api")
     project = tmp_path / "enter.ace"
     conn = create_project(str(project), "Enter modifiers")
     add_source(conn, "S1", "One sentence.", "row")
     coder_id = list_coders(conn)[0]["id"]
     code_id = add_code(conn, "Alpha", "#336699")
+    second_code_id = add_code(conn, "Beta", "#996633")
     folder_id = add_folder(conn, "Group")
     conn.close()
 
@@ -76,6 +77,22 @@ def test_modified_enter_keeps_code_unapplied(tmp_path, engine):
                 with page.expect_response("**/api/code/apply-sentence"):
                     page.keyboard.press("Enter")
                 with sqlite3.connect(project) as stored:
-                    assert stored.execute("SELECT COUNT(*) FROM annotation").fetchone()[0] == 1
+                    active_codes = stored.execute(
+                        "SELECT code_id FROM annotation WHERE deleted_at IS NULL"
+                    ).fetchall()
+                    assert active_codes == [(code_id,)]
+
+                second_chip = page.locator(
+                    f'.ace-ht-row[data-code-id="{second_code_id}"] .ace-ht-chip'
+                )
+                with page.expect_response("**/api/code/apply-sentence"):
+                    second_chip.click()
+                with sqlite3.connect(project) as stored:
+                    active_codes = stored.execute(
+                        "SELECT code_id FROM annotation WHERE deleted_at IS NULL"
+                    ).fetchall()
+                    assert sorted(active_codes) == sorted(
+                        [(code_id,), (second_code_id,)]
+                    )
             finally:
                 browser.close()
