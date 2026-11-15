@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- **Audit codebook menu** — keep unsaved code details when viewing the current code, and ask before discarding them when opening another code.
+
 ## 1.8.0
 
 ### Changes
