@@ -2189,9 +2189,7 @@
         // Let the tree controller capture and restore this row across the swap.
         _closeColourPopover();
         _findCodebookItemRow(codeId)?.focus({ preventScroll: true });
-        _getSidebarTreeController()?.setItemColour(codeId, hex)?.catch(function () {
-          window._setStatus?.("Could not change code colour", "err");
-        });
+        _getSidebarTreeController()?.setItemColour(codeId, hex);
       });
       popover.appendChild(swatch);
     });

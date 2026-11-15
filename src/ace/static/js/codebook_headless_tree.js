@@ -1807,9 +1807,9 @@
     let nextCreateRequestId = 0;
     const pendingCreates = /* @__PURE__ */ new Set();
     let createFailureVisible = false;
-    let nextRenameRequestId = 0;
-    const pendingRenames = /* @__PURE__ */ new Set();
-    let renameFailureVisible = false;
+    let nextFeedbackRequestId = 0;
+    const pendingFeedbackRequests = /* @__PURE__ */ new Map();
+    let visibleMutationError = "";
     const RESERVED_SINGLE_KEYS = /* @__PURE__ */ new Set(["q", "x", "z", "n", "v"]);
     const SINGLE_KEY_LABELS = Array.from("1234567890abcdefghijklmnopqrstuvwxyz").filter(function(label) {
       return !RESERVED_SINGLE_KEYS.has(label);
@@ -2280,19 +2280,40 @@
     });
     document.addEventListener("htmx:afterRequest", function(event) {
       const detail = event.detail;
-      const requestId = detail?.requestConfig?.parameters?._ace_rename_request_id;
-      if (!requestId || !pendingRenames.delete(String(requestId))) return;
+      const requestId = detail?.requestConfig?.parameters?._ace_mutation_feedback_id;
+      const errorMessage = pendingFeedbackRequests.get(String(requestId));
+      if (!errorMessage) return;
+      pendingFeedbackRequests.delete(String(requestId));
       if (!detail.successful) {
         const status = detail.xhr?.status || 0;
-        renameFailureVisible = status === 0 || status >= 500;
-        if (renameFailureVisible) window._setStatus?.("Could not rename item", "err");
-      } else if (renameFailureVisible && !hasOobError(detail.xhr?.responseText)) {
-        renameFailureVisible = false;
-        if (document.getElementById("ace-statusbar-event")?.textContent === "Could not rename item") {
-          window._setStatus?.("", "ok");
-        }
+        if (status === 0 || status >= 500) showMutationError(errorMessage);
+        else if (visibleMutationError === errorMessage) visibleMutationError = "";
+      } else if (!hasOobError(detail.xhr?.responseText)) {
+        clearMutationError(errorMessage);
       }
     });
+    function showMutationError(message) {
+      visibleMutationError = message;
+      window._setStatus?.(message, "err");
+    }
+    function clearMutationError(message) {
+      if (visibleMutationError !== message) return;
+      visibleMutationError = "";
+      if (document.getElementById("ace-statusbar-event")?.textContent === message) {
+        window._setStatus?.("", "ok");
+      }
+    }
+    function mutationWithFeedback(method, url, values, errorMessage) {
+      const requestId = String(++nextFeedbackRequestId);
+      pendingFeedbackRequests.set(requestId, errorMessage);
+      return htmxSwap(method, url, {
+        ...values,
+        _ace_mutation_feedback_id: requestId
+      }).catch(function() {
+        if (!pendingFeedbackRequests.delete(requestId)) return;
+        showMutationError(errorMessage);
+      });
+    }
     function maybeShowChordHint() {
       if (chordHintShown || !isCodingMode() || !document.getElementById("text-panel")) return;
       if (!Object.values(items).some((item) => item.kind === "code" && item.chord)) return;
@@ -2566,17 +2587,10 @@
       if (denyCodebookEditing(true)) return;
       const next = name.trim();
       if (!next || next === item.getItemData().name) return;
-      const requestId = String(++nextRenameRequestId);
-      pendingRenames.add(requestId);
-      htmxSwap("PUT", `/api/codes/${item.getId()}`, {
+      mutationWithFeedback("PUT", `/api/codes/${item.getId()}`, {
         name: next,
-        current_index: currentIndex(),
-        _ace_rename_request_id: requestId
-      }).catch(function() {
-        if (!pendingRenames.delete(requestId)) return;
-        renameFailureVisible = true;
-        window._setStatus?.("Could not rename item", "err");
-      });
+        current_index: currentIndex()
+      }, "Could not rename item");
     }
     function deleteItem(item) {
       if (item.getId() === ROOT_ID) return;
@@ -3359,10 +3373,10 @@
       }
       function setItemColour(itemId, colour) {
         if (!itemId || codebookEditingDisabled()) return;
-        return htmxSwap("PUT", `/api/codes/${itemId}`, {
+        return mutationWithFeedback("PUT", `/api/codes/${itemId}`, {
           colour,
           current_index: currentIndex()
-        });
+        }, "Could not change code colour");
       }
       function convertItemToFolder(itemId) {
         if (!itemId || codebookEditingDisabled()) return;
