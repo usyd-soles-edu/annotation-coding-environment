@@ -102,6 +102,9 @@ def test_import_dialog_maps_colour_column(tmp_path, engine, import_case):
                     page.locator("#codebook-import-commit").click()
                     assert page.locator(".ace-codebook-import-dialog").is_visible()
                     assert not any(request.url.endswith("/api/codes/import") for request in requests)
+                    assert page.locator("#ace-statusbar-event").inner_text() == (
+                        "Wait for source navigation to finish"
+                    )
                     page.evaluate("delete document.body.dataset.aceNavigating")
                 with page.expect_response("**/api/codes/import") as imported:
                     page.locator("#codebook-import-commit").click()

@@ -2284,9 +2284,13 @@
     function codeApplicationDisabled() {
       return modePolicy().enterOnCode !== "apply";
     }
+    function editingDeniedMessage() {
+      if (!codebookEditingDisabled()) return null;
+      return document.body.dataset.aceNavigating === "1" ? "Wait for source navigation to finish" : "Back to source to edit the codebook";
+    }
     function denyCodebookEditing(showGlobalStatus = false) {
-      if (!codebookEditingDisabled()) return false;
-      const message = document.body.dataset.aceNavigating === "1" ? "Wait for source navigation to finish" : "Back to source to edit the codebook";
+      const message = editingDeniedMessage();
+      if (!message) return false;
       setStatus(message);
       if (showGlobalStatus) window._setStatus?.(message, "ok");
       return true;
@@ -3409,6 +3413,7 @@
         isAuditMode,
         isReadonlyMode,
         editingDisabled: codebookEditingDisabled,
+        editingDeniedMessage,
         getTreeItems,
         focusTreeZone,
         focusTreeItem,
