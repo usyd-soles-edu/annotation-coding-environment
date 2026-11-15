@@ -504,64 +504,6 @@ body[data-ace-other-codebook-tab="1"] .ace-codebook-tab-warning {
   background: var(--ace-bg);
 }
 
-.ace-code-row {
-  --indent: 0px;
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 28px 32px;
-  column-gap: 8px;
-  align-items: center;
-  height: 24px;
-  /* padding-left = stripe-left (8) + stripe-width (4) + 10px gutter = 22, plus indent. */
-  padding: 0 14px 0 calc(22px + var(--indent));
-  font-size: var(--ace-font-size-2xs);
-  color: var(--ace-text);
-  cursor: pointer;
-  transition: background var(--ace-transition);
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.ace-code-row * {
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-/* Pill stripe — shorter than the row so adjacent stripes read as discrete pills. */
-.ace-code-row::before {
-  content: "";
-  position: absolute;
-  left: calc(8px + var(--indent));
-  top: 5px;
-  bottom: 5px;
-  width: 4px;
-  background: var(--row-colour, transparent);
-  border-radius: 1px;
-  transition: width 120ms;
-}
-
-.ace-code-row:hover {
-  background: var(--ace-bg-muted);
-}
-
-.ace-code-row:hover::before {
-  width: 5px;
-}
-
-.ace-folder-block:has(> [role="group"] [role="treeitem"][tabindex="0"]) > .ace-code-folder-row {
-  background: #f4f4f0;
-  box-shadow: inset 3px 0 0 #8d8d86;
-}
-
-.ace-folder-block:has(> [role="group"] [role="treeitem"][tabindex="0"]) > .ace-code-folder-row .ace-folder-label {
-  font-weight: var(--ace-weight-semibold);
-}
-
-.ace-folder-block:has(> [role="group"] [role="treeitem"][tabindex="0"]) > [role="group"]::before {
-  background: #8d8d86;
-}
-
-.ace-code-row.ace-code-row--flash,
 .ace-ht-row.ace-code-row--flash {
   background: var(--ace-bg-muted);
   transition: none;
@@ -571,138 +513,12 @@ body[data-ace-other-codebook-tab="1"] .ace-codebook-tab-warning {
   opacity: 0.4;
 }
 
-.ace-codebook-sort-placeholder {
-  visibility: hidden;
-}
-
-.ace-folder-block.ace-codebook-sort-placeholder > [role="group"] {
-  display: none;
-}
-
-.ace-codebook-drag-clone {
-  opacity: 0.28 !important;
-  box-shadow: none !important;
-  pointer-events: none;
-}
-
-.ace-codebook-drag-clone[role="treeitem"],
-.ace-codebook-drag-clone .ace-code-folder-row {
-  background: transparent !important;
-}
-
-.ace-codebook-drag-clone .ace-code-count,
-.ace-codebook-drag-clone .ace-code-chip,
-.ace-codebook-drag-clone [role="group"] {
-  display: none !important;
-}
-
-/* Focused treeitem — bold persists via the roving tabindex marker so it
-   survives DOM focus moving to the source panel. */
-.ace-code-row[tabindex="0"] .ace-code-name {
-  font-weight: 600;
-}
-
 /* Reorder-in-progress (dashed outline) */
 .ace-code-row--reordering {
   outline: 2px dashed var(--ace-focus);
   outline-offset: -2px;
   background: rgba(59, 130, 246, 0.08);
   border-radius: var(--ace-radius);
-}
-
-.ace-code-row--search-target {
-  background: var(--ace-bg-muted);
-}
-
-.ace-code-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;  /* needed inside grid 1fr column for ellipsis to engage */
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-/* Per-code annotation count, sits between the name and the keycap.
-   Mono 11px is a documented sub-13px exception for supporting labels
-   (matches the .ace-hint precedent — visual hierarchy via uppercase /
-   monospace / right-align, not colour). */
-.ace-code-count {
-  grid-column: 2;
-  font-family: var(--ace-font-mono);
-  font-size: 11px;
-  color: var(--ace-text-muted);
-  text-align: right;
-  user-select: none;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Only render the × suffix when the cell has content. Empty cells (count == 0)
-   stay in the grid track at column 2 — chip in column 3 stays aligned. */
-.ace-code-count:not(:empty)::after {
-  content: "×";
-  margin-left: 1px;
-  opacity: 0.5;
-}
-
-.ace-code-name[contenteditable="true"] {
-  outline: 1px solid var(--ace-focus);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: clip;
-  text-overflow: clip;
-  padding: 0 2px;
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-/* ============================================================
-   Code chips — single class, two modifiers (chord, key).
-   Same surface for both modifiers; chord chips get a ; prefix
-   via ::before so they read distinctly at rest.
-   ============================================================ */
-
-.ace-code-chip {
-  grid-column: 3;
-  justify-self: end;
-  height: 16px;
-  min-width: 22px;
-  padding: 1px 6px;
-  background: #f4f4f0;
-  border-radius: var(--ace-radius);
-  font-family: var(--ace-font-mono);
-  font-size: 11px;
-  color: var(--ace-text-muted);
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  user-select: none;
-  cursor: pointer;
-  transition: background var(--ace-transition), color var(--ace-transition);
-}
-
-.ace-code-chip--chord::before {
-  content: ";";
-  opacity: 0.4;
-  font-weight: 400;
-  margin-right: 1px;
-}
-
-/* Out-of-range positions: _updateKeycaps leaves the chip empty.
-   Collapse it out of layout so the row reads cleanly. */
-.ace-code-chip--key:empty {
-  display: none;
-}
-
-.ace-code-row:hover .ace-code-chip {
-  background: #ecead7;
-  color: var(--ace-text);
-}
-.ace-code-row:hover .ace-code-chip--chord::before {
-  opacity: 0.55;
 }
 
 /* ---- Headless Tree codebook ---- */
@@ -791,12 +607,10 @@ body[data-ace-other-codebook-tab="1"] .ace-codebook-tab-warning {
   background: var(--ace-bg-muted);
 }
 
-.ace-code-row--cue,
 .ace-ht-row--cue {
   background: rgba(0, 0, 0, 0.035);
 }
 
-.ace-code-row--cue::after,
 .ace-ht-row--cue::after {
   content: "";
   position: absolute;
@@ -809,32 +623,19 @@ body[data-ace-other-codebook-tab="1"] .ace-codebook-tab-warning {
   pointer-events: none;
 }
 
-.ace-code-row--cue:hover,
 .ace-ht-row--cue:hover,
-.ace-code-row--flash.ace-code-row--cue,
-.ace-ht-row.ace-code-row--flash.ace-ht-row--cue,
-.ace-code-row--search-target.ace-code-row--cue,
-.ace-ht-row--search-target.ace-ht-row--cue {
+.ace-ht-row.ace-code-row--flash.ace-ht-row--cue {
   background: var(--ace-bg-muted);
 }
 
-.ace-code-row--reordering.ace-code-row--cue,
 .ace-ht-row.ace-code-row--reordering.ace-ht-row--cue {
   background: rgba(59, 130, 246, 0.08);
 }
 
-body[data-active-zone="codebook"] .ace-code-row[tabindex="0"].ace-code-row--cue::after,
 body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"].ace-ht-row--cue::after,
-.ace-code-row--cue:hover::after,
 .ace-ht-row--cue:hover::after,
-.ace-code-row--ghost.ace-code-row--cue::after,
-.ace-ht-row--ghost.ace-ht-row--cue::after,
-.ace-code-row--reordering.ace-code-row--cue::after,
 .ace-ht-row.ace-code-row--reordering.ace-ht-row--cue::after,
-.ace-code-row--flash.ace-code-row--cue::after,
-.ace-ht-row.ace-code-row--flash.ace-ht-row--cue::after,
-.ace-code-row--search-target.ace-code-row--cue::after,
-.ace-ht-row--search-target.ace-ht-row--cue::after {
+.ace-ht-row.ace-code-row--flash.ace-ht-row--cue::after {
   opacity: 0;
 }
 
@@ -1080,33 +881,7 @@ body[data-active-zone="codebook"] .ace-ht-row[tabindex="0"] .ace-ht-label,
   pointer-events: none;
 }
 
-/* Chord-mode visuals (carried over from .ace-keycap--chord rules with
-   the selectors and the ;-prefix recolour added). */
-body[data-chord-mode] .ace-code-chip--chord {
-  background: linear-gradient(#fbede0, #fde2c7);
-  border: 1px solid #d55e00;
-  color: #d55e00;
-}
-body[data-chord-mode] .ace-code-chip--chord::before {
-  color: #d55e00;
-  opacity: 0.5;
-}
-body[data-chord-mode] .ace-code-chip--key {
-  opacity: 0.22;
-  filter: grayscale(1);
-}
-body[data-chord-mode] .ace-code-row:not(:has(.ace-code-chip--chord)) {
-  opacity: 0.5;
-}
-body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match) {
-  opacity: 0.5;
-  background: #f4f4f0;
-  border-color: transparent;
-  color: var(--ace-text-muted);
-}
-body[data-chord-buffer] .ace-code-chip--chord:not(.ace-chord-match)::before {
-  color: var(--ace-text-muted);
-}
+/* Chord-mode visuals for the current headless codebook chips. */
 body[data-chord-mode] .ace-ht-chip--chord {
   background: #e8e8e4;
   color: var(--ace-text);
@@ -1119,7 +894,7 @@ body[data-chord-buffer] .ace-ht-chip--chord:not(.ace-chord-match) {
 }
 
 /* ---- Hotkey hints ---- */
-/* Smaller sibling of .ace-code-chip. Always visible on search + sources header,
+/* Always visible on search + sources header,
  * hover/focus-revealed on flag/note buttons. */
 .ace-hint {
   display: inline-flex;
@@ -2980,57 +2755,11 @@ html[data-ace-grid-collapsed="1"] .ace-sidebar-grid {
    2 px ring (not 1.5 px) because the audit found 1.5 px is borderline
    for low-vision users; 2 px clears WCAG AA non-text at the slate hue. */
 
-/* Selected-row treatment: high-contrast slate-on-white inversion.
-   Loudest signal in the sidebar — never lose your place during arrow
-   navigation. Gates on active-zone so it doesn't compete with the
-   source panel's own focus marker when zone is "source".
-
-   `:has(#text-panel)` scopes the inversion to the coding page only.
-   The audit page (/code/{id}/view) shares the codebook sidebar template
-   and bridge.js still flips `data-active-zone="codebook"` on focusin
-   there, but the audit page has its own .ace-code-row--current rule
-   whose `#code-sidebar` ID specificity wins for the row bg — leaving
-   white name text from the inversion on top of a grey row bg. The
-   audit page has no #text-panel, so this scope keeps the inversion off. */
-body[data-active-zone="codebook"]:has(#text-panel) .ace-code-row[tabindex="0"] {
-  background: #1a1d27;
-  color: #fff;
-  box-shadow: none;
-}
-body[data-active-zone="codebook"]:has(#text-panel) .ace-code-row[tabindex="0"] .ace-code-name {
-  font-weight: 600;
-  color: #fff;
-}
-body[data-active-zone="codebook"]:has(#text-panel) .ace-code-row[tabindex="0"] .ace-code-count {
-  color: rgba(255, 255, 255, 0.7);
-}
-body[data-active-zone="codebook"]:has(#text-panel) .ace-code-row[tabindex="0"] .ace-code-chip {
-  background: rgba(255, 255, 255, 0.16);
-  color: rgba(255, 255, 255, 0.9);
-}
-body[data-active-zone="codebook"]:has(#text-panel) .ace-code-row[tabindex="0"] .ace-code-chip--chord::before {
-  color: rgba(255, 255, 255, 0.5);
-}
-
-/* When a row is both focused (inverted) and ghosted (cut), ghost wins —
-   explicitly reset the inversion so a cut+focused row reads as faded
-   transparent, not faded slate-inverted. Cascade order > specificity:
-   these rules come after the inverted treatment above. */
+/* Unfocused cut rows keep a neutral background; opacity marks either state. */
 .ace-code-row--ghost {
   background: transparent;
   color: var(--ace-text);
 }
-.ace-code-folder-row.ace-code-row--ghost {
-  opacity: 0.45;
-  background: transparent;
-}
-.ace-code-row--ghost .ace-code-name { color: var(--ace-text); }
-.ace-code-row--ghost .ace-code-count { color: var(--ace-text-muted); }
-.ace-code-row--ghost .ace-code-chip {
-  background: #f4f4f0;
-  color: var(--ace-text-muted);
-}
-.ace-code-row--ghost .ace-code-chip--chord::before { color: var(--ace-text-muted); }
 
 /* Dimmed sentence underline — 50 % alpha at 1.5 px. Original draft used
    35 % @ 1 px which the audit flagged as below WCAG AA (1.4 : 1). */
@@ -3042,80 +2771,11 @@ body[data-active-zone="codebook"] .ace-sentence--focused {
    (underline 2px var(--ace-focus)). It applies in the source-active state
    by default — no extra rule needed. */
 
-/* ─── Folder rows ──────────────────────────────────────────────────── */
-
-.ace-code-folder-row {
-  --indent: 0px;
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: var(--ace-space-1);
-  padding: 6px 12px 6px calc(8px + var(--indent));
-  cursor: default;
-  user-select: none;
-  border-left: 2px solid transparent;
-}
-
-.ace-code-folder-row:hover {
-  background: var(--ace-bg-muted);
-}
-
-.ace-code-folder-row .ace-folder-toggle {
-  width: 14px;
-  height: 14px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ace-text-muted);
-  flex-shrink: 0;
-  transition: transform var(--ace-transition);
-}
-
-.ace-code-folder-row[aria-expanded="false"] .ace-folder-toggle {
-  transform: rotate(-90deg);
-}
-
-.ace-code-folder-row[aria-expanded="false"] + [role="group"] {
-  display: none;
-}
-
-.ace-code-folder-row .ace-folder-label {
-  flex: 1;
-  font-size: var(--ace-font-size-2xs);
-  font-weight: var(--ace-weight-semibold);
-  line-height: 1.25;
-  text-transform: none;
-  letter-spacing: 0;
-  color: var(--ace-text);
-  user-select: none;
-  -webkit-user-select: none;
-}
-
-.ace-code-folder-row .ace-folder-label[contenteditable="true"] {
-  user-select: text;
-  -webkit-user-select: text;
-}
-
-body[data-active-zone="codebook"]:has(#text-panel) .ace-code-folder-row[tabindex="0"] {
-  background: rgba(84, 110, 122, 0.08);
-  box-shadow: inset 0 0 0 2px var(--ace-focus);
-}
-
-/* The focused tree-item ring is drawn by the inset box-shadow above; the
-   global :focus-visible outline (2px solid + 2px offset) would otherwise
-   stack a second ring 2px outside, showing as horizontal bars top and
-   bottom of the row. Suppress it for treeitems in both zones. */
-.ace-code-folder-row:focus,
-.ace-code-folder-row:focus-visible,
-.ace-code-row:focus,
-.ace-code-row:focus-visible,
+/* The headless tree draws its own keyboard cursor inside the row. */
 .ace-ht-row:focus,
 .ace-ht-row:focus-visible {
   outline: none;
 }
-
-/* Nested folders use per-row --indent from the renderer so folder labels and
-   code colour stripes step together at each level. */
 
 /* ─── Sidebar legend (mirrors .ace-legend on the source side) ─────── */
 
