@@ -80,6 +80,41 @@ def test_editing_denied_during_source_navigation(tmp_path, engine):
                 page.evaluate("document.body.dataset.aceNavigating = '1'")
                 page.keyboard.press("F2")
                 assert row.locator(".ace-ht-rename").count() == 0
+
+                # A double-click queues a rename for the next timer tick.
+                # Navigation can start after the click but before that tick.
+                page.evaluate("delete document.body.dataset.aceNavigating")
+                page.keyboard.press("Escape")
+                assert not page.evaluate(
+                    "Boolean(window.__aceHeadlessTreePreview.tree.getState().dnd)"
+                )
+                page.evaluate(
+                    "document.querySelector('[data-headless-tree-status]').textContent = ''"
+                )
+                page.evaluate("""id => {
+                    const label = document.querySelector(
+                        `.ace-ht-row[data-code-id='${id}'] .ace-ht-label`
+                    );
+                    label.dispatchEvent(new MouseEvent('dblclick', {
+                        bubbles: true, detail: 2,
+                    }));
+                    document.body.dataset.aceNavigating = '1';
+                }""", code_id)
+                page.wait_for_function("""() =>
+                    document.querySelector('[data-headless-tree-status]')?.textContent
+                    === 'Wait for source navigation to finish'
+                """)
+                assert row.locator(".ace-ht-rename").count() == 0
+
+                # A failed navigation can leave this same row mounted. A
+                # later double-click must still be able to start renaming.
+                page.evaluate("delete document.body.dataset.aceNavigating")
+                page.evaluate("""id => document.querySelector(
+                    `.ace-ht-row[data-code-id='${id}'] .ace-ht-label`
+                ).dispatchEvent(new MouseEvent('dblclick', {
+                    bubbles: true, detail: 2,
+                }))""", code_id)
+                row.locator(".ace-ht-rename").wait_for(state="visible", timeout=1000)
                 with sqlite3.connect(project) as stored:
                     assert stored.execute(
                         "SELECT deleted_at FROM codebook_code WHERE id = ?", (code_id,)
